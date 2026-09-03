@@ -2,79 +2,87 @@
   "name": "Quote",
   "type": "object",
   "properties": {
-    "customer_id": {
-      "type": "string"
-    },
-    "unit_id": {
-      "type": "string",
-      "description": "ID da unidade respons\u00e1vel pelo or\u00e7amento"
-    },
+    "customer_id": { "type": "string" },
+    "unit_id": { "type": "string", "description": "Unidade responsável pelo orçamento" },
     "status": {
       "type": "string",
-      "enum": [
-        "DRAFT",
-        "HUMAN_REVIEW",
-        "APPROVED",
-        "SENT",
-        "EXPIRED",
-        "ACCEPTED",
-        "REJECTED"
-      ],
+      "enum": ["DRAFT", "HUMAN_REVIEW", "APPROVED", "SENT", "EXPIRED", "ACCEPTED", "REJECTED", "CANCELLED"],
       "default": "DRAFT"
+    },
+    "origin": {
+      "type": "string",
+      "enum": ["management_manual", "management_vision", "counter", "whatsapp", "customer_portal", "import"],
+      "default": "management_manual"
     },
     "items": {
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "garment_type": {
-            "type": "string"
+          "line_id": { "type": "string" },
+          "product_id": { "type": "string" },
+          "garment_type": { "type": "string" },
+          "qty": { "type": "number" },
+          "unit_price": { "type": "number" },
+          "subtotal": { "type": "number" },
+          "discount_amount": { "type": "number", "default": 0 },
+          "additional_amount": { "type": "number", "default": 0 },
+          "total_amount": { "type": "number" },
+          "confidence": { "type": "number" },
+          "recognition_status": {
+            "type": "string",
+            "enum": ["manual", "suggested", "confirmed", "rejected"],
+            "default": "manual"
           },
-          "qty": {
-            "type": "number"
-          },
-          "unit_price": {
-            "type": "number"
-          },
-          "confidence": {
-            "type": "number"
-          },
-          "image_ids": {
-            "type": "array",
-            "items": {
-              "type": "string"
+          "image_ids": { "type": "array", "items": { "type": "string" } },
+          "document_asset_ids": { "type": "array", "items": { "type": "string" } },
+          "image_url": { "type": "string", "description": "Campo legado mantido para compatibilidade" },
+          "attributes": {
+            "type": "object",
+            "properties": {
+              "color": { "type": "string" },
+              "brand": { "type": "string" },
+              "pattern": { "type": "string" },
+              "size": { "type": "string" },
+              "material": { "type": "string" },
+              "width_cm": { "type": "number" },
+              "height_cm": { "type": "number" }
             }
           },
-          "image_url": {
-            "type": "string"
+          "damages": { "type": "array", "items": { "type": "string" } },
+          "risk_tags": { "type": "array", "items": { "type": "string" } },
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "service_id": { "type": "string" },
+                "name": { "type": "string" },
+                "unit_price": { "type": "number" },
+                "quantity": { "type": "number", "default": 1 }
+              }
+            }
           },
-          "notes": {
-            "type": "string"
-          }
+          "notes": { "type": "string" },
+          "review_reason": { "type": "string" }
         }
       }
     },
-    "subtotal": {
-      "type": "number"
-    },
-    "discount": {
-      "type": "number"
-    },
-    "addition": {
-      "type": "number"
-    },
-    "total": {
-      "type": "number"
-    },
-    "human_adjustments": {
-      "type": "string"
-    },
-    "review_deadline_at": {
-      "type": "string",
-      "format": "date-time"
-    }
+    "subtotal": { "type": "number" },
+    "discount": { "type": "number" },
+    "addition": { "type": "number" },
+    "total": { "type": "number" },
+    "catalog_version": { "type": "string" },
+    "valid_until": { "type": "string", "format": "date-time" },
+    "customer_message": { "type": "string" },
+    "human_adjustments": { "type": "string" },
+    "review_deadline_at": { "type": "string", "format": "date-time" },
+    "reviewed_at": { "type": "string", "format": "date-time" },
+    "reviewed_by_user_id": { "type": "string" },
+    "accepted_at": { "type": "string", "format": "date-time" },
+    "rejected_at": { "type": "string", "format": "date-time" },
+    "rejection_reason": { "type": "string" },
+    "metadata": { "type": "object", "additionalProperties": true }
   },
-  "required": [
-    "customer_id"
-  ]
+  "required": ["customer_id"]
 }

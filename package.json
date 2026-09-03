@@ -9,6 +9,7 @@
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
+    "validate:evolution": "python3 scripts/validate-laundry-evolution.py",
     "preview": "vite preview"
   },
   "dependencies": {

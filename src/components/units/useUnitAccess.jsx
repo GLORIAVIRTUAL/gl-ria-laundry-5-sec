@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { base44 } from '@/api/base44Client';
+import { getAllowedUnitIds, hasPermission } from '@/lib/accessControl';
 
 export const PRESET_UNITS = [
   { name: 'Loja Rio Branco', subdomain: 'riobranco' },
@@ -49,41 +50,35 @@ export default function useUnitAccess() {
   const loadAccess = async (forceRefresh = false) => {
     setLoading(true);
     try {
-      // Cache user for 5 minutes in sessionStorage to avoid hammering auth.me() on every page mount
       let currentUser = null;
       const cachedUserRaw = sessionStorage.getItem('cachedUser');
       if (!forceRefresh && cachedUserRaw) {
         try {
           const parsed = JSON.parse(cachedUserRaw);
-          if (parsed && Date.now() - parsed.t < 5 * 60 * 1000) {
-            currentUser = parsed.u;
-          }
-        } catch (_) { /* ignore */ }
+          if (parsed && Date.now() - parsed.t < 5 * 60 * 1000) currentUser = parsed.u;
+        } catch (_) { /* cache inválido é ignorado */ }
       }
+
       if (!currentUser) {
         currentUser = await base44.auth.me();
         sessionStorage.setItem('cachedUser', JSON.stringify({ u: currentUser, t: Date.now() }));
       }
       setUser(currentUser);
 
-      // Cache units list for 5 minutes — avoids 429 rate limit on get_all_units
       let unitsList = [];
       const cachedUnitsRaw = sessionStorage.getItem('cachedUnits');
       if (!forceRefresh && cachedUnitsRaw) {
         try {
           const parsed = JSON.parse(cachedUnitsRaw);
-          if (parsed && Array.isArray(parsed.list) && Date.now() - parsed.t < 5 * 60 * 1000) {
-            unitsList = parsed.list;
-          }
-        } catch (_) { /* ignore */ }
+          if (parsed && Array.isArray(parsed.list) && Date.now() - parsed.t < 5 * 60 * 1000) unitsList = parsed.list;
+        } catch (_) { /* cache inválido é ignorado */ }
       }
 
       if (unitsList.length === 0) {
         try {
           unitsList = await base44.entities.Unit.list('name', 100);
-        } catch (e) {
-          // Network/rate-limit error — use empty list, do NOT throw
-          console.warn('Failed to load units, using empty list', e);
+        } catch (error) {
+          console.warn('Não foi possível carregar unidades.', error);
           unitsList = [];
         }
         if (unitsList.length > 0) {
@@ -93,13 +88,21 @@ export default function useUnitAccess() {
 
       setUnits(unitsList);
 
-      const savedPrimaryUnitId = getPrimaryUnitId(currentUser);
-      const savedPrimaryUnit = unitsList.find((unit) => unit.id === savedPrimaryUnitId) || null;
-      const fallbackUnit = savedPrimaryUnit || unitsList[0] || unitsList.find(isRioBrancoUnit) || null;
+      const isAdminUser = ['super_admin', 'admin'].includes(currentUser?.role);
+      const allowedUnitIds = getAllowedUnitIds(currentUser);
+      const allowedUnits = allowedUnitIds.includes('*')
+        ? unitsList
+        : unitsList.filter((unit) => allowedUnitIds.includes(unit.id));
+      const effectiveUnits = allowedUnits.length > 0 ? allowedUnits : unitsList.filter((unit) => unit.id === getPrimaryUnitId(currentUser));
+      const savedPrimaryUnit = effectiveUnits.find((unit) => unit.id === getPrimaryUnitId(currentUser)) || null;
+      const fallbackUnit = savedPrimaryUnit || effectiveUnits[0] || unitsList.find(isRioBrancoUnit) || unitsList[0] || null;
       const primaryUnitId = fallbackUnit?.id || '';
-      const isAdmin = currentUser?.role === 'admin';
 
-      setSelectedUnitId((currentValue) => currentValue || (isAdmin ? 'all' : primaryUnitId));
+      setSelectedUnitId((currentValue) => {
+        if (isAdminUser && (!currentValue || currentValue === 'all')) return 'all';
+        if (currentValue && effectiveUnits.some((unit) => unit.id === currentValue)) return currentValue;
+        return primaryUnitId;
+      });
     } catch (error) {
       console.error('Erro ao carregar acesso por unidade:', error);
     } finally {
@@ -111,16 +114,21 @@ export default function useUnitAccess() {
     loadAccess();
   }, []);
 
-  const defaultUnitId = useMemo(() => {
-    const savedPrimaryUnitId = getPrimaryUnitId(user);
-    const savedPrimaryUnit = units.find((unit) => unit.id === savedPrimaryUnitId) || null;
-    const fallbackUnit = savedPrimaryUnit || units[0] || units.find(isRioBrancoUnit) || null;
-    return fallbackUnit?.id || '';
+  const isAdmin = ['super_admin', 'admin'].includes(user?.role);
+  const canViewAllUnits = isAdmin || hasPermission(user, 'units.view_all');
+
+  const accessibleUnits = useMemo(() => {
+    const allowed = getAllowedUnitIds(user);
+    if (allowed.includes('*')) return units;
+    const filtered = units.filter((unit) => allowed.includes(unit.id));
+    return filtered.length > 0 ? filtered : units.filter((unit) => unit.id === getPrimaryUnitId(user));
   }, [units, user]);
 
-  const isAdmin = user?.role === 'admin';
-  // All users can see all units for filtering purposes
-  const accessibleUnits = units;
+  const defaultUnitId = useMemo(() => {
+    const savedPrimaryUnit = accessibleUnits.find((unit) => unit.id === getPrimaryUnitId(user)) || null;
+    const fallbackUnit = savedPrimaryUnit || accessibleUnits[0] || null;
+    return fallbackUnit?.id || '';
+  }, [accessibleUnits, user]);
 
   const selectedUnit = units.find((unit) => unit.id === selectedUnitId) || null;
 
@@ -129,6 +137,7 @@ export default function useUnitAccess() {
     units,
     accessibleUnits,
     isAdmin,
+    canViewAllUnits,
     selectedUnit,
     selectedUnitId,
     setSelectedUnitId,

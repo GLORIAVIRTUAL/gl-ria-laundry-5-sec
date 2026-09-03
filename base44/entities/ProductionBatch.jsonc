@@ -1,0 +1,26 @@
+{
+  "name": "ProductionBatch",
+  "type": "object",
+  "properties": {
+    "unit_id": { "type": "string" },
+    "code": { "type": "string" },
+    "stage": { "type": "string", "enum": ["washing", "drying", "dry_cleaning", "ironing", "finishing", "quality_control", "packaging"] },
+    "status": { "type": "string", "enum": ["draft", "queued", "processing", "paused", "completed", "cancelled"], "default": "draft" },
+    "machine_id": { "type": "string" },
+    "location_id": { "type": "string" },
+    "garment_item_ids": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "total_weight_kg": { "type": "number" },
+    "capacity_percent": { "type": "number" },
+    "recipe_id": { "type": "string" },
+    "priority": { "type": "string", "enum": ["normal", "high", "urgent"], "default": "normal" },
+    "operator_user_id": { "type": "string" },
+    "scheduled_at": { "type": "string", "format": "date-time" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "estimated_minutes": { "type": "number" },
+    "actual_minutes": { "type": "number" },
+    "notes": { "type": "string" },
+    "request_id": { "type": "string" }
+  },
+  "required": ["unit_id", "code", "stage", "status"]
+}

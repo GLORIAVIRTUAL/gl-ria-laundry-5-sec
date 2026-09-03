@@ -1,0 +1,21 @@
+{
+  "name": "PriceRule",
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "unit_id": { "type": "string" },
+    "product_id": { "type": "string" },
+    "service_id": { "type": "string" },
+    "customer_group": { "type": "string" },
+    "priority": { "type": "string", "enum": ["normal", "high", "urgent"] },
+    "base_price": { "type": "number" },
+    "additional_percent": { "type": "number", "default": 0 },
+    "additional_amount": { "type": "number", "default": 0 },
+    "minimum_price": { "type": "number" },
+    "valid_from": { "type": "string", "format": "date-time" },
+    "valid_until": { "type": "string", "format": "date-time" },
+    "version": { "type": "string", "default": "1" },
+    "active": { "type": "boolean", "default": true }
+  },
+  "required": ["name", "base_price", "version"]
+}

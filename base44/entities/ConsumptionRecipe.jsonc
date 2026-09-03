@@ -1,0 +1,29 @@
+{
+  "name": "ConsumptionRecipe",
+  "type": "object",
+  "properties": {
+    "unit_id": { "type": "string" },
+    "name": { "type": "string" },
+    "service_id": { "type": "string" },
+    "product_id": { "type": "string" },
+    "machine_type": { "type": "string" },
+    "basis": { "type": "string", "enum": ["per_piece", "per_kg", "per_cycle", "per_square_meter"], "default": "per_piece" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stock_item_id": { "type": "string" },
+          "quantity": { "type": "number" },
+          "unit": { "type": "string" }
+        }
+      },
+      "default": []
+    },
+    "version": { "type": "string", "default": "1" },
+    "active": { "type": "boolean", "default": true },
+    "valid_from": { "type": "string", "format": "date-time" },
+    "valid_until": { "type": "string", "format": "date-time" }
+  },
+  "required": ["name", "basis", "version"]
+}
