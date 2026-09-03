@@ -1,0 +1,19 @@
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
+
+Deno.serve(async (req) => {
+    try {
+        const files = [];
+        for await (const dirEntry of Deno.readDir('./pages')) {
+            files.push('pages/' + dirEntry.name);
+        }
+        for await (const dirEntry of Deno.readDir('./functions')) {
+            files.push('functions/' + dirEntry.name);
+        }
+        for await (const dirEntry of Deno.readDir('./components')) {
+            files.push('components/' + dirEntry.name);
+        }
+        return Response.json({ files });
+    } catch (error) {
+        return Response.json({ error: error.message }, { status: 500 });
+    }
+});

@@ -1,0 +1,79 @@
+{
+  "name": "Pickup",
+  "type": "object",
+  "properties": {
+    "customer_id": {
+      "type": "string",
+      "description": "ID do cliente"
+    },
+    "scheduled_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Data e hora da coleta"
+    },
+    "created_by_name": {
+      "type": "string",
+      "description": "Nome de quem inseriu o agendamento no sistema"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "scheduled",
+        "completed",
+        "cancelled",
+        "missed"
+      ],
+      "default": "scheduled"
+    },
+    "address": {
+      "type": "string",
+      "description": "Endere\u00e7o da coleta"
+    },
+    "neighborhood": {
+      "type": "string",
+      "description": "Bairro da coleta"
+    },
+    "fee": {
+      "type": "number",
+      "default": 0,
+      "description": "Taxa de coleta (0 = gr\u00e1tis)"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Observa\u00e7\u00f5es sobre a coleta"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "human",
+        "ai"
+      ],
+      "default": "human",
+      "description": "Quem realizou o agendamento"
+    },
+    "priority": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indica se a coleta \u00e9 priorit\u00e1ria"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "regular",
+        "fixed",
+        "extra"
+      ],
+      "default": "regular",
+      "description": "Tipo de coleta (normal, fixa ou encaixe)"
+    },
+    "ticket_generated": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indica se o ticket/or\u00e7amento j\u00e1 foi gerado para esta coleta"
+    }
+  },
+  "required": [
+    "customer_id",
+    "scheduled_at"
+  ]
+}

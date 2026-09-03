@@ -1,0 +1,47 @@
+{
+  "name": "Product",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the service/garment, e.g., 'Camisa Social'"
+    },
+    "description": {
+      "type": "string",
+      "description": "Marketing description or benefit"
+    },
+    "family": {
+      "type": "string",
+      "description": "Family group of the item, e.g., 'Cama', 'Mesa', 'Banho', 'Roupas', 'Tratamentos', 'Planos', 'Bags'"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "Limpeza",
+        "Passadoria",
+        "Costura",
+        "Outros",
+        "Especial",
+        "Planos",
+        "Bags"
+      ],
+      "default": "Limpeza"
+    },
+    "price": {
+      "type": "number",
+      "description": "Unit price in BRL"
+    },
+    "active": {
+      "type": "boolean",
+      "default": true
+    },
+    "image_url": {
+      "type": "string",
+      "description": "Icon or image of the garment"
+    }
+  },
+  "required": [
+    "name",
+    "price"
+  ]
+}

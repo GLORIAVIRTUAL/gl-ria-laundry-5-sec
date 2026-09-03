@@ -1,0 +1,58 @@
+{
+  "name": "Order",
+  "type": "object",
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "processing",
+        "ready",
+        "delivered",
+        "finished",
+        "cancelled"
+      ],
+      "default": "pending"
+    },
+    "unit_id": {
+      "type": "string"
+    },
+    "expected_finish_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "closed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "total_amount": {
+      "type": "number"
+    },
+    "ticket_number": {
+      "type": "string"
+    },
+    "wash_time": {
+      "type": "number",
+      "description": "Tempo de lavagem em minutos"
+    },
+    "dry_time": {
+      "type": "number",
+      "description": "Tempo de secagem em minutos"
+    },
+    "dry_clean_time": {
+      "type": "number",
+      "description": "Tempo de lavagem a seco em minutos"
+    },
+    "iron_time": {
+      "type": "number",
+      "description": "Tempo de passar em minutos"
+    }
+  },
+  "required": [
+    "customer_id",
+    "status"
+  ]
+}

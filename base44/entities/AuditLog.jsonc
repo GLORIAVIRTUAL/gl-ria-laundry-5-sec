@@ -1,0 +1,59 @@
+{
+  "name": "AuditLog",
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "delete"
+      ],
+      "default": "delete",
+      "description": "A\u00e7\u00e3o registrada"
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": [
+        "payment",
+        "finance_entry",
+        "order"
+      ],
+      "description": "Tipo do item apagado (venda, lan\u00e7amento manual ou ticket)"
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "ID do registro apagado"
+    },
+    "item_label": {
+      "type": "string",
+      "description": "Identifica\u00e7\u00e3o do item apagado (ex: n\u00famero do ticket, descri\u00e7\u00e3o)"
+    },
+    "customer_name": {
+      "type": "string",
+      "description": "Nome do cliente relacionado"
+    },
+    "amount": {
+      "type": "number",
+      "description": "Valor do item apagado"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Motivo informado pelo usu\u00e1rio ao apagar"
+    },
+    "user_email": {
+      "type": "string",
+      "description": "Email do usu\u00e1rio que apagou"
+    },
+    "user_name": {
+      "type": "string",
+      "description": "Nome do usu\u00e1rio que apagou"
+    },
+    "unit_id": {
+      "type": "string",
+      "description": "Unidade relacionada"
+    }
+  },
+  "required": [
+    "entity_type",
+    "reason"
+  ]
+}

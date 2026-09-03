@@ -1,0 +1,12 @@
+{
+  "name": "User",
+  "type": "object",
+  "properties": {
+    "primary_unit_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "primary_unit_id"
+  ]
+}

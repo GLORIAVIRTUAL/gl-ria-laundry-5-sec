@@ -1,0 +1,67 @@
+{
+  "name": "FinanceEntry",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "income",
+        "expense"
+      ],
+      "description": "Entrada (income) ou Sa\u00edda/Despesa (expense)"
+    },
+    "category": {
+      "type": "string",
+      "description": "Categoria do lan\u00e7amento. Ex: Vendas, Aluguel, Sal\u00e1rios, Insumos, Energia, \u00c1gua, Manuten\u00e7\u00e3o, Marketing, Impostos, Outros"
+    },
+    "description": {
+      "type": "string",
+      "description": "Descri\u00e7\u00e3o do lan\u00e7amento"
+    },
+    "amount": {
+      "type": "number",
+      "description": "Valor em BRL"
+    },
+    "payment_method": {
+      "type": "string",
+      "enum": [
+        "credit",
+        "debit",
+        "pix",
+        "cash",
+        "link",
+        "boleto",
+        "transfer",
+        "other"
+      ],
+      "default": "cash",
+      "description": "Forma de pagamento"
+    },
+    "entry_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Data do lan\u00e7amento"
+    },
+    "unit_id": {
+      "type": "string",
+      "description": "ID da unidade respons\u00e1vel pelo lan\u00e7amento"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "paid"
+      ],
+      "default": "paid",
+      "description": "Status do lan\u00e7amento (pago ou pendente)"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Observa\u00e7\u00f5es"
+    }
+  },
+  "required": [
+    "type",
+    "amount"
+  ]
+}

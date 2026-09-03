@@ -1,0 +1,80 @@
+{
+  "name": "Quote",
+  "type": "object",
+  "properties": {
+    "customer_id": {
+      "type": "string"
+    },
+    "unit_id": {
+      "type": "string",
+      "description": "ID da unidade respons\u00e1vel pelo or\u00e7amento"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "DRAFT",
+        "HUMAN_REVIEW",
+        "APPROVED",
+        "SENT",
+        "EXPIRED",
+        "ACCEPTED",
+        "REJECTED"
+      ],
+      "default": "DRAFT"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "garment_type": {
+            "type": "string"
+          },
+          "qty": {
+            "type": "number"
+          },
+          "unit_price": {
+            "type": "number"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "image_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "image_url": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "subtotal": {
+      "type": "number"
+    },
+    "discount": {
+      "type": "number"
+    },
+    "addition": {
+      "type": "number"
+    },
+    "total": {
+      "type": "number"
+    },
+    "human_adjustments": {
+      "type": "string"
+    },
+    "review_deadline_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "customer_id"
+  ]
+}
