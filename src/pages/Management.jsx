@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
@@ -21,6 +20,7 @@ import DeleteReasonModal from '@/components/management/DeleteReasonModal';
 import AuditLogTable from '@/components/management/AuditLogTable';
 import MovementDetailsModal from '@/components/management/MovementDetailsModal';
 import CustomDateFilter from '@/components/management/CustomDateFilter';
+import ManagementCommandCenter from '@/components/management/ManagementCommandCenter';
 
 const COLORS = ['#FF6600', '#4C12A1', '#25D366', '#00C853', '#FFC107', '#33691E'];
 
@@ -102,71 +102,31 @@ export default function ManagementPage() {
     mutationFn: (data) => base44.entities.FinanceEntry.create({ ...data, unit_id: selectedUnitId !== 'all' ? selectedUnitId : (defaultUnitId || undefined) }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mgmt-finance'] })
   });
-  // Executa a exclusão em cascata (venda + ticket + orçamento vinculados),
-  // registrando cada item apagado no log de auditoria com o motivo informado
+  // Registros operacionais e financeiros não são apagados: o backend aplica cancelamento auditado.
   const performDelete = async (reason) => {
     if (!deleteTarget) return;
-    const { kind, record, label, customerName, amount } = deleteTarget;
+    const entityType = deleteTarget.kind === 'finance_entry' ? 'finance_entry' : deleteTarget.kind;
 
-    const baseUnit = record.unit_id || (selectedUnitId !== 'all' ? selectedUnitId : (defaultUnitId || undefined));
-
-    // Helper: registra auditoria + apaga, sem duplicar
-    const logAndDelete = async (entityType, rec, recLabel, recAmount) => {
-      await base44.entities.AuditLog.create({
-        action: 'delete',
+    try {
+      await base44.functions.invoke('cancel_management_record', {
         entity_type: entityType,
-        entity_id: rec.id,
-        item_label: recLabel || '',
-        customer_name: customerName || '',
-        amount: recAmount != null ? recAmount : undefined,
-        reason,
-        user_email: currentUser?.email || '',
-        user_name: currentUser?.full_name || '',
-        unit_id: rec.unit_id || baseUnit
+        entity_id: deleteTarget.record.id,
+        reason
       });
-      if (entityType === 'payment') await base44.entities.Payment.delete(rec.id);
-      else if (entityType === 'finance_entry') await base44.entities.FinanceEntry.delete(rec.id);
-      else if (entityType === 'order') await base44.entities.Order.delete(rec.id);
-    };
-
-    // Identifica o pagamento, o ticket (Order) e o orçamento (Quote) vinculados ao alvo
-    let targetPayment = null;
-    let targetOrder = null;
-    let targetQuoteId = null;
-
-    if (kind === 'payment') {
-      targetPayment = payments.find((p) => p.id === record.id) || record;
-      if (targetPayment?.order_id) targetOrder = orders.find((o) => o.id === targetPayment.order_id) || null;
-    } else if (kind === 'order') {
-      targetOrder = orders.find((o) => o.id === record.id) || record;
-      targetPayment = payments.find((p) => p.order_id === record.id) || null;
+      ['mgmt-payments', 'mgmt-orders', 'mgmt-quotes', 'mgmt-finance', 'mgmt-audit', 'command-garments'].forEach((key) => {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      });
+      setDeleteTarget(null);
+      toast.success('Registro cancelado e preservado na auditoria.');
+    } catch (error) {
+      console.error(error);
+      const code = error.response?.data?.error;
+      if (code === 'settled_payment_requires_refund' || code === 'order_has_settled_payment') {
+        toast.error('Existe pagamento liquidado. Faça estorno ou reembolso antes de cancelar.');
+      } else {
+        toast.error('Não foi possível cancelar o registro. Verifique sua permissão.');
+      }
     }
-    targetQuoteId = targetPayment?.quote_id || null;
-
-    // Apaga em cascata: pagamento + ticket + orçamento vinculados (cada um vai para a auditoria)
-    if (kind === 'payment' || kind === 'order') {
-      if (targetPayment) {
-        await logAndDelete('payment', targetPayment, 'Pagamento de serviço', targetPayment.amount);
-      }
-      if (targetOrder) {
-        await logAndDelete('order', targetOrder, `Ticket #${targetOrder.ticket_number || targetOrder.id.slice(-6)}`, targetOrder.total_amount);
-      }
-      // Apaga o orçamento vinculado para sumir das "Vendas de hoje" do Dashboard
-      if (targetQuoteId) {
-        try { await base44.entities.Quote.delete(targetQuoteId); } catch (e) { console.error('Erro ao apagar orçamento vinculado', e); }
-      }
-      queryClient.invalidateQueries({ queryKey: ['mgmt-payments'] });
-      queryClient.invalidateQueries({ queryKey: ['mgmt-orders'] });
-      queryClient.invalidateQueries({ queryKey: ['mgmt-quotes'] });
-    } else if (kind === 'finance_entry') {
-      // Lançamento manual: apaga apenas o lançamento
-      await logAndDelete('finance_entry', record, label, amount);
-      queryClient.invalidateQueries({ queryKey: ['mgmt-finance'] });
-    }
-
-    queryClient.invalidateQueries({ queryKey: ['mgmt-audit'] });
-    setDeleteTarget(null);
-    toast.success('Item e vínculos apagados e registrados na auditoria.');
   };
 
   // Abre o modal de motivo para uma movimentação financeira (venda ou lançamento manual)
@@ -309,6 +269,20 @@ export default function ManagementPage() {
         </div>
       </div>
 
+      <ManagementCommandCenter
+        selectedUnitId={selectedUnitId}
+        defaultUnitId={defaultUnitId}
+        customers={customers}
+        onManualEntry={() => setModalOpen(true)}
+        onManualQuote={() => setQuoteModalOpen(true)}
+      />
+
+      <div className="flex items-center gap-3 pt-2">
+        <div className="h-px flex-1 bg-white/10" />
+        <span className="text-xs font-medium uppercase tracking-[0.18em] text-white/30">Indicadores e registros existentes</span>
+        <div className="h-px flex-1 bg-white/10" />
+      </div>
+
       <ManagementStats
         totalIncome={data.totalIncome}
         totalExpense={data.totalExpense}
@@ -416,7 +390,7 @@ export default function ManagementPage() {
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={performDelete}
-        title={deleteTarget?.kind === 'order' ? 'Apagar ticket' : 'Apagar movimentação'}
+        title={deleteTarget?.kind === 'order' ? 'Cancelar ticket' : 'Cancelar movimentação'}
         itemLabel={deleteTarget?.label}
       />
 

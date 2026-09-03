@@ -3,7 +3,63 @@
   "type": "object",
   "properties": {
     "primary_unit_id": {
+      "type": "string",
+      "description": "Unidade principal do usuário"
+    },
+    "allowed_unit_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Unidades adicionais que o usuário pode acessar"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "super_admin",
+        "admin",
+        "manager",
+        "attendant",
+        "cashier",
+        "production",
+        "driver",
+        "inventory",
+        "finance",
+        "auditor"
+      ],
+      "default": "attendant",
+      "description": "Papel principal usado pela política de autorização"
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Permissões excepcionais adicionais ao papel"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "invited",
+        "active",
+        "suspended",
+        "disabled"
+      ],
+      "default": "active"
+    },
+    "require_mfa": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indica que operações críticas exigem autenticação reforçada"
+    },
+    "display_name": {
       "type": "string"
+    },
+    "last_login_at": {
+      "type": "string",
+      "format": "date-time"
     }
   },
   "required": [

@@ -2,57 +2,67 @@
   "name": "Order",
   "type": "object",
   "properties": {
-    "customer_id": {
-      "type": "string"
-    },
+    "customer_id": { "type": "string" },
+    "source_quote_id": { "type": "string" },
     "status": {
       "type": "string",
       "enum": [
+        "awaiting_approval",
         "pending",
         "processing",
+        "partially_ready",
         "ready",
+        "out_for_delivery",
+        "partially_delivered",
         "delivered",
         "finished",
         "cancelled"
       ],
       "default": "pending"
     },
-    "unit_id": {
-      "type": "string"
-    },
-    "expected_finish_at": {
+    "payment_status": {
       "type": "string",
-      "format": "date-time"
+      "enum": ["unpaid", "partial", "pending_confirmation", "paid", "refunded", "cancelled"],
+      "default": "unpaid"
     },
-    "closed_at": {
+    "delivery_status": {
       "type": "string",
-      "format": "date-time"
+      "enum": ["not_scheduled", "scheduled", "partial", "completed", "cancelled"],
+      "default": "not_scheduled"
     },
-    "total_amount": {
-      "type": "number"
+    "unit_id": { "type": "string" },
+    "expected_finish_at": { "type": "string", "format": "date-time" },
+    "closed_at": { "type": "string", "format": "date-time" },
+    "approved_at": { "type": "string", "format": "date-time" },
+    "cancelled_at": { "type": "string", "format": "date-time" },
+    "cancel_reason": { "type": "string" },
+    "subtotal_amount": { "type": "number", "default": 0 },
+    "discount_amount": { "type": "number", "default": 0 },
+    "additional_amount": { "type": "number", "default": 0 },
+    "total_amount": { "type": "number" },
+    "paid_amount": { "type": "number", "default": 0 },
+    "ticket_number": { "type": "string" },
+    "piece_count": { "type": "number", "default": 0 },
+    "ready_piece_count": { "type": "number", "default": 0 },
+    "delivered_piece_count": { "type": "number", "default": 0 },
+    "customer_acceptance_status": {
+      "type": "string",
+      "enum": ["not_required", "pending", "accepted", "rejected"],
+      "default": "pending"
     },
-    "ticket_number": {
-      "type": "string"
+    "customer_accepted_at": { "type": "string", "format": "date-time" },
+    "customer_acceptance_asset_id": { "type": "string" },
+    "operator_user_id": { "type": "string" },
+    "origin": {
+      "type": "string",
+      "enum": ["management", "counter", "whatsapp", "customer_portal", "import", "other"],
+      "default": "management"
     },
-    "wash_time": {
-      "type": "number",
-      "description": "Tempo de lavagem em minutos"
-    },
-    "dry_time": {
-      "type": "number",
-      "description": "Tempo de secagem em minutos"
-    },
-    "dry_clean_time": {
-      "type": "number",
-      "description": "Tempo de lavagem a seco em minutos"
-    },
-    "iron_time": {
-      "type": "number",
-      "description": "Tempo de passar em minutos"
-    }
+    "wash_time": { "type": "number", "description": "Tempo de lavagem em minutos" },
+    "dry_time": { "type": "number", "description": "Tempo de secagem em minutos" },
+    "dry_clean_time": { "type": "number", "description": "Tempo de lavagem a seco em minutos" },
+    "iron_time": { "type": "number", "description": "Tempo de passar em minutos" },
+    "metadata": { "type": "object", "additionalProperties": true }
   },
-  "required": [
-    "customer_id",
-    "status"
-  ]
+  "required": ["customer_id", "status"]
 }

@@ -358,12 +358,11 @@ Deno.serve(async (req) => {
 
         // 3. State Machine
         
-        // Handle receipt image/document
+        // Comprovantes são evidência pendente: nunca confirmam pagamento apenas pela imagem.
         if ((message.type === 'IMAGE' || message.type === 'DOC') && currentState.flow === 'WAITING_RECEIPT') {
-            let imgUrl = downloaded_file_url || message.media_file_id || (payload.image && payload.image.imageUrl) || (payload.document && payload.document.documentUrl);
-            
-            if (imgUrl) {
-                // Find pending payment cards for this customer
+            const receiptUrl = downloaded_file_url || message.media_file_id || (payload.image && payload.image.imageUrl) || (payload.document && payload.document.documentUrl);
+
+            if (receiptUrl) {
                 const paymentCards = await base44.asServiceRole.entities.CrmCard.filter({
                     customer_id: customer.id,
                     pipeline_type: 'PAYMENT',
@@ -372,100 +371,79 @@ Deno.serve(async (req) => {
 
                 if (paymentCards.length > 0) {
                     const card = paymentCards[0];
-                    // Update the first pending payment card
                     await base44.asServiceRole.entities.CrmCard.update(card.id, {
-                        stage: 'Pago',
-                        receipt_url: imgUrl
+                        stage: 'Em conferência',
+                        receipt_url: receiptUrl
                     });
 
-                    // Update NEW_CUSTOMER pipeline card to "Convertido"
-                    await updateNewCustomerStage(customer.id, 'Convertido');
-
-                    let orderCreated = null;
                     let amount = 0;
-
+                    let unitId = activeUnitId;
                     if (card.linked_quote_id) {
                         const quote = await base44.asServiceRole.entities.Quote.get(card.linked_quote_id);
-                        if (quote) {
-                            amount = quote.total;
-                            orderCreated = await base44.asServiceRole.entities.Order.create({
-                                customer_id: quote.customer_id,
-                                unit_id: quote.unit_id || activeUnitId,
-                                status: 'pending',
-                                total_amount: quote.total,
-                                ticket_number: `ORD-${Math.floor(Math.random() * 10000)}`
-                            });
-
-                            const quoteCards = await base44.asServiceRole.entities.CrmCard.filter({ linked_quote_id: quote.id, pipeline_type: 'QUOTE' });
-                            if (quoteCards.length > 0) {
-                                await base44.asServiceRole.entities.CrmCard.update(quoteCards[0].id, { stage: 'Aprovado' });
-                            }
-
-                            await base44.asServiceRole.entities.CrmCard.create({
-                                pipeline_type: 'ORDER',
-                                stage: 'Recebido',
-                                customer_id: quote.customer_id,
-                                unit_id: quote.unit_id || activeUnitId,
-                                priority: 'HIGH',
-                                linked_order_id: orderCreated.id,
-                                linked_quote_id: quote.id
-                            });
-
-                            await base44.asServiceRole.entities.Quote.update(quote.id, { status: 'ACCEPTED' });
-                        }
+                        amount = Number(quote?.total || 0);
+                        unitId = quote?.unit_id || unitId;
                     } else if (card.linked_order_id) {
                         const order = await base44.asServiceRole.entities.Order.get(card.linked_order_id);
-                        if (order) {
-                            amount = order.total_amount;
-                            await base44.asServiceRole.entities.Order.update(order.id, { status: 'processing' });
-                            
-                            const orderCards = await base44.asServiceRole.entities.CrmCard.filter({ linked_order_id: order.id });
-                            for (const oCard of orderCards) {
-                                let newStage = oCard.stage;
-                                if (oCard.pipeline_type === 'PLAN') newStage = 'Assinou/Ativou';
-                                else if (oCard.pipeline_type === 'ORDER') newStage = 'Em processamento';
-                                
-                                if (newStage !== oCard.stage) {
-                                    await base44.asServiceRole.entities.CrmCard.update(oCard.id, { stage: newStage });
-                                }
-                            }
-                        }
+                        amount = Number(order?.total_amount || 0);
+                        unitId = order?.unit_id || unitId;
                     }
 
-                    // Create Payment record
-                    await base44.asServiceRole.entities.Payment.create({
+                    const paymentFilter = card.linked_order_id
+                        ? { order_id: card.linked_order_id }
+                        : { quote_id: card.linked_quote_id };
+                    const existingPayments = await base44.asServiceRole.entities.Payment.filter(paymentFilter);
+                    const pendingPayment = existingPayments.find((payment) => payment.status === 'pending');
+                    const payment = pendingPayment || await base44.asServiceRole.entities.Payment.create({
                         customer_id: customer.id,
                         quote_id: card.linked_quote_id,
                         order_id: card.linked_order_id,
-                        unit_id: activeUnitId,
-                        status: 'succeeded',
-                        amount: amount,
-                        paid_at: new Date().toISOString(),
-                        payment_method: 'pix'
+                        unit_id: unitId,
+                        status: 'pending',
+                        amount,
+                        payment_method: 'pix',
+                        notes: 'Comprovante recebido por imagem; aguardando conferência.'
                     });
 
-                    // Se a coleta já foi combinada antes do pagamento (dados salvos via save_pickup_details),
-                    // agenda AUTOMATICAMENTE agora que o comprovante chegou.
-                    const pickupConfirmationText = await autoSchedulePendingPickup(currentState);
+                    await base44.asServiceRole.entities.HumanReview.create({
+                        unit_id: unitId,
+                        review_type: 'payment_receipt',
+                        status: 'pending',
+                        priority: 'high',
+                        entity_type: 'payment',
+                        entity_id: payment.id,
+                        reason_codes: ['receipt_requires_settlement_confirmation'],
+                        summary: `Conferir comprovante Pix de ${customer.full_name || 'cliente'}`,
+                        proposed_data: {
+                            receipt_url: receiptUrl,
+                            amount,
+                            quote_id: card.linked_quote_id,
+                            order_id: card.linked_order_id
+                        }
+                    });
 
-                    // Update conversation state
+                    await base44.asServiceRole.entities.StaffNotification.create({
+                        type: 'NEW_QUOTE',
+                        target_team: 'support',
+                        payload: {
+                            conversation_id: conversation.id,
+                            customer_name: customer.full_name,
+                            summary: 'Comprovante recebido. Validar valor, favorecido e liquidação antes de confirmar o pagamento.'
+                        },
+                        sent_at: new Date().toISOString()
+                    });
+
                     await base44.asServiceRole.entities.Conversation.update(conversation.id, {
-                        metadata: { ...currentState, flow: null, delivery_requested: false, pending_pickup: null }
+                        handoff_required: true,
+                        metadata: { ...currentState, flow: 'HANDOFF_PAYMENT_REVIEW' }
                     });
 
-                    const ticketRef = orderCreated?.ticket_number || card.linked_quote_id?.slice(0, 8).toUpperCase() || card.linked_order_id?.slice(0, 8).toUpperCase() || "";
-                    const paymentConfirmedMessage = pickupConfirmationText
-                        ? `✅ *Pagamento Confirmado!*\n\nRecebi o seu comprovante! Muito obrigado. Já estamos cuidando de tudo para você referente ao pedido #${ticketRef}.${pickupConfirmationText}`
-                        : currentState.delivery_requested
-                        ? `✅ *Pagamento Confirmado!*\n\nRecebi o seu comprovante! Muito obrigado. Já estamos cuidando de tudo para você referente ao pedido #${ticketRef}.\n\nAgora vamos agendar sua coleta. Me informe, por favor:\n1. O dia desejado\n2. O turno *(Manhã das 8h às 12h ou Tarde das 13h às 16h)*\n3. O endereço completo com número e complemento`
-                        : `✅ *Pagamento Confirmado!*\n\nRecebi o seu comprovante! Muito obrigado. Já estamos cuidando de tudo para você referente ao pedido #${ticketRef}.`;
                     await base44.asServiceRole.functions.invoke(senderFn, {
                         phone: customer.phones[0],
-                        message: paymentConfirmedMessage,
+                        message: `✅ Recebi o seu comprovante. Ele foi encaminhado para conferência e o pagamento será confirmado assim que validarmos a liquidação.`,
                         conversation_id: conversation.id
                     });
 
-                    return Response.json({ action: "receipt_received" });
+                    return Response.json({ action: 'receipt_pending_manual_review' });
                 }
             }
         }
@@ -614,115 +592,95 @@ Deno.serve(async (req) => {
 
                 const receiptResult = visionResults.find(r => r.is_receipt);
                 if (receiptResult) {
-                    let pendingQs = await base44.asServiceRole.entities.Quote.filter({
+                    const pendingQuotes = await base44.asServiceRole.entities.Quote.filter({
                         customer_id: customer.id,
                         status: 'SENT'
                     }, '-created_date', 1);
+                    const quoteToReview = pendingQuotes[0] || null;
+                    const receiptImgUrl = receiptResult.image_url || downloaded_file_url || null;
+                    const reviewUnitId = quoteToReview?.unit_id || activeUnitId;
 
-                    let quoteToApprove = pendingQs.length > 0 ? pendingQs[0] : null;
-
-                    if (quoteToApprove) {
-                        await base44.asServiceRole.entities.Quote.update(quoteToApprove.id, { status: 'ACCEPTED' });
-                        
-                        const crmCards = await base44.asServiceRole.entities.CrmCard.filter({ linked_quote_id: quoteToApprove.id });
-                        if (crmCards.length > 0) {
-                            await base44.asServiceRole.entities.CrmCard.update(crmCards[0].id, { stage: 'Aprovado' });
-                        }
-
-                        let orderCreated = await base44.asServiceRole.entities.Order.create({
-                            customer_id: quoteToApprove.customer_id,
-                            unit_id: quoteToApprove.unit_id || activeUnitId,
-                            status: 'pending',
-                            total_amount: quoteToApprove.total,
-                            ticket_number: `ORD-${Math.floor(Math.random() * 10000)}`
-                        });
-
-                        await base44.asServiceRole.entities.CrmCard.create({
-                            pipeline_type: 'ORDER',
-                            stage: 'Recebido',
-                            customer_id: quoteToApprove.customer_id,
-                            unit_id: quoteToApprove.unit_id || activeUnitId,
-                            priority: 'HIGH',
-                            linked_order_id: orderCreated.id,
-                            linked_quote_id: quoteToApprove.id
-                        });
-
-                        await base44.asServiceRole.entities.Payment.create({
-                            customer_id: customer.id,
-                            quote_id: quoteToApprove.id,
-                            order_id: orderCreated.id,
-                            unit_id: activeUnitId,
-                            status: 'succeeded',
-                            amount: quoteToApprove.total,
-                            paid_at: new Date().toISOString(),
-                            payment_method: 'pix'
-                        });
-
-                        // Registra o comprovante no pipeline de PAGAMENTOS do CRM (este caminho
-                        // não passava pelo card 'Aguardando Pix', então o comprovante não aparecia lá).
-                        const receiptImgUrl = receiptResult.image_url || downloaded_file_url || null;
-                        const pendingPayCards = await base44.asServiceRole.entities.CrmCard.filter({
-                            customer_id: customer.id,
-                            pipeline_type: 'PAYMENT',
-                            stage: 'Aguardando Pix'
-                        });
-                        if (pendingPayCards.length > 0) {
-                            await base44.asServiceRole.entities.CrmCard.update(pendingPayCards[0].id, {
-                                stage: 'Pago',
-                                receipt_url: receiptImgUrl,
-                                linked_quote_id: pendingPayCards[0].linked_quote_id || quoteToApprove.id,
-                                linked_order_id: pendingPayCards[0].linked_order_id || orderCreated.id
-                            });
-                        } else {
-                            await base44.asServiceRole.entities.CrmCard.create({
-                                pipeline_type: 'PAYMENT',
-                                stage: 'Pago',
-                                priority: 'HIGH',
+                    let payment = null;
+                    if (quoteToReview) {
+                        const existingPayments = await base44.asServiceRole.entities.Payment.filter({ quote_id: quoteToReview.id });
+                        payment = existingPayments.find((candidate) => candidate.status === 'pending') || existingPayments[0] || null;
+                        if (!payment) {
+                            payment = await base44.asServiceRole.entities.Payment.create({
                                 customer_id: customer.id,
-                                unit_id: activeUnitId,
-                                linked_quote_id: quoteToApprove.id,
-                                linked_order_id: orderCreated.id,
-                                receipt_url: receiptImgUrl
+                                quote_id: quoteToReview.id,
+                                unit_id: reviewUnitId,
+                                status: 'pending',
+                                amount: Number(quoteToReview.total || 0),
+                                payment_method: 'pix',
+                                notes: 'Comprovante classificado por visão; aguardando conferência.'
                             });
                         }
-
-                        await updateNewCustomerStage(customer.id, 'Convertido');
-
-                        const pickupConfirmationText = await autoSchedulePendingPickup(currentState);
-
-                        await base44.asServiceRole.entities.Conversation.update(conversation.id, {
-                            metadata: { ...currentState, flow: null, temp_items: [], pending_pickup: null }
-                        });
-
-                        await base44.asServiceRole.functions.invoke(senderFn, {
-                            phone: customer.phones[0],
-                            message: `✅ *Pagamento Confirmado!*\n\nRecebi o seu comprovante! Muito obrigado. Já estamos cuidando de tudo para você referente ao pedido #${orderCreated.ticket_number}.${pickupConfirmationText}`,
-                            conversation_id: conversation.id
-                        });
-
-                        return Response.json({ action: "receipt_processed_auto" });
-                    } else {
-                        await base44.asServiceRole.entities.Conversation.update(conversation.id, {
-                            handoff_required: true,
-                            metadata: { ...currentState, flow: 'HANDOFF_PAYMENT_REVIEW' }
-                        });
-                        await base44.asServiceRole.entities.StaffNotification.create({
-                            type: 'NEW_QUOTE',
-                            target_team: 'support',
-                            payload: {
-                                conversation_id: conversation.id,
-                                customer_name: customer.full_name,
-                                summary: 'Comprovante recebido sem orçamento vinculado. Conferir valor, taxa de coleta/entrega e registrar pagamento.'
-                            },
-                            sent_at: new Date().toISOString()
-                        });
-                        await base44.asServiceRole.functions.invoke(senderFn, {
-                            phone: customer.phones[0],
-                            message: `✅ Recebi o seu comprovante e encaminhei para conferência da nossa equipe. Vamos validar o valor do serviço e da coleta/entrega antes de confirmar o pagamento.`,
-                            conversation_id: conversation.id
-                        });
-                        return Response.json({ action: "receipt_pending_manual_review" });
                     }
+
+                    const pendingPayCards = await base44.asServiceRole.entities.CrmCard.filter({
+                        customer_id: customer.id,
+                        pipeline_type: 'PAYMENT'
+                    });
+                    const paymentCard = pendingPayCards.find((card) => ['Aguardando Pix', 'Em conferência'].includes(card.stage));
+                    if (paymentCard) {
+                        await base44.asServiceRole.entities.CrmCard.update(paymentCard.id, {
+                            stage: 'Em conferência',
+                            receipt_url: receiptImgUrl,
+                            linked_quote_id: paymentCard.linked_quote_id || quoteToReview?.id
+                        });
+                    } else {
+                        await base44.asServiceRole.entities.CrmCard.create({
+                            pipeline_type: 'PAYMENT',
+                            stage: 'Em conferência',
+                            priority: 'HIGH',
+                            customer_id: customer.id,
+                            unit_id: reviewUnitId,
+                            linked_quote_id: quoteToReview?.id,
+                            receipt_url: receiptImgUrl
+                        });
+                    }
+
+                    await base44.asServiceRole.entities.HumanReview.create({
+                        unit_id: reviewUnitId,
+                        review_type: 'payment_receipt',
+                        status: 'pending',
+                        priority: 'high',
+                        entity_type: payment ? 'payment' : 'document_asset',
+                        entity_id: payment?.id || conversation.id,
+                        reason_codes: quoteToReview ? ['receipt_requires_settlement_confirmation'] : ['quote_not_linked', 'receipt_requires_settlement_confirmation'],
+                        summary: quoteToReview
+                            ? `Conferir comprovante do orçamento ${quoteToReview.id.slice(0, 8)}`
+                            : 'Comprovante recebido sem orçamento vinculado',
+                        proposed_data: {
+                            receipt_url: receiptImgUrl,
+                            quote_id: quoteToReview?.id,
+                            amount: quoteToReview?.total,
+                            conversation_id: conversation.id
+                        }
+                    });
+
+                    await base44.asServiceRole.entities.Conversation.update(conversation.id, {
+                        handoff_required: true,
+                        metadata: { ...currentState, flow: 'HANDOFF_PAYMENT_REVIEW', temp_items: [] }
+                    });
+                    await base44.asServiceRole.entities.StaffNotification.create({
+                        type: 'NEW_QUOTE',
+                        target_team: 'support',
+                        payload: {
+                            conversation_id: conversation.id,
+                            customer_name: customer.full_name,
+                            summary: quoteToReview
+                                ? 'Comprovante recebido para conferência. Não confirmar pagamento pela imagem.'
+                                : 'Comprovante recebido sem orçamento vinculado. Conferir e vincular manualmente.'
+                        },
+                        sent_at: new Date().toISOString()
+                    });
+                    await base44.asServiceRole.functions.invoke(senderFn, {
+                        phone: customer.phones[0],
+                        message: `✅ Recebi o seu comprovante e encaminhei para conferência. Assim que a liquidação for validada, confirmaremos o pagamento e daremos continuidade ao pedido.`,
+                        conversation_id: conversation.id
+                    });
+                    return Response.json({ action: 'receipt_pending_manual_review' });
                 }
 
                 // Pergunta sobre remoção de mancha (batom, tinta, etc.): as fotos são

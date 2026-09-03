@@ -4,15 +4,27 @@
   "properties": {
     "name": {
       "type": "string",
-      "description": "Name of the service/garment, e.g., 'Camisa Social'"
+      "description": "Nome comercial da peça ou serviço"
+    },
+    "sku": {
+      "type": "string",
+      "description": "Código estável para integrações, etiquetas e importações"
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Sinônimos e nomes regionais usados na busca e no reconhecimento"
     },
     "description": {
       "type": "string",
-      "description": "Marketing description or benefit"
+      "description": "Descrição comercial ou orientação operacional"
     },
     "family": {
       "type": "string",
-      "description": "Family group of the item, e.g., 'Cama', 'Mesa', 'Banho', 'Roupas', 'Tratamentos', 'Planos', 'Bags'"
+      "description": "Família do item, como Cama, Mesa, Banho, Roupas, Tratamentos, Planos ou Bags"
     },
     "category": {
       "type": "string",
@@ -29,7 +41,70 @@
     },
     "price": {
       "type": "number",
-      "description": "Unit price in BRL"
+      "description": "Preço unitário padrão em BRL"
+    },
+    "unit_of_measure": {
+      "type": "string",
+      "enum": [
+        "piece",
+        "pair",
+        "kg",
+        "square_meter",
+        "bag",
+        "service"
+      ],
+      "default": "piece"
+    },
+    "default_service_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "applicable_attributes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "color",
+          "brand",
+          "pattern",
+          "size",
+          "material",
+          "condition",
+          "dimensions"
+        ]
+      },
+      "default": [
+        "color",
+        "brand",
+        "pattern",
+        "size",
+        "condition"
+      ]
+    },
+    "material_tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "risk_tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "visual_example_urls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Referências visuais autorizadas para avaliação e matching"
     },
     "active": {
       "type": "boolean",
@@ -37,7 +112,23 @@
     },
     "image_url": {
       "type": "string",
-      "description": "Icon or image of the garment"
+      "description": "Ícone ou imagem principal"
+    },
+    "catalog_version": {
+      "type": "string",
+      "default": "1"
+    },
+    "effective_from": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "effective_until": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "service_code": {
+      "type": "string",
+      "description": "Código interno/fiscal opcional do serviço"
     }
   },
   "required": [

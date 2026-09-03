@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
 import { base44 } from '@/api/base44Client';
-import { Loader2, Search, Plus, Minus, ShoppingCart, User, CreditCard, CheckCircle2, ArrowRight, ArrowLeft, Shirt, DollarSign, Trash2 } from 'lucide-react';
+import { Loader2, Search, Plus, Minus, ShoppingCart, User, CreditCard, CheckCircle2, ArrowRight, ArrowLeft, Shirt, DollarSign } from 'lucide-react';
 import ProductIcon from '@/components/ui/ProductIcon';
 import TimeField from '@/components/management/TimeField';
 import { toast } from 'sonner';
@@ -16,6 +15,8 @@ import { toast } from 'sonner';
 export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, unitId, onSuccess, skipLinkStep = false }) {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [paymentReceived, setPaymentReceived] = useState(false);
+  const [createdOrder, setCreatedOrder] = useState(null);
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -41,6 +42,8 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
       fetchProducts();
       setStep(1);
       setCart([]);
+      setPaymentReceived(false);
+      setCreatedOrder(null);
       setCustomerPhone('');
       setCustomerName('');
       setCustomerId(null);
@@ -186,134 +189,130 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
   const cartTotal = cart.reduce((acc, item) => acc + (item.product.price * item.qty), 0);
 
   const handleSubmit = async () => {
-    if (loading) return; // Guarda síncrona contra cliques duplos
+    if (loading) return;
     if (!unitId) {
-      alert("Selecione uma unidade antes de gerar o orçamento.");
+      toast.error("Selecione uma unidade antes de gerar o orçamento.");
+      return;
+    }
+    if (cart.length === 0) {
+      toast.error("Adicione ao menos um item ao orçamento.");
       return;
     }
 
     setLoading(true);
     try {
-      // 1. Ensure Customer
       let finalCustomerId = customerId;
       const cleanPhone = customerPhone.replace(/\D/g, '');
-      
+
       if (!finalCustomerId && cleanPhone) {
-         // Double-check it doesn't already exist (avoid duplicates)
-         const existing = await base44.entities.Customer.filter({ phones: cleanPhone });
-         if (existing && existing.length > 0) {
-            finalCustomerId = existing[0].id;
-         } else {
-            const newCust = await base44.entities.Customer.create({
-               full_name: customerName || `Cliente ${cleanPhone}`,
-               phones: [cleanPhone],
-               status: 'active',
-               unit_id: unitId
-            });
-            finalCustomerId = newCust.id;
-            toast.success('Novo cliente cadastrado automaticamente!');
-         }
+        const existing = await base44.entities.Customer.filter({ phones: cleanPhone });
+        if (existing?.length > 0) {
+          finalCustomerId = existing[0].id;
+        } else {
+          const newCustomer = await base44.entities.Customer.create({
+            full_name: customerName || `Cliente ${cleanPhone}`,
+            phones: [cleanPhone],
+            status: 'active',
+            unit_id: unitId
+          });
+          finalCustomerId = newCustomer.id;
+          toast.success('Novo cliente cadastrado automaticamente!');
+        }
       }
 
-      // 2. Create Quote
-      const quoteItems = cart.map(item => ({
-         garment_type: item.product.name,
-         qty: item.qty,
-         unit_price: item.product.price,
-         confidence: 1,
-         image_ids: [],
-         notes: item.product.description
+      if (!finalCustomerId) throw new Error('customer_required');
+
+      const quoteItems = cart.map((item) => ({
+        line_id: crypto.randomUUID(),
+        product_id: item.product.id,
+        garment_type: item.product.name,
+        qty: item.qty,
+        unit_price: Number(item.product.price || 0),
+        subtotal: Number(item.product.price || 0) * item.qty,
+        total_amount: Number(item.product.price || 0) * item.qty,
+        confidence: 1,
+        recognition_status: 'manual',
+        image_ids: [],
+        document_asset_ids: [],
+        attributes: {},
+        damages: [],
+        risk_tags: [],
+        services: [],
+        notes: item.product.description || ''
       }));
 
       const quote = await base44.entities.Quote.create({
         customer_id: finalCustomerId,
         unit_id: unitId,
         status: 'APPROVED',
+        origin: 'management_manual',
         items: quoteItems,
         subtotal: cartTotal,
         total: cartTotal,
-        discount: 0
+        discount: 0,
+        addition: 0,
+        catalog_version: products[0]?.catalog_version || '1',
+        reviewed_at: new Date().toISOString()
       });
 
-      // 3. Create Order (entra na produção, tickets e indicadores)
-      const order = await base44.entities.Order.create({
-        customer_id: finalCustomerId,
-        unit_id: unitId,
-        status: 'pending',
-        total_amount: cartTotal,
+      const approval = await base44.functions.invoke('approve_quote', { quote_id: quote.id });
+      const order = approval.data?.order;
+      if (!order) throw new Error('order_creation_failed');
+
+      const timingPatch = {
         wash_time: times.wash_time === '' ? undefined : Number(times.wash_time),
         dry_time: times.dry_time === '' ? undefined : Number(times.dry_time),
         dry_clean_time: times.dry_clean_time === '' ? undefined : Number(times.dry_clean_time),
         iron_time: times.iron_time === '' ? undefined : Number(times.iron_time)
-      });
+      };
+      await base44.entities.Order.update(order.id, timingPatch);
 
-      // 4. Create CRM Card
-      await base44.entities.CrmCard.create({
-        pipeline_type: pipeline,
-        stage: stage,
-        priority: priority,
-        customer_id: finalCustomerId,
-        unit_id: unitId,
-        linked_quote_id: quote.id,
-        linked_order_id: order.id
-      });
+      let finalOrder = order;
+      let paymentRequiresReconciliation = false;
+      if (paymentReceived) {
+        let finalMethod = paymentMethod;
+        let paymentNote = '';
+        let cardBrand;
+        let feePercent;
+        const selectedBrand = cardFees.find((fee) => fee.id === cardBrandId);
 
-      // Define o método final e descrição do pagamento na maquininha
-      let finalMethod = paymentMethod; // cash, pix
-      let paymentNote = '';
-      let cardBrand;
-      let feePercent;
-      const selectedBrand = cardFees.find((f) => f.id === cardBrandId);
-      if (paymentMethod === 'machine') {
-          finalMethod = machineType; // debit ou credit
+        if (paymentMethod === 'machine') {
+          finalMethod = machineType;
           cardBrand = selectedBrand?.brand;
-          if (machineType === 'credit') {
-              paymentNote = `Maquininha - Crédito ${installments}x`;
-              feePercent = selectedBrand?.credit_fees?.[installments];
-          } else {
-              paymentNote = 'Maquininha - Débito';
-              feePercent = selectedBrand?.debit_fee;
-          }
+          feePercent = machineType === 'credit' ? selectedBrand?.credit_fees?.[installments] : selectedBrand?.debit_fee;
+          paymentNote = machineType === 'credit' ? `Maquininha - Crédito ${installments}x` : 'Maquininha - Débito';
           if (cardBrand) paymentNote += ` (${cardBrand})`;
-      } else if (paymentMethod === 'cash') {
-          paymentNote = 'Dinheiro';
-      } else if (paymentMethod === 'pix') {
-          paymentNote = 'Pix';
-      }
+        } else {
+          paymentNote = paymentMethod === 'pix' ? 'Pix informado no balcão' : 'Dinheiro recebido no balcão';
+        }
 
-      const feeAmount = feePercent ? (cartTotal * Number(feePercent)) / 100 : undefined;
-
-      // Todos os métodos agora são pagos na hora (venda confirmada)
-      await base44.entities.Payment.create({
-          customer_id: finalCustomerId,
-          quote_id: quote.id,
+        const paymentResponse = await base44.functions.invoke('record_counter_payment', {
           order_id: order.id,
-          unit_id: unitId,
-          status: 'succeeded',
-          amount: cartTotal,
-          paid_at: new Date().toISOString(),
           payment_method: finalMethod,
+          confirmed_received: true,
+          terminal_confirmed: paymentMethod === 'machine',
           installments: paymentMethod === 'machine' && machineType === 'credit' ? installments : undefined,
           card_brand: cardBrand,
           fee_percent: feePercent != null ? Number(feePercent) : undefined,
-          fee_amount: feeAmount,
+          idempotency_key: crypto.randomUUID(),
           notes: paymentNote
-      });
+        });
+        finalOrder = paymentResponse.data?.order || order;
+        paymentRequiresReconciliation = paymentResponse.data?.requires_reconciliation === true;
+      }
 
-      onSuccess();
-      onClose();
-    } catch (err) {
-      console.error(err);
+      setCreatedOrder(finalOrder);
+      setStep(4);
+      toast.success(!paymentReceived ? 'Ticket criado sem registrar pagamento.' : paymentRequiresReconciliation ? 'Ticket criado. O pagamento aguarda conciliação.' : 'Ticket criado e pagamento registrado.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Não foi possível concluir o orçamento. Nenhuma cobrança automática foi realizada.');
     } finally {
       setLoading(false);
     }
   };
-  
-  const [generatedLink, setGeneratedLink] = useState(null);
-  const copyLink = () => {
-      navigator.clipboard.writeText(generatedLink);
-      alert("Link copiado!");
-  };
+
+
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -570,7 +569,7 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                         </div>
                         
                         <div className="mt-6 space-y-2">
-                            <Label>Forma de Pagamento</Label>
+                            <Label>Forma de pagamento, se já recebida</Label>
                             <div className="grid grid-cols-3 gap-2">
                                 {[
                                     { id: 'cash', label: 'Dinheiro', icon: DollarSign },
@@ -659,6 +658,18 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                             )}
                         </div>
 
+                        <button
+                            type="button"
+                            onClick={() => setPaymentReceived((value) => !value)}
+                            className={`mt-5 flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-all ${paymentReceived ? 'border-emerald-500/50 bg-emerald-500/10' : 'border-white/10 bg-white/5'}`}
+                        >
+                            <CheckCircle2 className={`h-5 w-5 ${paymentReceived ? 'text-emerald-400' : 'text-gray-500'}`} />
+                            <div>
+                                <div className="font-medium">Pagamento já foi recebido e conferido</div>
+                                <div className="text-xs text-gray-400">Desmarcado por padrão. O orçamento nunca confirma pagamento automaticamente.</div>
+                            </div>
+                        </button>
+
                         <div className="mt-6 space-y-4 border-t border-white/10 pt-4">
                             <Label className="text-[#FF6600]">Tempos de Processo (opcional)</Label>
                             <TimeField label="Lavagem" value={times.wash_time} onChange={(v) => setTimes({ ...times, wash_time: v })} />
@@ -676,61 +687,16 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                     <div className="bg-green-500/10 p-4 rounded-full">
                         <CheckCircle2 className="w-16 h-16 text-green-500" />
                     </div>
-                    
                     <div className="text-center space-y-2">
-                        <h2 className="text-2xl font-bold">Orçamento Criado!</h2>
-                        <p className="text-gray-400">O link de pagamento foi gerado com sucesso.</p>
+                        <h2 className="text-2xl font-bold">Ticket criado com rastreabilidade</h2>
+                        <p className="text-gray-400">O orçamento foi convertido em peças individuais sem cobrança automática.</p>
                     </div>
-
                     <div className="bg-white/5 rounded-2xl p-6 w-full max-w-lg border border-white/10 text-center">
-                        <div className="mb-4">
-                            <p className="text-sm text-gray-400 mb-2">Link de Pagamento Stripe</p>
-                            <div className="flex gap-2">
-                                <Input value={generatedLink} readOnly className="bg-black/20 border-white/10 text-sm font-mono" />
-                                <Button onClick={copyLink} className="bg-[#FF6600] hover:bg-[#ff7b24]">
-                                    Copiar
-                                </Button>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 mt-4">
-                             <Button 
-                                variant="outline"
-                                className="border-[#25D366] text-[#25D366] hover:bg-[#25D366]/10"
-                                onClick={async () => {
-                                    if (customerPhone && generatedLink) {
-                                        // Try to send via Z-API if we are in a chat context (or just global Z-API send)
-                                        // We need conversation_id? Or just phone. zapi_sender takes phone.
-                                        // We don't have conversation_id here easily unless passed.
-                                        // But we can just use the phone.
-                                        try {
-                                            toast.info("Enviando...");
-                                            // Determine conversation ID if possible or just send
-                                            // Assuming zapi_sender can handle just phone (it creates conversation if needed or just sends)
-                                            // The backend function zapi_sender: "const { conversation_id } = await req.json(); ... if (conversation_id) { create message ... }"
-                                            // So if we don't pass conversation_id, it might not log to DB correctly attached to convo.
-                                            // But let's try.
-                                            
-                                            // For now, let's open WhatsApp Web fallback if API fails? No, user wants automatic.
-                                            // Let's assumes we can invoke zapi_sender.
-                                            
-                                            await base44.functions.invoke('zapi_sender', {
-                                                phone: customerPhone,
-                                                message: `Olá ${customerName}, segue o link do seu orçamento: ${generatedLink}`,
-                                                // We don't have conversation_id here. 
-                                                // Maybe we can fetch active conversation for this customer?
-                                                // Or just let zapi_sender handle it (it might need update to find convo by phone if id missing)
-                                            });
-                                            toast.success("Enviado via WhatsApp!");
-                                        } catch (e) {
-                                            console.error(e);
-                                            toast.error("Erro ao enviar. Copie o link.");
-                                        }
-                                    }
-                                }}
-                             >
-                                <div className="w-4 h-4 mr-2" /> Enviar no Zap
-                             </Button>
-                        </div>
+                        <p className="text-sm text-gray-400">Número do ticket</p>
+                        <p className="mt-2 text-2xl font-bold text-[#FF6600]">{createdOrder?.ticket_number || createdOrder?.id?.slice(0, 8) || 'Criado'}</p>
+                        <p className="mt-4 text-sm text-gray-400">
+                            {paymentReceived ? 'Pagamento registrado após confirmação explícita do funcionário.' : 'Pagamento pendente. Gere um link ou receba no caixa quando necessário.'}
+                        </p>
                     </div>
                 </div>
             )}
@@ -760,7 +726,7 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
             {step === 3 && (
                 <Button onClick={handleSubmit} disabled={loading} className="bg-green-600 hover:bg-green-700 gap-2 px-8">
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    Confirmar e Gerar
+                    Confirmar e Criar Ticket
                 </Button>
             )}
             

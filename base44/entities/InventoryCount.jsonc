@@ -1,0 +1,32 @@
+{
+  "name": "InventoryCount",
+  "type": "object",
+  "properties": {
+    "unit_id": { "type": "string" },
+    "code": { "type": "string" },
+    "status": { "type": "string", "enum": ["draft", "counting", "review", "approved", "cancelled"], "default": "draft" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "started_by_user_id": { "type": "string" },
+    "approved_by_user_id": { "type": "string" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "stock_item_id": { "type": "string" },
+          "system_quantity": { "type": "number" },
+          "counted_quantity": { "type": "number" },
+          "difference": { "type": "number" },
+          "reason": { "type": "string" },
+          "counted_by_user_id": { "type": "string" },
+          "counted_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "default": []
+    },
+    "notes": { "type": "string" },
+    "request_id": { "type": "string" }
+  },
+  "required": ["unit_id", "code", "status"]
+}
