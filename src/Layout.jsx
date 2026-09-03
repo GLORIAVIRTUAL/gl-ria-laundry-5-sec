@@ -340,12 +340,12 @@ export default function Layout({ children }) {
 
       <div className="flex min-h-screen relative z-10">
         {/* Sidebar */}
-        <aside className="w-20 lg:w-64 min-h-screen bg-white/5 backdrop-blur-xl border-r border-white/10 flex flex-col transition-all duration-300">
-          <div className="p-6 flex items-center justify-center lg:justify-start gap-3">
+        <aside className="w-20 lg:w-72 min-h-screen bg-white/5 backdrop-blur-xl border-r border-white/10 flex flex-col transition-all duration-300">
+          <div className="px-3 py-4 flex items-center justify-center lg:justify-start gap-3">
             <img 
               src="https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/250769bd5_ChatGPTImage3desetde202619_33_19.png"
               alt="GLÓRIA LAUNDRY 5àSec"
-              className="h-16 w-auto object-contain"
+              className="h-32 w-full max-w-[260px] object-contain"
             />
           </div>
 
