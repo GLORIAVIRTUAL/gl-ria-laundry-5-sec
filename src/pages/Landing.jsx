@@ -18,7 +18,7 @@ import PricingSection from '@/components/landing/PricingSection';
 
 export default function Landing() {
   const heroImage = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6998e8554cc6b3863e37588a/e4f3985a0_Gemini_Generated_Image_8g4iwv8g4iwv8g4i-Edited.png";
-  const logoImage = "https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/6998e8554cc6b3863e37588a/deb6f92a5_Untitleddesign51.png";
+  const logoImage = "https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/250769bd5_ChatGPTImage3desetde202619_33_19.png";
 
   const benefits = [
     { icon: MessageSquare, title: "Atendimento 24/7 com IA", desc: "Sua IA responde no WhatsApp a qualquer hora, entende texto, áudio e foto, monta o orçamento sozinha e ainda passa pela revisão da sua equipe antes de enviar ao cliente." },
@@ -48,7 +48,7 @@ export default function Landing() {
       <header className="sticky top-0 z-50 bg-[#1a0b36]/80 backdrop-blur-md border-b border-white/10">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src={logoImage} alt="Chat 5àsec" className="h-20 w-auto object-contain" />
+            <img src={logoImage} alt="GLÓRIA LAUNDRY 5àSec" className="h-20 w-auto object-contain" />
           </div>
           <nav className="hidden md:flex gap-8 text-sm font-medium text-gray-300">
             <a href="#beneficios" className="hover:text-white transition-colors">Benefícios</a>
@@ -254,7 +254,7 @@ export default function Landing() {
       <footer className="bg-[#1a0b36] border-t border-white/10 py-12">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex items-center gap-2">
-                <img src={logoImage} alt="Chat 5àsec" className="h-12 w-auto grayscale opacity-70 hover:grayscale-0 hover:opacity-100 transition-all object-contain" />
+                <img src={logoImage} alt="GLÓRIA LAUNDRY 5àSec" className="h-12 w-auto grayscale opacity-70 hover:grayscale-0 hover:opacity-100 transition-all object-contain" />
             </div>
             <p className="text-sm text-gray-500">© 2026 Chat 5àsec SaaS. Todos os direitos reservados.</p>
         </div>
