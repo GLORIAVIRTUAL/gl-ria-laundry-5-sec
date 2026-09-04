@@ -45,6 +45,7 @@ O script valida schemas, entidades obrigatórias, autenticação explícita das 
 |---|---|
 | [`docs/setup-integrations.md`](docs/setup-integrations.md) | Segredos, integrações, hosts permitidos e configuração por ambiente. |
 | [`docs/operations-guide.md`](docs/operations-guide.md) | Uso dos novos fluxos de Gestão. |
+| [`docs/manual-garment-characteristics.md`](docs/manual-garment-characteristics.md) | Características e conferência individual das peças no orçamento manual. |
 | [`docs/migration-rollout.md`](docs/migration-rollout.md) | Sequência segura para homologação e ativação gradual. |
 | [`docs/security-architecture.md`](docs/security-architecture.md) | Papéis, unidades, auditoria, documentos, pagamentos e revisão humana. |
 | [`docs/validation-notes.md`](docs/validation-notes.md) | Testes executados e limitações atuais do repositório sem backend. |

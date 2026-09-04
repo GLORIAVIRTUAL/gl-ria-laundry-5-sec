@@ -11,6 +11,7 @@ import { Loader2, Search, Plus, Minus, ShoppingCart, User, CreditCard, CheckCirc
 import ProductIcon from '@/components/ui/ProductIcon';
 import TimeField from '@/components/management/TimeField';
 import { toast } from 'sonner';
+import ManualGarmentCharacteristics, { manualPieceNeedsAttention } from './ManualGarmentCharacteristics';
 
 export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, unitId, onSuccess, skipLinkStep = false }) {
   const [step, setStep] = useState(1);
@@ -28,7 +29,9 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
   const [allCustomers, setAllCustomers] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [cart, setCart] = useState([]); // Array of { product, qty }
+  const [cart, setCart] = useState([]); // Resumo agregado para seleção e preço
+  const [garmentItems, setGarmentItems] = useState([]); // Uma entrada para cada peça física
+  const [activeGarmentId, setActiveGarmentId] = useState('');
   const [priority, setPriority] = useState('MEDIUM');
   const [paymentMethod, setPaymentMethod] = useState('cash'); // cash, pix, machine
   const [machineType, setMachineType] = useState('debit'); // debit, credit (quando machine)
@@ -42,6 +45,8 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
       fetchProducts();
       setStep(1);
       setCart([]);
+      setGarmentItems([]);
+      setActiveGarmentId('');
       setPaymentReceived(false);
       setCreatedOrder(null);
       setCustomerPhone('');
@@ -160,30 +165,91 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
     }
   };
 
+  const createManualGarment = (product, template = {}) => ({
+    line_id: crypto.randomUUID(),
+    product_id: product.id,
+    garment_type: product.name,
+    unit_price: Number(product.price || 0),
+    attributes: {
+      color: '',
+      brand: '',
+      pattern: '',
+      size: '',
+      material: '',
+      ...(template.attributes || {}),
+      freeform: { ...(template.attributes?.freeform || {}) }
+    },
+    damages: [],
+    risk_tags: [...(product.risk_tags || [])],
+    notes: product.description || '',
+    customer_authorized_risks: false,
+    condition_checked: false,
+    image_ids: [],
+    document_asset_ids: [],
+    services: [...(template.services || [])],
+    confidence: 1,
+    recognition_status: 'manual'
+  });
+
   const addToCart = (product) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
-      if (existing) {
-        return prev.map(item => item.product.id === product.id ? { ...item, qty: item.qty + 1 } : item);
-      }
-      return [...prev, { product, qty: 1 }];
+    const piece = createManualGarment(product);
+    setGarmentItems((current) => [...current, piece]);
+    setActiveGarmentId(piece.line_id);
+    setCart((current) => {
+      const existing = current.find((item) => item.product.id === product.id);
+      return existing
+        ? current.map((item) => item.product.id === product.id ? { ...item, qty: item.qty + 1 } : item)
+        : [...current, { product, qty: 1 }];
     });
   };
 
   const removeFromCart = (productId) => {
-    setCart(prev => prev.filter(item => item.product.id !== productId));
+    setCart((current) => current.filter((item) => item.product.id !== productId));
+    setGarmentItems((current) => {
+      const remaining = current.filter((piece) => piece.product_id !== productId);
+      if (!remaining.some((piece) => piece.line_id === activeGarmentId)) setActiveGarmentId(remaining[0]?.line_id || '');
+      return remaining;
+    });
   };
 
   const updateQty = (productId, delta) => {
-    setCart(prev => {
-        return prev.map(item => {
-            if (item.product.id === productId) {
-                const newQty = Math.max(0, item.qty + delta);
-                return { ...item, qty: newQty };
-            }
-            return item;
-        }).filter(item => item.qty > 0);
-    });
+    const cartItem = cart.find((item) => item.product.id === productId);
+    if (!cartItem) return;
+
+    if (delta > 0) {
+      const template = [...garmentItems].reverse().find((piece) => piece.product_id === productId);
+      const piece = createManualGarment(cartItem.product, template);
+      setGarmentItems((current) => [...current, piece]);
+      setActiveGarmentId(piece.line_id);
+      setCart((current) => current.map((item) => item.product.id === productId ? { ...item, qty: item.qty + 1 } : item));
+      return;
+    }
+
+    if (cartItem.qty <= 1) {
+      removeFromCart(productId);
+      return;
+    }
+
+    const matching = garmentItems.filter((piece) => piece.product_id === productId);
+    const removed = matching[matching.length - 1];
+    setGarmentItems((current) => current.filter((piece) => piece.line_id !== removed?.line_id));
+    if (removed?.line_id === activeGarmentId) {
+      const replacementPiece = matching[matching.length - 2] || garmentItems.find((piece) => piece.product_id !== productId);
+      setActiveGarmentId(replacementPiece?.line_id || '');
+    }
+    setCart((current) => current.map((item) => item.product.id === productId ? { ...item, qty: item.qty - 1 } : item));
+  };
+
+  const updateGarmentPiece = (lineId, nextPiece) => {
+    setGarmentItems((current) => current.map((piece) => piece.line_id === lineId ? nextPiece : piece));
+  };
+
+  const applyAppearanceToSameProduct = (source) => {
+    setGarmentItems((current) => current.map((piece) => piece.product_id === source.product_id && piece.line_id !== source.line_id ? {
+      ...piece,
+      attributes: { ...(source.attributes || {}), freeform: { ...(source.attributes?.freeform || {}) } },
+    } : piece));
+    toast.success('Identificação visual aplicada às peças iguais. A condição deve ser conferida individualmente.');
   };
 
   const cartTotal = cart.reduce((acc, item) => acc + (item.product.price * item.qty), 0);
@@ -222,23 +288,28 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
 
       if (!finalCustomerId) throw new Error('customer_required');
 
-      const quoteItems = cart.map((item) => ({
-        line_id: crypto.randomUUID(),
-        product_id: item.product.id,
-        garment_type: item.product.name,
-        qty: item.qty,
-        unit_price: Number(item.product.price || 0),
-        subtotal: Number(item.product.price || 0) * item.qty,
-        total_amount: Number(item.product.price || 0) * item.qty,
+      const pendingPieces = garmentItems.filter(manualPieceNeedsAttention);
+      if (pendingPieces.length > 0) throw new Error('garment_characteristics_required');
+
+      const quoteItems = garmentItems.map((piece) => ({
+        line_id: piece.line_id,
+        product_id: piece.product_id,
+        garment_type: piece.garment_type,
+        qty: 1,
+        unit_price: Number(piece.unit_price || 0),
+        subtotal: Number(piece.unit_price || 0),
+        total_amount: Number(piece.unit_price || 0),
         confidence: 1,
         recognition_status: 'manual',
-        image_ids: [],
-        document_asset_ids: [],
-        attributes: {},
-        damages: [],
-        risk_tags: [],
-        services: [],
-        notes: item.product.description || ''
+        image_ids: piece.image_ids || [],
+        document_asset_ids: piece.document_asset_ids || [],
+        attributes: piece.attributes || {},
+        damages: piece.damages || [],
+        risk_tags: piece.risk_tags || [],
+        services: piece.services || [],
+        notes: piece.notes || '',
+        condition_checked: Boolean(piece.condition_checked),
+        customer_authorized_risks: Boolean(piece.customer_authorized_risks)
       }));
 
       const quote = await base44.entities.Quote.create({
@@ -252,7 +323,8 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
         discount: 0,
         addition: 0,
         catalog_version: products[0]?.catalog_version || '1',
-        reviewed_at: new Date().toISOString()
+        reviewed_at: new Date().toISOString(),
+        metadata: { priority, characteristic_capture: 'per_piece' }
       });
 
       const approval = await base44.functions.invoke('approve_quote', { quote_id: quote.id });
@@ -302,11 +374,11 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
       }
 
       setCreatedOrder(finalOrder);
-      setStep(4);
+      setStep(5);
       toast.success(!paymentReceived ? 'Ticket criado sem registrar pagamento.' : paymentRequiresReconciliation ? 'Ticket criado. O pagamento aguarda conciliação.' : 'Ticket criado e pagamento registrado.');
     } catch (error) {
       console.error(error);
-      toast.error('Não foi possível concluir o orçamento. Nenhuma cobrança automática foi realizada.');
+      toast.error(error.message === 'garment_characteristics_required' ? 'Conclua a conferência das características de todas as peças.' : 'Não foi possível concluir o orçamento. Nenhuma cobrança automática foi realizada.');
     } finally {
       setLoading(false);
     }
@@ -316,22 +388,24 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-[#1a0b36] border border-white/10 text-white max-w-4xl h-[80vh] flex flex-col p-0 overflow-hidden">
+      <DialogContent className="bg-[#1a0b36] border border-white/10 text-white max-w-6xl h-[90vh] flex flex-col p-0 overflow-hidden">
         <div className="p-6 border-b border-white/10 bg-white/5 flex justify-between items-center">
             <div>
-                <DialogTitle className="text-xl">Novo Orçamento Inteligente</DialogTitle>
+                <DialogTitle className="text-xl">Novo orçamento manual</DialogTitle>
                 <DialogDescription className="text-gray-400">
                     {step === 1 && "Identifique o cliente"}
                     {step === 2 && "Selecione os itens"}
-                    {step === 3 && "Revisão e Pagamento"}
+                    {step === 3 && "Registre as características de cada peça"}
+                    {step === 4 && "Revise e defina o pagamento"}
                 </DialogDescription>
             </div>
-            <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${step >= 1 ? 'bg-[#FF6600]' : 'bg-gray-600'}`} />
-                <div className={`w-10 h-0.5 ${step >= 2 ? 'bg-[#FF6600]' : 'bg-gray-600'}`} />
-                <div className={`w-3 h-3 rounded-full ${step >= 2 ? 'bg-[#FF6600]' : 'bg-gray-600'}`} />
-                <div className={`w-10 h-0.5 ${step >= 3 ? 'bg-[#FF6600]' : 'bg-gray-600'}`} />
-                <div className={`w-3 h-3 rounded-full ${step >= 3 ? 'bg-[#FF6600]' : 'bg-gray-600'}`} />
+            <div className="hidden items-center gap-2 sm:flex">
+                {[1, 2, 3, 4].map((number, index) => (
+                    <React.Fragment key={number}>
+                        {index > 0 && <div className={`h-0.5 w-8 ${step >= number ? 'bg-[#FF6600]' : 'bg-gray-600'}`} />}
+                        <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${step >= number ? 'bg-[#FF6600] text-white' : 'bg-gray-700 text-gray-400'}`}>{number}</div>
+                    </React.Fragment>
+                ))}
             </div>
         </div>
 
@@ -542,8 +616,19 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                 </div>
             )}
 
-            {/* STEP 3: REVISÃO E PAGAMENTO */}
+            {/* STEP 3: CARACTERÍSTICAS POR PEÇA */}
             {step === 3 && (
+                <ManualGarmentCharacteristics
+                    pieces={garmentItems}
+                    activePieceId={activeGarmentId}
+                    onActivePieceChange={setActiveGarmentId}
+                    onPieceChange={updateGarmentPiece}
+                    onApplyAppearance={applyAppearanceToSameProduct}
+                />
+            )}
+
+            {/* STEP 4: REVISÃO E PAGAMENTO */}
+            {step === 4 && (
                 <div className="flex flex-col h-full items-center p-8 space-y-8 overflow-y-auto custom-scrollbar">
                     <div className="bg-green-500/10 p-4 rounded-full">
                         <CheckCircle2 className="w-16 h-16 text-green-500" />
@@ -566,6 +651,16 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                         <div className="flex justify-between py-2 border-b border-white/10">
                             <span className="text-gray-400">Total</span>
                             <span className="font-bold text-[#FF6600]">R$ {cartTotal.toFixed(2)}</span>
+                        </div>
+
+                        <div className="mt-4 max-h-44 space-y-2 overflow-y-auto pr-1">
+                            {garmentItems.map((piece, index) => (
+                                <div key={piece.line_id} className="rounded-xl border border-white/10 bg-black/15 p-3 text-sm">
+                                    <div className="flex items-center justify-between gap-3"><span className="font-medium">{index + 1}. {piece.garment_type}</span><span className="text-orange-300">R$ {Number(piece.unit_price || 0).toFixed(2)}</span></div>
+                                    <p className="mt-1 text-xs text-white/45">{[piece.attributes?.color, piece.attributes?.brand, piece.attributes?.material, piece.attributes?.size].filter(Boolean).join(' · ') || 'Sem características aplicáveis'}</p>
+                                    {(piece.damages || []).length > 0 && <p className="mt-1 text-xs text-red-300">Avarias: {piece.damages.join(', ')}</p>}
+                                </div>
+                            ))}
                         </div>
                         
                         <div className="mt-6 space-y-2">
@@ -681,8 +776,8 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                 </div>
             )}
             
-            {/* STEP 4: SUCESSO E LINK */}
-            {step === 4 && (
+            {/* STEP 5: SUCESSO */}
+            {step === 5 && (
                 <div className="flex flex-col h-full items-center justify-center p-8 space-y-8">
                     <div className="bg-green-500/10 p-4 rounded-full">
                         <CheckCircle2 className="w-16 h-16 text-green-500" />
@@ -703,34 +798,34 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
         </div>
 
         <div className="p-4 border-t border-white/10 bg-white/5 flex justify-between items-center">
-            {step > 1 && step < 4 ? (
+            {step > 1 && step < 5 ? (
                 <Button variant="ghost" onClick={() => setStep(step - 1)} className="gap-2">
                     <ArrowLeft className="w-4 h-4" /> Voltar
                 </Button>
-            ) : step === 4 ? (
+            ) : step === 5 ? (
                  <div /> // Spacer
             ) : (
                 <Button variant="ghost" onClick={onClose}>Cancelar</Button>
             )}
 
-            {step < 3 && (
+            {step < 4 && (
                 <Button 
                     onClick={() => setStep(step + 1)} 
                     className="bg-[#FF6600] hover:bg-[#ff7b24] gap-2"
-                    disabled={step === 1 && !customerPhone}
+                    disabled={(step === 1 && !customerPhone) || (step === 2 && garmentItems.length === 0) || (step === 3 && garmentItems.some(manualPieceNeedsAttention))}
                 >
                     Próximo <ArrowRight className="w-4 h-4" />
                 </Button>
             )}
             
-            {step === 3 && (
+            {step === 4 && (
                 <Button onClick={handleSubmit} disabled={loading} className="bg-green-600 hover:bg-green-700 gap-2 px-8">
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                     Confirmar e Criar Ticket
                 </Button>
             )}
             
-            {step === 4 && (
+            {step === 5 && (
                 <Button onClick={() => { onSuccess(); onClose(); }} className="bg-[#FF6600] hover:bg-[#ff7b24] gap-2 px-8">
                     Concluir
                 </Button>

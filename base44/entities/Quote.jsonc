@@ -46,11 +46,14 @@
               "size": { "type": "string" },
               "material": { "type": "string" },
               "width_cm": { "type": "number" },
-              "height_cm": { "type": "number" }
+              "height_cm": { "type": "number" },
+              "freeform": { "type": "object", "additionalProperties": true }
             }
           },
           "damages": { "type": "array", "items": { "type": "string" } },
           "risk_tags": { "type": "array", "items": { "type": "string" } },
+          "condition_checked": { "type": "boolean", "default": false },
+          "customer_authorized_risks": { "type": "boolean", "default": false },
           "services": {
             "type": "array",
             "items": {
