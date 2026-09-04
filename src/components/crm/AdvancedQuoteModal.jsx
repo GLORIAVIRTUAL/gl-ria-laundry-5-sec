@@ -812,7 +812,7 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                 <Button 
                     onClick={() => setStep(step + 1)} 
                     className="bg-[#FF6600] hover:bg-[#ff7b24] gap-2"
-                    disabled={(step === 1 && !customerPhone) || (step === 2 && garmentItems.length === 0) || (step === 3 && garmentItems.some(manualPieceNeedsAttention))}
+                    disabled={(step === 1 && !customerPhone) || (step === 2 && garmentItems.length === 0)}
                 >
                     Próximo <ArrowRight className="w-4 h-4" />
                 </Button>
