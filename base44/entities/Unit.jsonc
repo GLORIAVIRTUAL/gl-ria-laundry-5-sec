@@ -14,6 +14,10 @@
       "type": "string",
       "description": "Email do propriet\u00e1rio da unidade"
     },
+    "address": {
+      "type": "string",
+      "description": "Endere\u00e7o completo da unidade (usado como origem nas rotas de coleta)"
+    },
     "status": {
       "type": "string",
       "enum": [

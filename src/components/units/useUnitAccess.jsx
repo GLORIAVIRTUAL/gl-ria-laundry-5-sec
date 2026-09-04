@@ -2,25 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { getAllowedUnitIds, hasPermission } from '@/lib/accessControl';
 
-export const PRESET_UNITS = [
-  { name: 'Loja Rio Branco', subdomain: 'riobranco' },
-  { name: 'Loja Petrópolis', subdomain: 'petropolis' },
-  { name: 'Loja Zaffari (Protásio Alves)', subdomain: 'zaffari-protasio' },
-  { name: 'Loja Bourbon Wallig', subdomain: 'bourbon-wallig' },
-  { name: 'Loja Moinhos Shopping', subdomain: 'moinhos-shopping' }
-];
-
-const normalizeText = (value = '') =>
-  value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-const isRioBrancoUnit = (unit) => {
-  const name = normalizeText(unit?.name);
-  const subdomain = normalizeText(unit?.subdomain);
-  return name.includes('rio branco') || subdomain === 'riobranco' || subdomain === 'rio-branco';
-};
+const UNITS_CACHE_KEY = 'cachedUnits_v2';
 
 const getPrimaryUnitId = (user) => user?.primary_unit_id || user?.data?.primary_unit_id || '';
 
@@ -66,7 +48,7 @@ export default function useUnitAccess() {
       setUser(currentUser);
 
       let unitsList = [];
-      const cachedUnitsRaw = sessionStorage.getItem('cachedUnits');
+      const cachedUnitsRaw = sessionStorage.getItem(UNITS_CACHE_KEY);
       if (!forceRefresh && cachedUnitsRaw) {
         try {
           const parsed = JSON.parse(cachedUnitsRaw);
@@ -82,7 +64,7 @@ export default function useUnitAccess() {
           unitsList = [];
         }
         if (unitsList.length > 0) {
-          sessionStorage.setItem('cachedUnits', JSON.stringify({ list: unitsList, t: Date.now() }));
+          sessionStorage.setItem(UNITS_CACHE_KEY, JSON.stringify({ list: unitsList, t: Date.now() }));
         }
       }
 
@@ -95,7 +77,7 @@ export default function useUnitAccess() {
         : unitsList.filter((unit) => allowedUnitIds.includes(unit.id));
       const effectiveUnits = allowedUnits.length > 0 ? allowedUnits : unitsList.filter((unit) => unit.id === getPrimaryUnitId(currentUser));
       const savedPrimaryUnit = effectiveUnits.find((unit) => unit.id === getPrimaryUnitId(currentUser)) || null;
-      const fallbackUnit = savedPrimaryUnit || effectiveUnits[0] || unitsList.find(isRioBrancoUnit) || unitsList[0] || null;
+      const fallbackUnit = savedPrimaryUnit || effectiveUnits[0] || unitsList[0] || null;
       const primaryUnitId = fallbackUnit?.id || '';
 
       setSelectedUnitId((currentValue) => {
