@@ -17,7 +17,8 @@ NEW_ENTITIES = {
     "ProcessedEvent", "ProductionBatch", "PurchaseDocument", "PurchaseItem", "QualityInspection", "ReworkCase",
     "StockItem", "StockMovement", "Supplier", "ThirdPartyJob", "ThirdPartyPartner", "DeliveryReceipt",
     "PaymentReceipt", "CustomerCreditLedger", "BillingAgreement", "BillingStatement", "QuoteVersion",
-    "FiscalProfile", "FiscalDocument", "FiscalEvent",
+    "FiscalProfile", "FiscalDocument", "FiscalEvent", "StockLot", "ProductionEvent", "LaborEntry",
+    "OperationalAlert", "ProductionCostProfile",
 }
 
 NEW_FUNCTIONS = {
@@ -28,6 +29,9 @@ NEW_FUNCTIONS = {
     "price_garment_services", "register_label_print", "move_garments", "manage_location", "complete_garment_delivery",
     "manage_payment_receipt", "confirm_payment_tender", "manage_customer_credit", "manage_billing_agreement",
     "close_billing_period", "manage_quote_lifecycle", "manage_fiscal_document", "checkExpiredQuotes",
+    "manage_stock_operation", "manage_inventory_count", "manage_consumption_recipe", "post_production_consumption",
+    "manage_machine", "manage_production_batch", "manage_labor_entry", "manage_production_cost_profile",
+    "manage_operational_alerts",
 }
 
 
@@ -201,6 +205,50 @@ def main() -> int:
     for marker in ["PaymentReceiptDialog", "CustomerCreditDialog", "confirm_payment_tender", "pendingPayments"]:
         if marker not in financial_panel:
             fail(f"Central financeira sem jornada da Onda 2: {marker}", failures)
+
+    stock_operation = (FUNCTIONS / "manage_stock_operation" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["inventory_count_freezes_movements", "inventory.override_negative", "StockLot", "transfer_in", "production_batch_id"]:
+        if marker not in stock_operation:
+            fail(f"Operação de estoque sem garantia da Onda 3: {marker}", failures)
+
+    inventory_count = (FUNCTIONS / "manage_inventory_count" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["blind_count", "inventory_items_not_counted", "inventory_difference", "action === 'review_item'", "ProcessedEvent"]:
+        if marker not in inventory_count:
+            fail(f"Inventário sem garantia da Onda 3: {marker}", failures)
+
+    consumption = (FUNCTIONS / "post_production_consumption" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["allocateLots", "consumption_reversal", "waste_tolerance_percent", "insufficient_stock:", "actual_material_cost"]:
+        if marker not in consumption:
+            fail(f"Consumo automático sem garantia da Onda 3: {marker}", failures)
+
+    production_batch = (FUNCTIONS / "manage_production_batch" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["calculateCapacity", "machine_capacity_exceeded", "production_consumption_required", "ProductionEvent", "findMissingMaterials"]:
+        if marker not in production_batch:
+            fail(f"Lote de produção sem garantia da Onda 3: {marker}", failures)
+
+    labor = (FUNCTIONS / "manage_labor_entry" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["operator_entry_already_active", "hourly_cost", "accumulated_minutes", "labor_cost"]:
+        if marker not in labor:
+            fail(f"Apontamento de mão de obra sem garantia da Onda 3: {marker}", failures)
+
+    alerts = (FUNCTIONS / "manage_operational_alerts" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["resolveMissing", "low_stock", "batch_delayed", "cost_variance", "action === 'acknowledge'"]:
+        if marker not in alerts:
+            fail(f"Alertas operacionais sem garantia da Onda 3: {marker}", failures)
+
+    for marker in ["ProductionOperationsPanel", "OperationsInsightsPanel", "command-stock-lots", "command-production-batches", "command-operational-alerts"]:
+        if marker not in command_center:
+            fail(f"Centro de comando sem módulo da Onda 3: {marker}", failures)
+
+    inventory_panel = (ROOT / "src" / "components" / "management" / "InventoryPanel.jsx").read_text(encoding="utf-8")
+    for marker in ["StockOperationDialog", "InventoryCountPanel", "ConsumptionRecipesPanel", "stockLots", "stockMovements"]:
+        if marker not in inventory_panel:
+            fail(f"Central de estoque sem jornada da Onda 3: {marker}", failures)
+
+    production_panel = (ROOT / "src" / "components" / "management" / "ProductionOperationsPanel.jsx").read_text(encoding="utf-8")
+    for marker in ["ProductionBatchDialog", "BatchExecutionDialog", "MachineManagementDialog", "ProductionCostProfileDialog"]:
+        if marker not in production_panel:
+            fail(f"Central de produção sem jornada da Onda 3: {marker}", failures)
 
     if failures:
         print("VALIDAÇÃO FALHOU")
