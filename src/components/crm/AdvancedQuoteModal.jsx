@@ -288,9 +288,6 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
 
       if (!finalCustomerId) throw new Error('customer_required');
 
-      const pendingPieces = garmentItems.filter(manualPieceNeedsAttention);
-      if (pendingPieces.length > 0) throw new Error('garment_characteristics_required');
-
       const quoteItems = garmentItems.map((piece) => ({
         line_id: piece.line_id,
         product_id: piece.product_id,
@@ -378,7 +375,7 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
       toast.success(!paymentReceived ? 'Ticket criado sem registrar pagamento.' : paymentRequiresReconciliation ? 'Ticket criado. O pagamento aguarda conciliação.' : 'Ticket criado e pagamento registrado.');
     } catch (error) {
       console.error(error);
-      toast.error(error.message === 'garment_characteristics_required' ? 'Conclua a conferência das características de todas as peças.' : 'Não foi possível concluir o orçamento. Nenhuma cobrança automática foi realizada.');
+      toast.error('Não foi possível concluir o orçamento. Nenhuma cobrança automática foi realizada.');
     } finally {
       setLoading(false);
     }

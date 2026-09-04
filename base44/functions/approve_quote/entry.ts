@@ -58,21 +58,6 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'human_review_required', unresolved_items: unresolvedItems.length, request_id: requestId }, { status: 409 });
     }
 
-    if (quote.origin === 'management_manual' && quote.metadata?.characteristic_capture === 'per_piece') {
-      const uncheckedItems = items.filter((item: any) => item.condition_checked !== true);
-      const unauthorizedRiskItems = items.filter((item: any) =>
-        ((item.damages || []).length > 0 || (item.risk_tags || []).length > 0) && item.customer_authorized_risks !== true
-      );
-      if (uncheckedItems.length > 0 || unauthorizedRiskItems.length > 0) {
-        return Response.json({
-          error: 'garment_condition_review_required',
-          unchecked_items: uncheckedItems.length,
-          unauthorized_risk_items: unauthorizedRiskItems.length,
-          request_id: requestId,
-        }, { status: 422 });
-      }
-    }
-
     const eventKey = `approve_quote:${quote.id}`;
     const previousEvents = await base44.asServiceRole.entities.ProcessedEvent.filter({ event_key: eventKey });
     const completedEvent = previousEvents.find((event: any) => event.status === 'completed');
