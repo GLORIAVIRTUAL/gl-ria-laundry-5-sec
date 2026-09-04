@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { isSameBrasiliaDay } from '@/lib/pickupDateTime';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -7,14 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-
-const STORES = [
-  { name: 'Loja Rio Branco', address: 'Rua Protásio Alves, 347 - Rio Branco, Porto Alegre - RS' },
-  { name: 'Loja Petrópolis', address: 'Av. Dr. Nilo Peçanha, 95 - Petrópolis, Porto Alegre - RS' },
-  { name: 'Loja Zaffari (Protásio Alves)', address: 'Av. Protásio Alves, 2700 - Petrópolis, Porto Alegre - RS' },
-  { name: 'Loja Bourbon Wallig', address: 'Av. Assis Brasil, 2611 - Cristo Redentor, Porto Alegre - RS' },
-  { name: 'Loja Moinhos Shopping', address: 'Rua Olavo Barreto Viana, 36 - Moinhos de Vento, Porto Alegre - RS' }
-];
 
 function reorder(list, startIndex, endIndex) {
   const result = Array.from(list);
@@ -38,16 +30,28 @@ function buildGoogleMapsUrl(origin, stops) {
 }
 
 export default function PickupRoutePlanner({ pickups, customers, customerMap, date, onStatusChange }) {
-  const [selectedStore, setSelectedStore] = useState(STORES[0].name);
+  const [stores, setStores] = useState([]);
+  const [selectedStore, setSelectedStore] = useState('');
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeStops, setRouteStops] = useState([]);
   const [routeSummary, setRouteSummary] = useState(null);
+
+  useEffect(() => {
+    base44.entities.Unit.list('name', 100)
+      .then((units) => {
+        const mapped = units.map((u) => ({ name: u.name, address: u.address || u.name }));
+        setStores(mapped);
+        if (mapped.length > 0 && !selectedStore) setSelectedStore(mapped[0].name);
+      })
+      .catch((err) => console.error('Unit.list falhou:', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const scheduledPickups = useMemo(() => {
     return pickups.filter((pickup) => pickup.status === 'scheduled' && isSameBrasiliaDay(pickup.scheduled_at, date));
   }, [pickups, date]);
 
-  const selectedStoreData = STORES.find((store) => store.name === selectedStore);
+  const selectedStoreData = stores.find((store) => store.name === selectedStore);
 
   const handleOptimizeRoute = async () => {
     if (scheduledPickups.length === 0) {
@@ -116,7 +120,7 @@ export default function PickupRoutePlanner({ pickups, customers, customerMap, da
               <SelectValue placeholder="Selecione a loja" />
             </SelectTrigger>
             <SelectContent>
-              {STORES.map((store) => (
+              {stores.map((store) => (
                 <SelectItem key={store.name} value={store.name}>{store.name}</SelectItem>
               ))}
             </SelectContent>
