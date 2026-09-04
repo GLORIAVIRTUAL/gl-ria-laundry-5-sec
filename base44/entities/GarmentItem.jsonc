@@ -21,6 +21,10 @@
       "type": "string",
       "description": "Código único impresso em QR ou código de barras"
     },
+    "label_print_count": { "type": "number", "default": 0 },
+    "label_last_printed_at": { "type": "string", "format": "date-time" },
+    "label_last_printed_by_user_id": { "type": "string" },
+    "label_last_reprint_reason": { "type": "string" },
     "product_id": {
       "type": "string"
     },

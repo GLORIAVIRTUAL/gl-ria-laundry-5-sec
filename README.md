@@ -37,7 +37,11 @@ npm run build
 python3 scripts/validate-laundry-evolution.py
 ```
 
-O script valida schemas, entidades obrigatórias, autenticação explícita das funções novas, ausência de segredos no modelo de ambiente e controles críticos de orçamento, pagamentos, comprovantes, uploads e despesas recorrentes.
+O script valida schemas, entidades obrigatórias, autenticação explícita das funções novas, ausência de segredos no modelo de ambiente e controles críticos de orçamento, pagamentos, comprovantes, uploads e despesas recorrentes. Para validar também o núcleo operacional de balcão, execute:
+
+```bash
+npm run validate:counter-core
+```
 
 ## Configuração e implantação
 
@@ -46,6 +50,7 @@ O script valida schemas, entidades obrigatórias, autenticação explícita das 
 | [`docs/setup-integrations.md`](docs/setup-integrations.md) | Segredos, integrações, hosts permitidos e configuração por ambiente. |
 | [`docs/operations-guide.md`](docs/operations-guide.md) | Uso dos novos fluxos de Gestão. |
 | [`docs/manual-garment-characteristics.md`](docs/manual-garment-characteristics.md) | Características e conferência individual das peças no orçamento manual. |
+| [`docs/operational-counter-core.md`](docs/operational-counter-core.md) | Serviços por peça, etiquetas, leitura, localização e entrega parcial. |
 | [`docs/migration-rollout.md`](docs/migration-rollout.md) | Sequência segura para homologação e ativação gradual. |
 | [`docs/security-architecture.md`](docs/security-architecture.md) | Papéis, unidades, auditoria, documentos, pagamentos e revisão humana. |
 | [`docs/validation-notes.md`](docs/validation-notes.md) | Testes executados e limitações atuais do repositório sem backend. |

@@ -16,12 +16,15 @@ A branch `feat/intelligent-management-suite` transforma a página **Gestão** em
 | Financeiro | Contas a pagar/receber, documentos, aprovação, liquidação, caixa, alocação e conciliação. |
 | Segurança | Papéis, permissões, unidades, idempotência, auditoria, proteção de endpoints, upload e cancelamento auditado. |
 | Integrações | `.env.example`, diagnóstico de prontidão sem revelar segredos e comportamento seguro sem tokens. |
+| Serviços por peça | Composição de vários serviços, compatibilidade por produto, regras específicas e preço recalculado no servidor. |
+| Etiquetas e localização | QR térmico por peça, reimpressão auditada, leitor por câmera/USB, posições, capacidade e movimentação em lote. |
+| Entrega | Retirada total ou parcial, bloqueio por saldo, liberação gerencial, prova opcional e comprovante. |
 
 ## Correção do orçamento manual
 
 O fluxo manual agora inclui uma etapa dedicada às características de cada peça física. Cor, marca, material, estampa, tamanho, dimensões e detalhes podem ser copiados entre peças iguais, enquanto avarias, riscos, observações e ciência do cliente exigem conferência individual. Mesmo quando o carrinho possui várias unidades do mesmo produto, o orçamento persiste cada unidade com `qty: 1`, permitindo que `approve_quote` gere um `GarmentItem` distinto e preserve a condição observada.
 
-A nova validação aplica-se somente a orçamentos marcados com `metadata.characteristic_capture=per_piece`. Orçamentos manuais legados continuam aprováveis, preservando a compatibilidade com registros criados antes desta evolução.
+Os campos de condição e ciência permanecem persistidos por peça, mas os ajustes posteriores incorporados à `main` permitem avançar com características pendentes e não bloqueiam a aprovação quando `condition_checked` é falso. A interface sinaliza as pendências sem interromper o atendimento, preservando o comportamento definido pelo usuário.
 
 ## Novas funções server-side
 
@@ -43,6 +46,11 @@ A nova validação aplica-se somente a orçamentos marcados com `metadata.charac
 | `resolve_human_review` | Registrar decisões da fila de revisão. |
 | `cancel_management_record` | Substituir exclusão destrutiva por cancelamento auditado. |
 | `integration_status` | Expor somente a presença dos segredos necessários. |
+| `price_garment_services` | Recalcular composição, preço, prazo e etapas de cada peça no servidor. |
+| `register_label_print` | Registrar impressão e exigir motivo para reimpressão de etiqueta. |
+| `manage_location` | Criar, atualizar e arquivar posições físicas com autorização. |
+| `move_garments` | Movimentar peças em lote com capacidade, ocupação, idempotência e eventos. |
+| `complete_garment_delivery` | Concluir entrega total/parcial com validação financeira e comprovante. |
 
 ## Funções endurecidas
 
@@ -54,4 +62,4 @@ O orçamento manual, os gráficos financeiros, a tabela de tickets, os registros
 
 ## Validação
 
-O build Vite conclui. Todos os arquivos novos e modificados passam no lint direcionado. As funções TypeScript alteradas passam no parser `esbuild`. O script `npm run validate:evolution` verifica 56 schemas, 16 novas funções e invariantes críticos. A prévia autenticada depende da associação posterior a um backend Base44 de homologação.
+O build Vite conclui. Todos os arquivos novos e modificados passam no lint direcionado. As funções TypeScript alteradas passam no parser `esbuild`. O comando `npm run validate:counter-core` verifica **57 schemas, 21 funções autenticadas**, invariantes críticos, testes determinísticos de precificação e o build. Etiquetas e comprovantes também foram renderizados em amostras locais para validação visual. A prévia autenticada depende da associação a um backend Base44 de homologação.
