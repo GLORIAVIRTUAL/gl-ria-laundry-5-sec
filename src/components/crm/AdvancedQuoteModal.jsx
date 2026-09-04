@@ -11,7 +11,7 @@ import { Loader2, Search, Plus, Minus, ShoppingCart, User, CreditCard, CheckCirc
 import ProductIcon from '@/components/ui/ProductIcon';
 import TimeField from '@/components/management/TimeField';
 import { toast } from 'sonner';
-import ManualGarmentCharacteristics, { manualPieceNeedsAttention } from './ManualGarmentCharacteristics';
+import ManualGarmentCharacteristics from './ManualGarmentCharacteristics';
 
 export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, unitId, onSuccess, skipLinkStep = false }) {
   const [step, setStep] = useState(1);
@@ -19,6 +19,8 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
   const [paymentReceived, setPaymentReceived] = useState(false);
   const [createdOrder, setCreatedOrder] = useState(null);
   const [products, setProducts] = useState([]);
+  const [laundryServices, setLaundryServices] = useState([]);
+  const [pricingPieceId, setPricingPieceId] = useState(null);
   const [categories, setCategories] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -46,6 +48,8 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
       setStep(1);
       setCart([]);
       setGarmentItems([]);
+      setLaundryServices([]);
+      setPricingPieceId(null);
       setActiveGarmentId('');
       setPaymentReceived(false);
       setCreatedOrder(null);
@@ -89,12 +93,20 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
 
   const fetchProducts = async () => {
     try {
-      const items = await base44.entities.Product.list(); // Fetch all products
+      const [productResult, serviceResult] = await Promise.allSettled([
+        base44.entities.Product.list(),
+        base44.entities.LaundryService.filter({ active: true }, 'name', 500),
+      ]);
+      const items = productResult.status === 'fulfilled' ? productResult.value : [];
+      const services = serviceResult.status === 'fulfilled' ? serviceResult.value : [];
       setProducts(items);
+      setLaundryServices(services);
       const cats = [...new Set(items.map(p => p.category || 'Outros'))];
       setCategories(cats);
+      if (productResult.status === 'rejected') throw productResult.reason;
     } catch (err) {
       console.error("Error fetching products", err);
+      toast.error('Não foi possível carregar o catálogo de peças.');
     }
   };
 
@@ -186,7 +198,9 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
     condition_checked: false,
     image_ids: [],
     document_asset_ids: [],
-    services: [...(template.services || [])],
+    services: template.services?.length
+      ? template.services.map((service) => ({ ...service }))
+      : (product.default_service_ids || []).map((serviceId) => ({ service_id: serviceId, quantity: 1 })),
     confidence: 1,
     recognition_status: 'manual'
   });
@@ -252,7 +266,52 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
     toast.success('Identificação visual aplicada às peças iguais. A condição deve ser conferida individualmente.');
   };
 
-  const cartTotal = cart.reduce((acc, item) => acc + (item.product.price * item.qty), 0);
+  const repriceGarmentPiece = async (nextPiece) => {
+    if (!unitId) return;
+    setPricingPieceId(nextPiece.line_id);
+    try {
+      const response = await base44.functions.invoke('price_garment_services', {
+        unit_id: unitId,
+        customer_id: customerId || undefined,
+        priority: priority === 'CRITICAL' ? 'urgent' : priority === 'HIGH' ? 'high' : 'normal',
+        items: [nextPiece],
+      });
+      const priced = response.data?.items?.[0];
+      if (priced) setGarmentItems((current) => current.map((piece) => piece.line_id === nextPiece.line_id ? { ...piece, ...priced } : piece));
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.error === 'service_not_compatible' ? 'Esse serviço não é compatível com a peça.' : 'Não foi possível recalcular os serviços.');
+    } finally {
+      setPricingPieceId(null);
+    }
+  };
+
+  const cartTotal = garmentItems.reduce((sum, piece) => sum + Number(piece.total_amount ?? piece.unit_price ?? 0), 0);
+
+  const handleNextStep = async () => {
+    if (step !== 2) {
+      setStep((current) => current + 1);
+      return;
+    }
+    if (!unitId || garmentItems.length === 0) return;
+
+    setLoading(true);
+    try {
+      const response = await base44.functions.invoke('price_garment_services', {
+        unit_id: unitId,
+        customer_id: customerId || undefined,
+        priority: priority === 'CRITICAL' ? 'urgent' : priority === 'HIGH' ? 'high' : 'normal',
+        items: garmentItems,
+      });
+      setGarmentItems(response.data?.items || garmentItems);
+      setStep(3);
+    } catch (error) {
+      console.error(error);
+      toast.error('Não foi possível validar os preços e serviços das peças.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (loading) return;
@@ -604,7 +663,7 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-sm font-medium truncate">{item.product.name}</div>
-                                                <div className="text-xs text-gray-400">R$ {item.product.price} un</div>
+                                                <div className="text-xs text-gray-400">R$ {garmentItems.filter((piece) => piece.product_id === item.product.id).reduce((sum, piece) => sum + Number(piece.total_amount ?? piece.unit_price ?? 0), 0).toFixed(2)} no grupo</div>
                                             </div>
                                             <div className="flex items-center gap-2 bg-black/20 rounded-md p-1">
                                                 <button onClick={(e) => { e.stopPropagation(); updateQty(item.product.id, -1); }} className="p-1 hover:text-red-400"><Minus className="w-3 h-3" /></button>
@@ -635,6 +694,9 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                     onActivePieceChange={setActiveGarmentId}
                     onPieceChange={updateGarmentPiece}
                     onApplyAppearance={applyAppearanceToSameProduct}
+                    services={laundryServices}
+                    onRepricePiece={repriceGarmentPiece}
+                    pricingPieceId={pricingPieceId}
                 />
             )}
 
@@ -821,11 +883,12 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
 
             {step < 4 && (
                 <Button 
-                    onClick={() => setStep(step + 1)} 
+                    onClick={handleNextStep}
                     className="bg-[#FF6600] hover:bg-[#ff7b24] gap-2"
-                    disabled={(step === 1 && !customerPhone) || (step === 2 && garmentItems.length === 0)}
+                    disabled={loading || (step === 1 && !customerPhone) || (step === 2 && garmentItems.length === 0)}
                 >
-                    Próximo <ArrowRight className="w-4 h-4" />
+                    {loading && step === 2 ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    {loading && step === 2 ? 'Validando serviços' : 'Próximo'} <ArrowRight className="w-4 h-4" />
                 </Button>
             )}
             

@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
+import { loadLaundryPricingCatalog, priceGarmentItems } from '../../shared/laundryPricing.js';
 
 const APPROVER_ROLES = new Set(['super_admin', 'admin', 'manager', 'attendant']);
 
@@ -58,6 +59,15 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'human_review_required', unresolved_items: unresolvedItems.length, request_id: requestId }, { status: 409 });
     }
 
+    const pricingCatalog = await loadLaundryPricingCatalog(base44, { unitId: quote.unit_id, customerId: quote.customer_id });
+    const pricing = priceGarmentItems({
+      items,
+      catalog: pricingCatalog,
+      unitId: quote.unit_id,
+      priority: quote.metadata?.priority === 'CRITICAL' ? 'urgent' : quote.metadata?.priority === 'HIGH' ? 'high' : 'normal',
+    });
+    const pricedItems = pricing.items;
+
     const eventKey = `approve_quote:${quote.id}`;
     const previousEvents = await base44.asServiceRole.entities.ProcessedEvent.filter({ event_key: eventKey });
     const completedEvent = previousEvents.find((event: any) => event.status === 'completed');
@@ -82,12 +92,14 @@ Deno.serve(async (req) => {
       unit_id: quote.unit_id,
     });
 
-    const subtotal = items.reduce((sum: number, item: any) => sum + itemTotal(item), 0);
+    const subtotal = pricing.subtotal;
     const discount = Math.max(0, Number(quote.discount || 0));
     const addition = Math.max(0, Number(quote.addition || 0));
     const total = Math.max(0, subtotal - discount + addition);
-    const pieceCount = items.reduce((sum: number, item: any) => sum + Math.max(1, Number(item.qty || 1)), 0);
+    const pieceCount = pricedItems.reduce((sum: number, item: any) => sum + Math.max(1, Number(item.qty || 1)), 0);
     const now = new Date().toISOString();
+    const longestServiceMinutes = pricedItems.reduce((maximum: number, item: any) => Math.max(maximum, Number(item.estimated_minutes || 0)), 0);
+    const expectedFinishAt = quote.expected_finish_at || (longestServiceMinutes > 0 ? new Date(Date.now() + longestServiceMinutes * 60_000).toISOString() : undefined);
 
     createdOrder = await base44.asServiceRole.entities.Order.create({
       customer_id: quote.customer_id,
@@ -107,6 +119,7 @@ Deno.serve(async (req) => {
       delivered_piece_count: 0,
       customer_acceptance_status: 'pending',
       approved_at: now,
+      expected_finish_at: expectedFinishAt,
       operator_user_id: user.id,
       origin: quote.origin?.startsWith('management') ? 'management' : (quote.origin || 'other'),
       metadata: { request_id: requestId },
@@ -114,7 +127,7 @@ Deno.serve(async (req) => {
 
     const createdGarments: any[] = [];
     let sequence = 0;
-    for (const item of items) {
+    for (const item of pricedItems) {
       const quantity = Math.max(1, Number(item.qty || 1));
       const lineTotal = itemTotal(item);
       const perPieceTotal = lineTotal / quantity;
@@ -148,8 +161,16 @@ Deno.serve(async (req) => {
           status: 'received',
           priority: quote.metadata?.priority === 'CRITICAL' ? 'urgent' : quote.metadata?.priority === 'HIGH' ? 'high' : 'normal',
           received_at: now,
-          due_at: createdOrder.expected_finish_at,
-          metadata: { quote_line_id: item.line_id, source: quote.origin, request_id: requestId },
+          due_at: expectedFinishAt,
+          metadata: {
+            quote_line_id: item.line_id,
+            source: quote.origin,
+            pricing: item.pricing,
+            estimated_minutes: item.estimated_minutes,
+            production_steps: item.production_steps,
+            requires_third_party: item.requires_third_party,
+            request_id: requestId,
+          },
         });
         createdGarments.push(garment);
 
@@ -173,8 +194,10 @@ Deno.serve(async (req) => {
       accepted_at: now,
       reviewed_at: quote.reviewed_at || now,
       reviewed_by_user_id: quote.reviewed_by_user_id || user.id,
+      items: pricedItems,
       subtotal,
       total,
+      metadata: { ...(quote.metadata || {}), pricing: { source: 'server', priced_at: pricing.priced_at } },
     });
 
     const orderCards = await base44.asServiceRole.entities.CrmCard.filter({ linked_order_id: createdOrder.id });

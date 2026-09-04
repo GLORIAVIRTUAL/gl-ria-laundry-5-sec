@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, Boxes, Camera, ClipboardCheck, FileText, Gauge, PackagePlus, Plus, ReceiptText, ShieldCheck, Shirt, Sparkles, TriangleAlert } from 'lucide-react';
+import { Banknote, Boxes, Camera, ClipboardCheck, FileText, Gauge, MapPin, PackageCheck, PackagePlus, Plus, Printer, ReceiptText, ShieldCheck, Shirt, Sparkles, TriangleAlert } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,9 @@ import ReviewQueue from './ReviewQueue';
 import CashSessionModal from './CashSessionModal';
 import ExceptionsPanel from './ExceptionsPanel';
 import IntegrationReadiness from './IntegrationReadiness';
+import GarmentLocationPanel from './GarmentLocationPanel';
+import GarmentLabelPrintDialog from './GarmentLabelPrintDialog';
+import GarmentDeliveryDialog from './GarmentDeliveryDialog';
 
 function ActionCard({ icon: Icon, title, description, accent, onClick, badge }) {
   return (
@@ -32,6 +35,9 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
   const [billOpen, setBillOpen] = useState(false);
   const [cashOpen, setCashOpen] = useState(false);
   const [inspectionGarment, setInspectionGarment] = useState(null);
+  const [workspaceTab, setWorkspaceTab] = useState('operations');
+  const [labelGarments, setLabelGarments] = useState([]);
+  const [deliveryGarments, setDeliveryGarments] = useState([]);
   const unitId = selectedUnitId === 'all' ? defaultUnitId : selectedUnitId;
 
   const queryOptions = { staleTime: 60_000, retry: 1 };
@@ -48,6 +54,8 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
   const { data: thirdPartyJobs = [] } = useQuery({ queryKey: ['command-third-party-jobs'], queryFn: () => base44.entities.ThirdPartyJob.filter({}, '-created_date', 1000), ...queryOptions });
   const { data: thirdPartyPartners = [] } = useQuery({ queryKey: ['command-third-party-partners'], queryFn: () => base44.entities.ThirdPartyPartner.filter({ active: true }, 'trade_name', 500), ...queryOptions });
   const { data: reworkCases = [] } = useQuery({ queryKey: ['command-rework-cases'], queryFn: () => base44.entities.ReworkCase.filter({}, '-opened_at', 1000), ...queryOptions });
+  const { data: locations = [] } = useQuery({ queryKey: ['command-locations'], queryFn: () => base44.entities.Location.filter({ active: true }, 'code', 2000), ...queryOptions });
+  const { data: orders = [] } = useQuery({ queryKey: ['command-orders'], queryFn: () => base44.entities.Order.filter({}, '-created_date', 3000), ...queryOptions });
 
   const scoped = (records) => records.filter((record) => selectedUnitId === 'all' || record.unit_id === selectedUnitId);
   const summary = useMemo(() => {
@@ -61,7 +69,7 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
   }, [garments, reviews, stockItems, payables, selectedUnitId]);
 
   const refreshAll = () => {
-    ['command-garments', 'command-reviews', 'command-stock', 'command-purchases', 'command-suppliers', 'command-payables', 'command-receivables', 'command-financial-documents', 'command-cash-sessions', 'command-bank-transactions', 'command-third-party-jobs', 'command-third-party-partners', 'command-rework-cases', 'mgmt-orders', 'mgmt-payments', 'mgmt-finance', 'mgmt-audit'].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
+    ['command-garments', 'command-reviews', 'command-stock', 'command-purchases', 'command-suppliers', 'command-payables', 'command-receivables', 'command-financial-documents', 'command-cash-sessions', 'command-bank-transactions', 'command-third-party-jobs', 'command-third-party-partners', 'command-rework-cases', 'command-locations', 'command-orders', 'mgmt-orders', 'mgmt-payments', 'mgmt-finance', 'mgmt-audit'].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
   };
 
   return (
@@ -81,23 +89,28 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
 
       <IntegrationReadiness />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <ActionCard icon={Camera} title="Fotos das peças" description="Identificar, relacionar ao catálogo e calcular o orçamento." accent="from-violet-500 to-fuchsia-600" onClick={() => setSmartQuoteOpen(true)} />
         <ActionCard icon={PackagePlus} title="Nota de compra" description="Extrair fornecedor, itens, preços e quantidades." accent="from-orange-500 to-amber-500" onClick={() => setPurchaseOpen(true)} />
         <ActionCard icon={ReceiptText} title="Conta ou fatura" description="Ler vencimento, consumo, valor e código de pagamento." accent="from-sky-500 to-blue-600" onClick={() => setBillOpen(true)} />
         <ActionCard icon={Banknote} title="Caixa" description="Abrir, movimentar, conferir e fechar por operador." accent="from-emerald-500 to-teal-600" onClick={() => setCashOpen(true)} />
         <ActionCard icon={FileText} title="Lançamento manual" description="Manter o formulário financeiro já conhecido." accent="from-slate-500 to-slate-700" onClick={onManualEntry} />
-        <ActionCard icon={ShieldCheck} title="Revisões" description="Centralizar baixa confiança e decisões sensíveis." accent="from-indigo-500 to-violet-600" badge={summary.pendingReviews} onClick={() => document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' })} />
+        <ActionCard icon={MapPin} title="Localizar peça" description="Buscar por ticket, cliente, características ou leitura da etiqueta." accent="from-cyan-500 to-blue-600" onClick={() => { setWorkspaceTab('custody'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
+        <ActionCard icon={PackageCheck} title="Entrega parcial" description="Selecionar somente as peças prontas e emitir comprovante." accent="from-emerald-500 to-teal-600" onClick={() => { setWorkspaceTab('custody'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
+        <ActionCard icon={Printer} title="Etiquetas" description="Impressão térmica por peça com QR e reimpressão auditada." accent="from-orange-500 to-rose-500" onClick={() => { setWorkspaceTab('custody'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
+        <ActionCard icon={ShieldCheck} title="Revisões" description="Centralizar baixa confiança e decisões sensíveis." accent="from-indigo-500 to-violet-600" badge={summary.pendingReviews} onClick={() => { setWorkspaceTab('reviews'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
       </div>
 
-      <Tabs id="management-workspace" defaultValue="operations" className="space-y-5 scroll-mt-6">
+      <Tabs id="management-workspace" value={workspaceTab} onValueChange={setWorkspaceTab} className="space-y-5 scroll-mt-6">
         <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-2xl bg-white/5 p-1.5">
           <TabsTrigger value="operations" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Gauge className="h-4 w-4" />Operação</TabsTrigger>
+          <TabsTrigger value="custody" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><MapPin className="h-4 w-4" />Etiquetas e entrega</TabsTrigger>
           <TabsTrigger value="inventory" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Boxes className="h-4 w-4" />Insumos</TabsTrigger>
           <TabsTrigger value="financial" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Banknote className="h-4 w-4" />Contas e caixa</TabsTrigger>
           <TabsTrigger value="reviews" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><ClipboardCheck className="h-4 w-4" />Revisões {summary.pendingReviews > 0 && <Badge className="ml-1 bg-orange-500 text-white">{summary.pendingReviews}</Badge>}</TabsTrigger>
         </TabsList>
         <TabsContent value="operations" className="space-y-6"><ProductionBoard garments={garments} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onInspect={setInspectionGarment} /><ExceptionsPanel jobs={thirdPartyJobs} partners={thirdPartyPartners} reworkCases={reworkCases} garments={garments} unitId={unitId} onRefresh={refreshAll} /></TabsContent>
+        <TabsContent value="custody"><GarmentLocationPanel garments={garments} locations={locations} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onPrintLabels={setLabelGarments} onDeliver={setDeliveryGarments} /></TabsContent>
         <TabsContent value="inventory"><InventoryPanel stockItems={stockItems} purchaseDocuments={purchaseDocuments} suppliers={suppliers} selectedUnitId={selectedUnitId} onNewPurchase={() => setPurchaseOpen(true)} /></TabsContent>
         <TabsContent value="financial"><FinancialOperationsPanel payables={payables} receivables={receivables} financialDocuments={financialDocuments} cashSessions={cashSessions} bankTransactions={bankTransactions} selectedUnitId={selectedUnitId} onNewBill={() => setBillOpen(true)} onCash={() => setCashOpen(true)} onRefresh={refreshAll} /></TabsContent>
         <TabsContent value="reviews"><ReviewQueue reviews={reviews} selectedUnitId={selectedUnitId} onRefresh={refreshAll} /></TabsContent>
@@ -108,6 +121,8 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
       <DocumentIntakeModal open={billOpen} onOpenChange={setBillOpen} mode="financial" unitId={unitId} onProcessed={refreshAll} />
       <CashSessionModal open={cashOpen} onOpenChange={setCashOpen} unitId={unitId} sessions={cashSessions} onProcessed={refreshAll} />
       <QualityInspectionModal garment={inspectionGarment} open={!!inspectionGarment} onOpenChange={(value) => !value && setInspectionGarment(null)} onCompleted={refreshAll} />
+      <GarmentLabelPrintDialog open={labelGarments.length > 0} onOpenChange={(value) => !value && setLabelGarments([])} garments={labelGarments} onPrinted={refreshAll} />
+      <GarmentDeliveryDialog open={deliveryGarments.length > 0} onOpenChange={(value) => !value && setDeliveryGarments([])} garments={deliveryGarments} orders={orders} customers={customers} onCompleted={() => { setDeliveryGarments([]); refreshAll(); }} />
     </section>
   );
 }

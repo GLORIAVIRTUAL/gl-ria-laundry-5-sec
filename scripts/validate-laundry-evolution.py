@@ -15,7 +15,7 @@ NEW_ENTITIES = {
     "ConsumptionRecipe", "DocumentAsset", "FinancialDocument", "GarmentEvent", "GarmentItem", "HumanReview",
     "IntegrationConfiguration", "InventoryCount", "LaundryService", "Location", "PaymentAllocation", "PriceRule",
     "ProcessedEvent", "ProductionBatch", "PurchaseDocument", "PurchaseItem", "QualityInspection", "ReworkCase",
-    "StockItem", "StockMovement", "Supplier", "ThirdPartyJob", "ThirdPartyPartner",
+    "StockItem", "StockMovement", "Supplier", "ThirdPartyJob", "ThirdPartyPartner", "DeliveryReceipt",
 }
 
 NEW_FUNCTIONS = {
@@ -23,6 +23,7 @@ NEW_FUNCTIONS = {
     "cancel_management_record", "extract_financial_document", "extract_purchase_document", "inspect_garment_quality",
     "integration_status", "manage_accounts_payable", "manage_cash_session", "manage_third_party_job",
     "reconcile_payment", "record_counter_payment", "resolve_human_review", "update_garment_status",
+    "price_garment_services", "register_label_print", "move_garments", "manage_location", "complete_garment_delivery",
 }
 
 
@@ -109,14 +110,39 @@ def main() -> int:
         fail("Orçamento manual ainda cria pagamento diretamente no navegador", failures)
     if "record_counter_payment" not in manual_quote:
         fail("Orçamento manual não usa a função segura de pagamento", failures)
-    for marker in ["garmentItems.map", "condition_checked", "customer_authorized_risks", "qty: 1"]:
+    for marker in ["garmentItems.map", "condition_checked", "customer_authorized_risks", "qty: 1", "price_garment_services", "services={laundryServices}"]:
         if marker not in manual_quote:
             fail(f"Orçamento manual sem persistência individual obrigatória: {marker}", failures)
 
     approve_quote = (FUNCTIONS / "approve_quote" / "entry.ts").read_text(encoding="utf-8")
-    for marker in ["garment_condition_review_required", "condition_checked: item.condition_checked === true", "customer_authorized_risks: item.customer_authorized_risks === true"]:
+    for marker in ["priceGarmentItems", "condition_checked: item.condition_checked === true", "customer_authorized_risks: item.customer_authorized_risks === true", "services: item.services || []"]:
         if marker not in approve_quote:
             fail(f"Aprovação não preserva a conferência manual: {marker}", failures)
+
+    pricing = (ROOT / "base44" / "shared" / "laundryPricing.js").read_text(encoding="utf-8")
+    for marker in ["service_not_compatible", "legacy_product_price", "price_rule_id", "customerGroup"]:
+        if marker not in pricing:
+            fail(f"Precificação de serviços sem marcador obrigatório: {marker}", failures)
+
+    command_center = (ROOT / "src" / "components" / "management" / "ManagementCommandCenter.jsx").read_text(encoding="utf-8")
+    for marker in ["GarmentLocationPanel", "GarmentLabelPrintDialog", "GarmentDeliveryDialog", "command-locations", "command-orders"]:
+        if marker not in command_center:
+            fail(f"Centro de comando sem jornada operacional: {marker}", failures)
+
+    move_garments = (FUNCTIONS / "move_garments" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["location_capacity_exceeded", "ProcessedEvent", "location_changed", "refreshOccupancy"]:
+        if marker not in move_garments:
+            fail(f"Movimentação sem garantia obrigatória: {marker}", failures)
+
+    delivery = (FUNCTIONS / "complete_garment_delivery" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["outstanding_balance", "single_customer_and_unit_required", "delivery_scope", "DeliveryReceipt", "partially_delivered"]:
+        if marker not in delivery:
+            fail(f"Entrega parcial sem garantia obrigatória: {marker}", failures)
+
+    label_print = (FUNCTIONS / "register_label_print" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["reprint_reason_required", "label_print_count", "AuditLog"]:
+        if marker not in label_print:
+            fail(f"Impressão de etiqueta sem garantia obrigatória: {marker}", failures)
 
     secure_files = (ROOT / "src" / "lib" / "secureFiles.js").read_text(encoding="utf-8")
     for marker in ["sha256Hex", "validateFile", "DUPLICATE_DOCUMENT"]:
