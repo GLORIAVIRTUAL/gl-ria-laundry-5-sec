@@ -7,7 +7,7 @@ A branch `feat/intelligent-management-suite` transforma a página **Gestão** em
 | Domínio | Entrega |
 |---|---|
 | Gestão | Hero operacional, ações rápidas, indicadores de exceção e áreas de operação, estoque, financeiro e revisão. |
-| Orçamento | Múltiplas fotos, upload seguro, análise em lote, associação ao catálogo, edição humana e aprovação idempotente. |
+| Orçamento | Caminho manual com características por peça e caminho por múltiplas fotos, ambos usando catálogo, revisão humana e aprovação idempotente. |
 | Peças | `GarmentItem`, `GarmentEvent`, estados, atributos, avarias, fotos, localização, prazo e entrega parcial. |
 | Qualidade | Checklist, decisão, evidências, retrabalho automático e liberação controlada. |
 | Terceiros | Parceiros, ordens externas, evidências de envio e retorno, qualidade e conta a pagar. |
@@ -16,6 +16,12 @@ A branch `feat/intelligent-management-suite` transforma a página **Gestão** em
 | Financeiro | Contas a pagar/receber, documentos, aprovação, liquidação, caixa, alocação e conciliação. |
 | Segurança | Papéis, permissões, unidades, idempotência, auditoria, proteção de endpoints, upload e cancelamento auditado. |
 | Integrações | `.env.example`, diagnóstico de prontidão sem revelar segredos e comportamento seguro sem tokens. |
+
+## Correção do orçamento manual
+
+O fluxo manual agora inclui uma etapa dedicada às características de cada peça física. Cor, marca, material, estampa, tamanho, dimensões e detalhes podem ser copiados entre peças iguais, enquanto avarias, riscos, observações e ciência do cliente exigem conferência individual. Mesmo quando o carrinho possui várias unidades do mesmo produto, o orçamento persiste cada unidade com `qty: 1`, permitindo que `approve_quote` gere um `GarmentItem` distinto e preserve a condição observada.
+
+A nova validação aplica-se somente a orçamentos marcados com `metadata.characteristic_capture=per_piece`. Orçamentos manuais legados continuam aprováveis, preservando a compatibilidade com registros criados antes desta evolução.
 
 ## Novas funções server-side
 

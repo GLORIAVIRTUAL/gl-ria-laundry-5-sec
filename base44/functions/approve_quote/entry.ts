@@ -58,6 +58,21 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'human_review_required', unresolved_items: unresolvedItems.length, request_id: requestId }, { status: 409 });
     }
 
+    if (quote.origin === 'management_manual' && quote.metadata?.characteristic_capture === 'per_piece') {
+      const uncheckedItems = items.filter((item: any) => item.condition_checked !== true);
+      const unauthorizedRiskItems = items.filter((item: any) =>
+        ((item.damages || []).length > 0 || (item.risk_tags || []).length > 0) && item.customer_authorized_risks !== true
+      );
+      if (uncheckedItems.length > 0 || unauthorizedRiskItems.length > 0) {
+        return Response.json({
+          error: 'garment_condition_review_required',
+          unchecked_items: uncheckedItems.length,
+          unauthorized_risk_items: unauthorizedRiskItems.length,
+          request_id: requestId,
+        }, { status: 422 });
+      }
+    }
+
     const eventKey = `approve_quote:${quote.id}`;
     const previousEvents = await base44.asServiceRole.entities.ProcessedEvent.filter({ event_key: eventKey });
     const completedEvent = previousEvents.find((event: any) => event.status === 'completed');
@@ -135,7 +150,8 @@ Deno.serve(async (req) => {
             damages: item.damages || [],
             risk_tags: item.risk_tags || [],
             notes: item.notes || '',
-            customer_authorized_risks: false,
+            condition_checked: item.condition_checked === true,
+            customer_authorized_risks: item.customer_authorized_risks === true,
           },
           photo_asset_ids: item.document_asset_ids || item.image_ids || [],
           services: item.services || [],
@@ -145,10 +161,10 @@ Deno.serve(async (req) => {
           recognition_confidence: item.confidence,
           recognition_status: item.recognition_status || 'manual',
           status: 'received',
-          priority: 'normal',
+          priority: quote.metadata?.priority === 'CRITICAL' ? 'urgent' : quote.metadata?.priority === 'HIGH' ? 'high' : 'normal',
           received_at: now,
           due_at: createdOrder.expected_finish_at,
-          metadata: { quote_line_id: item.line_id, request_id: requestId },
+          metadata: { quote_line_id: item.line_id, source: quote.origin, request_id: requestId },
         });
         createdGarments.push(garment);
 

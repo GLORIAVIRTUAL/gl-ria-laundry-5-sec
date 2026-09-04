@@ -109,6 +109,14 @@ def main() -> int:
         fail("Orçamento manual ainda cria pagamento diretamente no navegador", failures)
     if "record_counter_payment" not in manual_quote:
         fail("Orçamento manual não usa a função segura de pagamento", failures)
+    for marker in ["garmentItems.map", "condition_checked", "customer_authorized_risks", "qty: 1"]:
+        if marker not in manual_quote:
+            fail(f"Orçamento manual sem persistência individual obrigatória: {marker}", failures)
+
+    approve_quote = (FUNCTIONS / "approve_quote" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["garment_condition_review_required", "condition_checked: item.condition_checked === true", "customer_authorized_risks: item.customer_authorized_risks === true"]:
+        if marker not in approve_quote:
+            fail(f"Aprovação não preserva a conferência manual: {marker}", failures)
 
     secure_files = (ROOT / "src" / "lib" / "secureFiles.js").read_text(encoding="utf-8")
     for marker in ["sha256Hex", "validateFile", "DUPLICATE_DOCUMENT"]:
