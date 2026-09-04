@@ -16,6 +16,8 @@ NEW_ENTITIES = {
     "IntegrationConfiguration", "InventoryCount", "LaundryService", "Location", "PaymentAllocation", "PriceRule",
     "ProcessedEvent", "ProductionBatch", "PurchaseDocument", "PurchaseItem", "QualityInspection", "ReworkCase",
     "StockItem", "StockMovement", "Supplier", "ThirdPartyJob", "ThirdPartyPartner", "DeliveryReceipt",
+    "PaymentReceipt", "CustomerCreditLedger", "BillingAgreement", "BillingStatement", "QuoteVersion",
+    "FiscalProfile", "FiscalDocument", "FiscalEvent",
 }
 
 NEW_FUNCTIONS = {
@@ -24,6 +26,8 @@ NEW_FUNCTIONS = {
     "integration_status", "manage_accounts_payable", "manage_cash_session", "manage_third_party_job",
     "reconcile_payment", "record_counter_payment", "resolve_human_review", "update_garment_status",
     "price_garment_services", "register_label_print", "move_garments", "manage_location", "complete_garment_delivery",
+    "manage_payment_receipt", "confirm_payment_tender", "manage_customer_credit", "manage_billing_agreement",
+    "close_billing_period", "manage_quote_lifecycle", "manage_fiscal_document", "checkExpiredQuotes",
 }
 
 
@@ -148,6 +152,55 @@ def main() -> int:
     for marker in ["sha256Hex", "validateFile", "DUPLICATE_DOCUMENT"]:
         if marker not in secure_files:
             fail(f"Upload seguro sem marcador obrigatório: {marker}", failures)
+
+    payment_receipt = (FUNCTIONS / "manage_payment_receipt" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["calculateReceiptPlan", "PaymentReceipt", "CustomerCreditLedger", "cash_session_required", "async function reverse"]:
+        if marker not in payment_receipt:
+            fail(f"Recebimento misto sem garantia obrigatória: {marker}", failures)
+
+    billing = (FUNCTIONS / "manage_billing_agreement" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["credit_limit_exceeded", "cost_center_required", "purchase_order_required", "calculateExposure"]:
+        if marker not in billing:
+            fail(f"Convênio sem garantia obrigatória: {marker}", failures)
+
+    billing_close = (FUNCTIONS / "close_billing_period" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["no_eligible_orders", "BillingStatement", "AccountsReceivable", "ProcessedEvent"]:
+        if marker not in billing_close:
+            fail(f"Fechamento de faturados sem garantia obrigatória: {marker}", failures)
+
+    quote_lifecycle = (FUNCTIONS / "manage_quote_lifecycle" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["loadLaundryPricingCatalog", "QuoteVersion", "adjustment_reason_required", "quote_with_active_order_cannot_be_cancelled"]:
+        if marker not in quote_lifecycle:
+            fail(f"Ciclo do orçamento sem garantia obrigatória: {marker}", failures)
+
+    cash = (FUNCTIONS / "manage_cash_session" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["closure_snapshot", "pending_approval", "action === 'position'", "action === 'reopen'"]:
+        if marker not in cash:
+            fail(f"Fechamento de caixa sem garantia obrigatória: {marker}", failures)
+
+    fiscal = (FUNCTIONS / "manage_fiscal_document" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["fiscal_transmission_not_implemented", "national_nfse", "FiscalEvent", "fiscal_document_ids"]:
+        if marker not in fiscal:
+            fail(f"Estrutura fiscal sem garantia obrigatória: {marker}", failures)
+
+    fiscal_event_schema = load_json(ENTITIES / "FiscalEvent.jsonc")
+    for field in ["message", "payload_hash", "actor_user_id", "actor_name"]:
+        if field not in fiscal_event_schema.get("properties", {}):
+            fail(f"Evento fiscal sem campo usado pelo backend: {field}", failures)
+
+    order_schema = load_json(ENTITIES / "Order.jsonc")
+    for field in ["fiscal_document_ids", "fiscal_status", "payment_receipt_ids", "billing_statement_id"]:
+        if field not in order_schema.get("properties", {}):
+            fail(f"Pedido sem vínculo da Onda 2: {field}", failures)
+
+    for marker in ["BillingAgreementsPanel", "QuoteLifecyclePanel", "FiscalReadinessPanel", "command-payments"]:
+        if marker not in command_center:
+            fail(f"Centro de comando sem módulo da Onda 2: {marker}", failures)
+
+    financial_panel = (ROOT / "src" / "components" / "management" / "FinancialOperationsPanel.jsx").read_text(encoding="utf-8")
+    for marker in ["PaymentReceiptDialog", "CustomerCreditDialog", "confirm_payment_tender", "pendingPayments"]:
+        if marker not in financial_panel:
+            fail(f"Central financeira sem jornada da Onda 2: {marker}", failures)
 
     if failures:
         print("VALIDAÇÃO FALHOU")

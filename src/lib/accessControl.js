@@ -9,18 +9,29 @@ export const ROLE_PERMISSIONS = {
     'inventory.manage',
     'finance.view',
     'finance.approve',
+    'payments.manage',
+    'billing.manage',
+    'billing.close',
+    'billing.issue',
+    'quotes.reopen',
+    'quotes.discount_override',
     'cash.manage',
+    'cash.approve',
+    'cash.reopen',
+    'fiscal.manage',
+    'fiscal.configure',
+    'fiscal.cancel',
     'quality.manage',
     'third_party.manage',
     'documents.review',
     'audit.view',
   ],
   attendant: ['management.view', 'customers.manage', 'quotes.manage', 'orders.view', 'documents.upload'],
-  cashier: ['management.view', 'orders.view', 'payments.manage', 'cash.manage'],
+  cashier: ['management.view', 'orders.view', 'payments.manage', 'billing.close', 'cash.manage', 'fiscal.manage'],
   production: ['management.view', 'orders.view', 'production.manage', 'quality.create'],
   driver: ['pickups.manage', 'orders.view', 'delivery.manage'],
   inventory: ['management.view', 'inventory.manage', 'suppliers.view', 'documents.upload', 'documents.review'],
-  finance: ['management.view', 'finance.view', 'finance.approve', 'payments.manage', 'cash.view', 'documents.review'],
+  finance: ['management.view', 'finance.view', 'finance.approve', 'payments.manage', 'billing.manage', 'billing.close', 'billing.issue', 'cash.view', 'fiscal.manage', 'documents.review'],
   auditor: ['management.view', 'finance.view', 'cash.view', 'audit.view', 'documents.view'],
 };
 
@@ -48,8 +59,6 @@ export function canAccessUnit(user, unitId) {
 
 export function assertPermission(user, permission) {
   if (!hasPermission(user, permission)) {
-    const error = new Error('Você não possui permissão para executar esta ação.');
-    error.code = 'FORBIDDEN';
-    throw error;
+    throw Object.assign(new Error('Você não possui permissão para executar esta ação.'), { code: 'FORBIDDEN' });
   }
 }
