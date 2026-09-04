@@ -23,6 +23,9 @@ A branch `feat/intelligent-management-suite` transforma a página **Gestão** em
 | Crédito e faturados | Razão de crédito, convênios, limites, autorização de pedidos, fechamento periódico e títulos consolidados. |
 | Orçamentos | Validade individual, versões imutáveis, alçadas, envio, aceite, rejeição, reabertura, cancelamento e conversão em pedido. |
 | Fiscal | Perfil por unidade, RPS sequencial, preparação e validação local; transmissão NFS-e bloqueada até homologação futura. |
+| Estoque operacional | Lotes, validade, disponibilidade, transferências, perdas, inventário cego, congelamento lógico e ajustes auditados. |
+| Produção e consumo | Fichas técnicas versionadas, previsão e baixa FEFO/FIFO, lotes por capacidade, máquinas configuráveis, execução guiada e reversão controlada. |
+| Custos e alertas | Apontamento do operador, custos reais por lote, perfil versionado, perdas, desvios, gargalos e alertas deduplicados. |
 
 ## Correção do orçamento manual
 
@@ -62,6 +65,15 @@ Os campos de condição e ciência permanecem persistidos por peça, mas os ajus
 | `close_billing_period` | Gerar prévia, demonstrativo e conta a receber consolidada por período. |
 | `manage_quote_lifecycle` | Versionar e governar todo o ciclo comercial do orçamento. |
 | `manage_fiscal_document` | Preparar e validar RPS, manter eventos e bloquear transmissão não homologada. |
+| `manage_stock_operation` | Cadastrar, ajustar, transferir, devolver e registrar perdas com lote, saldo e auditoria. |
+| `manage_inventory_count` | Executar inventário cego, revisar divergências e gerar ajustes transacionais. |
+| `manage_consumption_recipe` | Versionar fichas técnicas por serviço, etapa, máquina e base de consumo. |
+| `post_production_consumption` | Prever, baixar e reverter consumo por lote usando FEFO/FIFO. |
+| `manage_machine` | Cadastrar máquinas, capacidades, custos, manutenção e identificadores legados. |
+| `manage_production_batch` | Planejar e executar lotes com capacidade, materiais, estados e eventos. |
+| `manage_labor_entry` | Apontar início, pausa, retomada, conclusão e custo do operador. |
+| `manage_production_cost_profile` | Versionar mão de obra, energia, água, embalagem, qualidade e rateio. |
+| `manage_operational_alerts` | Detectar, reconhecer, resolver e deduplicar exceções operacionais. |
 
 ## Funções endurecidas
 
@@ -73,4 +85,4 @@ O orçamento manual, os gráficos financeiros, a tabela de tickets, os registros
 
 ## Validação
 
-O build Vite conclui. Todos os arquivos novos e modificados passam no lint direcionado. As funções TypeScript alteradas passam no parser `esbuild`. O comando `npm run validate:wave2` verifica **65 schemas, 29 funções autenticadas**, invariantes críticos, cálculos de pagamentos, contrato fiscal, lint, typecheck direcionado e build. Os módulos financeiros, comerciais, caixa e fiscal foram inspecionados em prévia local controlada. O typecheck direcionado registra zero erros na Onda 2; o débito global remanescente pertence ao legado fora desta entrega.
+O build Vite conclui. Todos os arquivos novos e modificados passam no lint direcionado. As funções TypeScript alteradas passam no parser `esbuild`. O comando `npm run validate:wave2` verifica os domínios financeiro, comercial e fiscal. O comando `npm run validate:wave3` verifica **70 schemas, 38 funções autenticadas**, cálculos de estoque, consumo, capacidade e custos, lint, typecheck direcionado, dez funções server-side e build. Produção, estoque, inventário, fichas técnicas, alertas, execução, custos e criação de lotes foram inspecionados em prévia local controlada. O typecheck direcionado registra zero erros na Onda 3; o débito global remanescente pertence ao legado fora desta entrega.

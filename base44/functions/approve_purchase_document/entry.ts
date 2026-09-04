@@ -28,6 +28,10 @@ Deno.serve(async (req) => {
     const document = await base44.asServiceRole.entities.PurchaseDocument.get(purchaseDocumentId);
     if (!document) return Response.json({ error: 'purchase_document_not_found', request_id: requestId }, { status: 404 });
     if (!canAccessUnit(user, document.unit_id)) return Response.json({ error: 'forbidden_unit', request_id: requestId }, { status: 403 });
+    const openCounts = await base44.asServiceRole.entities.InventoryCount.filter({ unit_id: document.unit_id });
+    if (openCounts.some((count: any) => count.status === 'counting' && count.freeze_movements === true)) {
+      return Response.json({ error: 'inventory_count_freezes_movements', request_id: requestId }, { status: 423 });
+    }
     if (['rejected', 'cancelled'].includes(document.status)) {
       return Response.json({ error: 'purchase_document_not_approvable', request_id: requestId }, { status: 409 });
     }
@@ -93,10 +97,51 @@ Deno.serve(async (req) => {
       const incomingValue = baseQuantity * unitCostBase;
       const averageCost = balanceAfter > 0 ? (previousValue + incomingValue) / balanceAfter : unitCostBase;
       const now = new Date().toISOString();
+      let stockLot = null;
+      if (stockItem.batch_control || stockItem.expiry_control || item.batch_number || item.expiry_date) {
+        const lotNumber = String(item.batch_number || `DOC-${document.document_number || document.id.slice(0, 8)}-${item.id.slice(0, 6)}`);
+        const existingLots = await base44.asServiceRole.entities.StockLot.filter({ unit_id: document.unit_id, stock_item_id: stockItem.id, lot_number: lotNumber });
+        const existingLot = existingLots.find((lot: any) => lot.status !== 'cancelled');
+        if (existingLot) {
+          const lotBefore = Number(existingLot.current_quantity || 0);
+          const lotAfter = lotBefore + baseQuantity;
+          const lotAverageCost = lotAfter > 0 ? ((lotBefore * Number(existingLot.unit_cost || 0)) + incomingValue) / lotAfter : unitCostBase;
+          stockLot = await base44.asServiceRole.entities.StockLot.update(existingLot.id, {
+            current_quantity: lotAfter,
+            initial_quantity: Number(existingLot.initial_quantity || 0) + baseQuantity,
+            unit_cost: lotAverageCost,
+            total_cost: lotAfter * lotAverageCost,
+            expiry_date: item.expiry_date || existingLot.expiry_date,
+            last_movement_at: now,
+            status: 'available',
+          });
+        } else {
+          stockLot = await base44.asServiceRole.entities.StockLot.create({
+            unit_id: document.unit_id,
+            stock_item_id: stockItem.id,
+            lot_number: lotNumber,
+            supplier_id: document.supplier_id,
+            purchase_document_id: document.id,
+            purchase_item_id: item.id,
+            received_at: now,
+            expiry_date: item.expiry_date,
+            initial_quantity: baseQuantity,
+            current_quantity: baseQuantity,
+            reserved_quantity: 0,
+            unit_cost: unitCostBase,
+            total_cost: incomingValue,
+            storage_location: stockItem.storage_location,
+            status: 'available',
+            quality_status: 'not_required',
+            last_movement_at: now,
+          });
+        }
+      }
 
       const movement = await base44.asServiceRole.entities.StockMovement.create({
         unit_id: document.unit_id,
         stock_item_id: stockItem.id,
+        stock_lot_id: stockLot?.id,
         movement_type: 'purchase_entry',
         quantity: baseQuantity,
         unit_cost: unitCostBase,
@@ -105,8 +150,8 @@ Deno.serve(async (req) => {
         balance_after: balanceAfter,
         purchase_document_id: document.id,
         purchase_item_id: item.id,
-        batch_number: item.batch_number,
-        expiry_date: item.expiry_date,
+        batch_number: stockLot?.lot_number || item.batch_number,
+        expiry_date: stockLot?.expiry_date || item.expiry_date,
         operator_user_id: user.id,
         reason: 'purchase_document_approved',
         occurred_at: now,
@@ -115,8 +160,10 @@ Deno.serve(async (req) => {
 
       await base44.asServiceRole.entities.StockItem.update(stockItem.id, {
         current_quantity: balanceAfter,
+        available_quantity: balanceAfter - Number(stockItem.reserved_quantity || 0),
         average_cost: averageCost,
         last_cost: unitCostBase,
+        last_movement_at: now,
       });
       await base44.asServiceRole.entities.PurchaseItem.update(item.id, {
         received_quantity: received,

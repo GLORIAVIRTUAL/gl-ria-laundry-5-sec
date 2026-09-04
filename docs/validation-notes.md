@@ -23,3 +23,11 @@ As nove funções server-side da Onda 2 passaram pelo `esbuild`, o lint direcion
 A inspeção visual foi executada em uma prévia local com dados controlados. Foram validados o painel financeiro, o modal de recebimento misto, convênios e faturados, ciclo de orçamentos, caixa e estrutura fiscal. Nenhuma operação real foi submetida e nenhum segredo foi usado. Os detalhes estão em [`wave2-visual-validation.md`](wave2-visual-validation.md).
 
 A pesquisa fiscal confirmou que Porto Alegre utiliza o Emissor Nacional para novas emissões desde 1º de novembro de 2025. A implementação prepara e valida RPS, mas bloqueia toda tentativa de transmissão até uma futura etapa específica de homologação com certificado e ambiente restrito.
+
+## Onda 3 — estoque e produção
+
+O comando `npm run validate:wave3` concluiu com sucesso. A suíte confirmou **70 schemas, 38 funções autenticadas** e invariantes de lotes de insumos, congelamento de inventário, sobresaldo gerencial, transferências, consumo FEFO/FIFO, capacidade de máquinas, apontamento de operador, custos e alertas operacionais.
+
+Os testes determinísticos cobrem custo médio ponderado, seleção FEFO/FIFO, previsão por peça e por quilo, detecção de falta, capacidade em peso e quantidade, custo total e desvio. Dez funções server-side foram empacotadas pelo `esbuild`. O lint direcionado, o typecheck direcionado e o build Vite foram aprovados. O typecheck registrou zero erros nos arquivos da Onda 3; os 785 erros preexistentes do legado permanecem fora desta entrega e continuam visíveis no comando global.
+
+A inspeção visual foi executada em prévia temporária com dados controlados, sem conexão ao backend e sem submeter operações. Foram verificados produção, mapa de máquinas, quadro de lotes, estoque, inventário, fichas técnicas, alertas, execução, perfil de custos e criação de lotes. Nenhuma sobreposição, corte ou ação crítica ambígua foi observada no viewport desktop. Os detalhes estão em [`wave3-visual-validation.md`](wave3-visual-validation.md).

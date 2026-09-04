@@ -10,8 +10,8 @@ Aplicação de gestão de lavanderia construída sobre **React, Vite e Base44**,
 |---|---|
 | Atendimento | Orçamento manual preservado e novo orçamento por múltiplas fotos, com correspondência ao catálogo e revisão por confiança. |
 | Operação | Peça individual, código, atributos, avarias, fotos, estado, localização, SLA e histórico imutável de eventos. |
-| Produção | Quadro por peça, transições controladas, qualidade, retrabalho, posições físicas, lotes e serviços terceirizados. |
-| Compras e estoque | Fornecedores, insumos, custo médio, estoque mínimo, movimentos, inventário, fichas de consumo e leitura de notas. |
+| Produção | Quadro por peça, lotes por capacidade, máquinas configuráveis, apontamento de operador, consumo automático, custos reais, qualidade, retrabalho e terceiros. |
+| Compras e estoque | Fornecedores, insumos, lotes, validade, custo médio, disponibilidade, transferências, perdas, inventário cego, fichas técnicas e leitura de notas. |
 | Financeiro | Contas a pagar e receber, recebimentos mistos/parciais, crédito do cliente, convênios, faturados, caixa por operador, alocações, conciliação e despesas recorrentes pendentes. |
 | Comercial e fiscal | Ciclo versionado de orçamentos, validade, alçadas, fechamento periódico e preparação local de RPS/NFS-e com transmissão desativada. |
 | Segurança | Papéis, permissões, escopo por unidade, uploads validados, idempotência, auditoria ampliada e cancelamento sem exclusão destrutiva. |
@@ -43,6 +43,7 @@ O script valida schemas, entidades obrigatórias, autenticação explícita das 
 ```bash
 npm run validate:counter-core
 npm run validate:wave2
+npm run validate:wave3
 ```
 
 ## Configuração e implantação
@@ -54,6 +55,7 @@ npm run validate:wave2
 | [`docs/manual-garment-characteristics.md`](docs/manual-garment-characteristics.md) | Características e conferência individual das peças no orçamento manual. |
 | [`docs/operational-counter-core.md`](docs/operational-counter-core.md) | Serviços por peça, etiquetas, leitura, localização e entrega parcial. |
 | [`docs/wave2-financial-fiscal.md`](docs/wave2-financial-fiscal.md) | Pagamentos mistos, crédito, convênios, faturados, orçamentos, caixa e preparação fiscal. |
+| [`docs/wave3-stock-production.md`](docs/wave3-stock-production.md) | Estoque por lote, inventário, consumo, máquinas, produção, custos, perdas e alertas. |
 | [`docs/nfse-porto-alegre-research.md`](docs/nfse-porto-alegre-research.md) | Base oficial para a futura integração com o Emissor Nacional de NFS-e. |
 | [`docs/migration-rollout.md`](docs/migration-rollout.md) | Sequência segura para homologação e ativação gradual. |
 | [`docs/security-architecture.md`](docs/security-architecture.md) | Papéis, unidades, auditoria, documentos, pagamentos e revisão humana. |

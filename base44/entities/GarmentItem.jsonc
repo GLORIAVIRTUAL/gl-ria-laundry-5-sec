@@ -35,6 +35,15 @@
       "type": "number",
       "default": 1
     },
+    "estimated_weight_kg": { "type": "number" },
+    "actual_weight_kg": { "type": "number" },
+    "current_production_batch_id": { "type": "string" },
+    "current_production_stage": { "type": "string" },
+    "production_batch_ids": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "material_cost": { "type": "number", "default": 0 },
+    "labor_cost": { "type": "number", "default": 0 },
+    "machine_cost": { "type": "number", "default": 0 },
+    "total_production_cost": { "type": "number", "default": 0 },
     "attributes": {
       "type": "object",
       "properties": {
@@ -84,6 +93,12 @@
             "default": "pending"
           },
           "machine_id": { "type": "string" },
+          "production_batch_id": { "type": "string" },
+          "consumption_recipe_id": { "type": "string" },
+          "estimated_material_cost": { "type": "number", "default": 0 },
+          "actual_material_cost": { "type": "number", "default": 0 },
+          "started_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": "string", "format": "date-time" },
           "third_party_job_id": { "type": "string" }
         }
       },

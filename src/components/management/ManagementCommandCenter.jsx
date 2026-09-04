@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, Boxes, Camera, ClipboardCheck, FileClock, FileText, Gauge, Handshake, Landmark, MapPin, PackageCheck, PackagePlus, Plus, Printer, ReceiptText, ShieldCheck, Shirt, Sparkles, TriangleAlert } from 'lucide-react';
+import { Activity, Banknote, Boxes, Camera, ClipboardCheck, Factory, FileClock, FileText, Gauge, Handshake, Landmark, MapPin, PackageCheck, PackagePlus, Plus, Printer, ReceiptText, ShieldCheck, Shirt, Sparkles, TriangleAlert } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,8 @@ import GarmentDeliveryDialog from './GarmentDeliveryDialog';
 import BillingAgreementsPanel from './BillingAgreementsPanel';
 import QuoteLifecyclePanel from './QuoteLifecyclePanel';
 import FiscalReadinessPanel from './FiscalReadinessPanel';
+import ProductionOperationsPanel from './ProductionOperationsPanel';
+import OperationsInsightsPanel from './OperationsInsightsPanel';
 import { useAuth } from '@/lib/AuthContext';
 import { hasPermission } from '@/lib/accessControl';
 
@@ -68,11 +70,25 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
   const { data: billingStatements = [] } = useQuery({ queryKey: ['command-billing-statements'], queryFn: () => base44.entities.BillingStatement.filter({}, '-created_date', 2000), ...queryOptions });
   const { data: fiscalProfiles = [] } = useQuery({ queryKey: ['command-fiscal-profiles'], queryFn: () => base44.entities.FiscalProfile.filter({}, '-created_date', 100), ...queryOptions });
   const { data: fiscalDocuments = [] } = useQuery({ queryKey: ['command-fiscal-documents'], queryFn: () => base44.entities.FiscalDocument.filter({}, '-created_date', 2000), ...queryOptions });
+  const { data: stockLots = [] } = useQuery({ queryKey: ['command-stock-lots'], queryFn: () => base44.entities.StockLot.filter({}, 'expiry_date', 3000), ...queryOptions });
+  const { data: stockMovements = [] } = useQuery({ queryKey: ['command-stock-movements'], queryFn: () => base44.entities.StockMovement.filter({}, '-occurred_at', 5000), ...queryOptions });
+  const { data: inventoryCounts = [] } = useQuery({ queryKey: ['command-inventory-counts'], queryFn: () => base44.entities.InventoryCount.filter({}, '-created_date', 1000), ...queryOptions });
+  const { data: consumptionRecipes = [] } = useQuery({ queryKey: ['command-consumption-recipes'], queryFn: () => base44.entities.ConsumptionRecipe.filter({}, '-created_date', 2000), ...queryOptions });
+  const { data: productionBatches = [] } = useQuery({ queryKey: ['command-production-batches'], queryFn: () => base44.entities.ProductionBatch.filter({}, '-created_date', 3000), ...queryOptions });
+  const { data: machineStates = [] } = useQuery({ queryKey: ['command-machine-states'], queryFn: () => base44.entities.MachineState.filter({}, 'machine_id', 1000), ...queryOptions });
+  const { data: laborEntries = [] } = useQuery({ queryKey: ['command-labor-entries'], queryFn: () => base44.entities.LaborEntry.filter({}, '-started_at', 3000), ...queryOptions });
+  const { data: operationalAlerts = [] } = useQuery({ queryKey: ['command-operational-alerts'], queryFn: () => base44.entities.OperationalAlert.filter({}, '-last_detected_at', 2000), ...queryOptions });
+  const { data: productionCostProfiles = [] } = useQuery({ queryKey: ['command-production-cost-profiles'], queryFn: () => base44.entities.ProductionCostProfile.filter({}, '-valid_from', 500), ...queryOptions });
+  const { data: laundryServices = [] } = useQuery({ queryKey: ['command-laundry-services'], queryFn: () => base44.entities.LaundryService.filter({ active: true }, 'name', 1000), ...queryOptions });
+  const { data: units = [] } = useQuery({ queryKey: ['command-units'], queryFn: () => base44.entities.Unit.filter({ active: true }, 'name', 500), ...queryOptions });
 
   const canViewFinancial = hasPermission(user, 'finance.view') || hasPermission(user, 'payments.manage');
   const canManageQuotes = hasPermission(user, 'quotes.manage');
   const canManageBilling = hasPermission(user, 'billing.manage') || hasPermission(user, 'billing.close');
   const canManageFiscal = hasPermission(user, 'fiscal.manage');
+  const canManageInventory = hasPermission(user, 'inventory.manage');
+  const canManageProduction = hasPermission(user, 'production.manage');
+  const canViewInsights = canManageInventory || canManageProduction || hasPermission(user, 'operations.alerts');
 
   const scoped = (records) => records.filter((record) => selectedUnitId === 'all' || record.unit_id === selectedUnitId);
   const summary = useMemo(() => {
@@ -82,11 +98,13 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
     const pendingReviews = scoped(reviews).filter((item) => ['pending', 'in_progress'].includes(item.status)).length;
     const lowStock = scoped(stockItems).filter((item) => Number(item.current_quantity || 0) <= Number(item.minimum_quantity || 0)).length;
     const pendingPayables = scoped(payables).filter((item) => !['paid', 'cancelled'].includes(item.status)).length;
-    return { activeGarments: activeGarments.length, overdue, pendingReviews, lowStock, pendingPayables };
-  }, [garments, reviews, stockItems, payables, selectedUnitId]);
+    const activeBatches = scoped(productionBatches).filter((item) => !['completed', 'cancelled'].includes(item.status)).length;
+    const openAlerts = scoped(operationalAlerts).filter((item) => ['open', 'acknowledged'].includes(item.status)).length;
+    return { activeGarments: activeGarments.length, overdue, pendingReviews, lowStock, pendingPayables, activeBatches, openAlerts };
+  }, [garments, reviews, stockItems, payables, productionBatches, operationalAlerts, selectedUnitId]);
 
   const refreshAll = () => {
-    ['command-garments', 'command-reviews', 'command-stock', 'command-purchases', 'command-suppliers', 'command-payables', 'command-receivables', 'command-payments', 'command-financial-documents', 'command-cash-sessions', 'command-bank-transactions', 'command-third-party-jobs', 'command-third-party-partners', 'command-rework-cases', 'command-locations', 'command-orders', 'command-quotes', 'command-billing-agreements', 'command-billing-statements', 'command-fiscal-profiles', 'command-fiscal-documents', 'mgmt-orders', 'mgmt-payments', 'mgmt-finance', 'mgmt-audit'].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
+    ['command-garments', 'command-reviews', 'command-stock', 'command-purchases', 'command-suppliers', 'command-payables', 'command-receivables', 'command-payments', 'command-financial-documents', 'command-cash-sessions', 'command-bank-transactions', 'command-third-party-jobs', 'command-third-party-partners', 'command-rework-cases', 'command-locations', 'command-orders', 'command-quotes', 'command-billing-agreements', 'command-billing-statements', 'command-fiscal-profiles', 'command-fiscal-documents', 'command-stock-lots', 'command-stock-movements', 'command-inventory-counts', 'command-consumption-recipes', 'command-production-batches', 'command-machine-states', 'command-labor-entries', 'command-operational-alerts', 'command-production-cost-profiles', 'command-laundry-services', 'command-units', 'mgmt-orders', 'mgmt-payments', 'mgmt-finance', 'mgmt-audit'].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
   };
 
   return (
@@ -119,6 +137,8 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
         <ActionCard icon={MapPin} title="Localizar peça" description="Buscar por ticket, cliente, características ou leitura da etiqueta." accent="from-cyan-500 to-blue-600" onClick={() => { setWorkspaceTab('custody'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
         <ActionCard icon={PackageCheck} title="Entrega parcial" description="Selecionar somente as peças prontas e emitir comprovante." accent="from-emerald-500 to-teal-600" onClick={() => { setWorkspaceTab('custody'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
         <ActionCard icon={Printer} title="Etiquetas" description="Impressão térmica por peça com QR e reimpressão auditada." accent="from-orange-500 to-rose-500" onClick={() => { setWorkspaceTab('custody'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
+        {canManageProduction && <ActionCard icon={Factory} title="Lotes de produção" description="Planejar cargas, máquinas, operadores, consumo e custos reais." accent="from-cyan-500 to-violet-600" badge={summary.activeBatches} onClick={() => { setWorkspaceTab('production'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />}
+        {canViewInsights && <ActionCard icon={Activity} title="Alertas operacionais" description="Priorizar falta, validade, atraso, sobrecarga, perdas e custos." accent="from-amber-500 to-red-500" badge={summary.openAlerts} onClick={() => { setWorkspaceTab('insights'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />}
         <ActionCard icon={ShieldCheck} title="Revisões" description="Centralizar baixa confiança e decisões sensíveis." accent="from-indigo-500 to-violet-600" badge={summary.pendingReviews} onClick={() => { setWorkspaceTab('reviews'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
       </div>
 
@@ -126,7 +146,9 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
         <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-2xl bg-white/5 p-1.5">
           <TabsTrigger value="operations" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Gauge className="h-4 w-4" />Operação</TabsTrigger>
           <TabsTrigger value="custody" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><MapPin className="h-4 w-4" />Etiquetas e entrega</TabsTrigger>
-          <TabsTrigger value="inventory" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Boxes className="h-4 w-4" />Insumos</TabsTrigger>
+          {canManageProduction && <TabsTrigger value="production" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Factory className="h-4 w-4" />Produção</TabsTrigger>}
+          {canManageInventory && <TabsTrigger value="inventory" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Boxes className="h-4 w-4" />Estoque</TabsTrigger>}
+          {canViewInsights && <TabsTrigger value="insights" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Activity className="h-4 w-4" />Indicadores</TabsTrigger>}
           {canViewFinancial && <TabsTrigger value="financial" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Banknote className="h-4 w-4" />Recebimentos e caixa</TabsTrigger>}
           {(canManageQuotes || canManageBilling) && <TabsTrigger value="commercial" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Handshake className="h-4 w-4" />Orçamentos e faturados</TabsTrigger>}
           {canManageFiscal && <TabsTrigger value="fiscal" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Landmark className="h-4 w-4" />Fiscal</TabsTrigger>}
@@ -134,7 +156,9 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
         </TabsList>
         <TabsContent value="operations" className="space-y-6"><ProductionBoard garments={garments} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onInspect={setInspectionGarment} /><ExceptionsPanel jobs={thirdPartyJobs} partners={thirdPartyPartners} reworkCases={reworkCases} garments={garments} unitId={unitId} onRefresh={refreshAll} /></TabsContent>
         <TabsContent value="custody"><GarmentLocationPanel garments={garments} locations={locations} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onPrintLabels={setLabelGarments} onDeliver={setDeliveryGarments} /></TabsContent>
-        <TabsContent value="inventory"><InventoryPanel stockItems={stockItems} purchaseDocuments={purchaseDocuments} suppliers={suppliers} selectedUnitId={selectedUnitId} onNewPurchase={() => setPurchaseOpen(true)} /></TabsContent>
+        {canManageProduction && <TabsContent value="production"><ProductionOperationsPanel batches={productionBatches} machines={machineStates} recipes={consumptionRecipes} garments={garments} customers={customers} laborEntries={laborEntries} stockItems={stockItems} costProfiles={productionCostProfiles} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
+        {canManageInventory && <TabsContent value="inventory"><InventoryPanel stockItems={stockItems} stockLots={stockLots} stockMovements={stockMovements} inventoryCounts={inventoryCounts} recipes={consumptionRecipes} purchaseDocuments={purchaseDocuments} suppliers={suppliers} services={laundryServices} machines={machineStates} batches={productionBatches} units={units} selectedUnitId={selectedUnitId} onNewPurchase={() => setPurchaseOpen(true)} onRefresh={refreshAll} /></TabsContent>}
+        {canViewInsights && <TabsContent value="insights"><OperationsInsightsPanel alerts={operationalAlerts} batches={productionBatches} stockMovements={stockMovements} machines={machineStates} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
         {canViewFinancial && <TabsContent value="financial"><FinancialOperationsPanel payables={payables} receivables={receivables} payments={payments} financialDocuments={financialDocuments} cashSessions={cashSessions} bankTransactions={bankTransactions} orders={orders} customers={customers} selectedUnitId={selectedUnitId} onNewBill={() => setBillOpen(true)} onCash={() => setCashOpen(true)} onRefresh={refreshAll} /></TabsContent>}
         {(canManageQuotes || canManageBilling) && <TabsContent value="commercial" className="space-y-8">{canManageQuotes && <QuoteLifecyclePanel quotes={quotes} customers={customers} selectedUnitId={selectedUnitId} onRefresh={refreshAll} />}{canManageBilling && <BillingAgreementsPanel agreements={billingAgreements} statements={billingStatements} customers={customers} orders={orders} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} />}</TabsContent>}
         {canManageFiscal && <TabsContent value="fiscal"><FiscalReadinessPanel profiles={fiscalProfiles} documents={fiscalDocuments} orders={orders} statements={billingStatements} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
