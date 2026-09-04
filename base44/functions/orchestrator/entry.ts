@@ -20,14 +20,6 @@ import { shouldIncludeInAiHistory } from '../../shared/messageOrigin.js';
 
 const normalizeText = (value = '') => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
-const PRESET_UNITS = [
-    { name: 'Loja Rio Branco', subdomain: 'riobranco' },
-    { name: 'Loja Petrópolis', subdomain: 'petropolis' },
-    { name: 'Loja Zaffari (Protásio Alves)', subdomain: 'zaffari-protasio' },
-    { name: 'Loja Bourbon Wallig', subdomain: 'bourbon-wallig' },
-    { name: 'Loja Moinhos Shopping', subdomain: 'moinhos-shopping' }
-];
-
 const IGNORED_SOLO_TEXTS = new Set(['ok', 'okkk', 'ta', 'tabom', 'beleza', 'sair', 'retorno', 'retornar']);
 const shouldIgnoreSoloMessage = (text = '') => {
     const normalizedText = text.trim().toLowerCase();
@@ -252,25 +244,12 @@ Deno.serve(async (req) => {
              console.log(`Skipping orchestrator due to ignored solo text: ${message.text}`);
              return Response.json({ status: "ignored_solo_text" });
         }
-        let units = await base44.asServiceRole.entities.Unit.list('name', 50);
+        // As unidades vêm SEMPRE do banco. Nada é criado automaticamente aqui.
+        const units = await base44.asServiceRole.entities.Unit.list('name', 50);
 
-        const existingSubdomains = new Set(units.map((unit) => unit.subdomain));
-        const missingUnits = PRESET_UNITS.filter((unit) => !existingSubdomains.has(unit.subdomain));
-
-        if (missingUnits.length > 0) {
-            await Promise.all(missingUnits.map((unit) => base44.asServiceRole.entities.Unit.create({
-                name: unit.name,
-                subdomain: unit.subdomain,
-                owner_email: 'admin@5asec.com.br',
-                status: 'active',
-                plan_price: 489
-            })));
-            units = await base44.asServiceRole.entities.Unit.list('name', 50);
-        }
-
-        // Unidade padrão fixa: Rio Branco. Não pergunta mais ao cliente.
+        // Unidade padrão: a primeira unidade cadastrada. Não pergunta ao cliente.
         if (!customer.unit_id) {
-            const defaultUnit = units.find((u) => u.subdomain === 'riobranco');
+            const defaultUnit = units[0];
             if (defaultUnit) {
                 await base44.asServiceRole.entities.Customer.update(customer.id, {
                     unit_id: defaultUnit.id,
