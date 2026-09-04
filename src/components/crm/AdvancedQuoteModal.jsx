@@ -326,7 +326,10 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
 
       const approval = await base44.functions.invoke('approve_quote', { quote_id: quote.id });
       const order = approval.data?.order;
-      if (!order) throw new Error('order_creation_failed');
+      if (!order) {
+        const errorCode = approval.data?.error || 'order_creation_failed';
+        throw new Error(errorCode);
+      }
 
       const timingPatch = {
         wash_time: times.wash_time === '' ? undefined : Number(times.wash_time),
@@ -375,7 +378,18 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
       toast.success(!paymentReceived ? 'Ticket criado sem registrar pagamento.' : paymentRequiresReconciliation ? 'Ticket criado. O pagamento aguarda conciliação.' : 'Ticket criado e pagamento registrado.');
     } catch (error) {
       console.error(error);
-      toast.error('Não foi possível concluir o orçamento. Nenhuma cobrança automática foi realizada.');
+      const errorMessages = {
+        order_creation_failed: 'Falha ao criar o ticket. Tente novamente.',
+        customer_required: 'Informe o telefone ou nome do cliente.',
+        quote_not_found: 'Orçamento não encontrado. Reinicie o processo.',
+        human_review_required: 'Existem peças com identificação pendente. Confirme-as antes de aprovar.',
+        quote_not_approvable: 'Este orçamento não pode mais ser aprovado.',
+        forbidden: 'Você não tem permissão para aprovar orçamentos.',
+        forbidden_unit: 'Você não tem acesso à unidade deste orçamento.',
+        approve_quote_failed: 'Falha interna ao aprovar orçamento. Tente novamente.'
+      };
+      const message = errorMessages[error.message] || `Não foi possível concluir o orçamento: ${error.message}`;
+      toast.error(message);
     } finally {
       setLoading(false);
     }
