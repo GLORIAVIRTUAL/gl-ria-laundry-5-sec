@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Banknote, Boxes, Camera, ClipboardCheck, FileText, Gauge, MapPin, PackageCheck, PackagePlus, Plus, Printer, ReceiptText, ShieldCheck, Shirt, Sparkles, TriangleAlert } from 'lucide-react';
+import { Banknote, Boxes, Camera, ClipboardCheck, FileClock, FileText, Gauge, Handshake, Landmark, MapPin, PackageCheck, PackagePlus, Plus, Printer, ReceiptText, ShieldCheck, Shirt, Sparkles, TriangleAlert } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,8 +18,13 @@ import IntegrationReadiness from './IntegrationReadiness';
 import GarmentLocationPanel from './GarmentLocationPanel';
 import GarmentLabelPrintDialog from './GarmentLabelPrintDialog';
 import GarmentDeliveryDialog from './GarmentDeliveryDialog';
+import BillingAgreementsPanel from './BillingAgreementsPanel';
+import QuoteLifecyclePanel from './QuoteLifecyclePanel';
+import FiscalReadinessPanel from './FiscalReadinessPanel';
+import { useAuth } from '@/lib/AuthContext';
+import { hasPermission } from '@/lib/accessControl';
 
-function ActionCard({ icon: Icon, title, description, accent, onClick, badge }) {
+function ActionCard({ icon: Icon, title, description, accent, onClick, badge = null }) {
   return (
     <button type="button" onClick={onClick} className="group rounded-3xl border border-white/10 bg-white/[0.035] p-5 text-left transition hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.055]">
       <div className="flex items-start justify-between gap-3"><div className={`rounded-2xl bg-gradient-to-br p-2.5 text-white shadow-lg ${accent}`}><Icon className="h-5 w-5" /></div>{badge != null && <Badge variant="outline" className="border-white/10 text-white/55">{badge}</Badge>}</div>
@@ -30,6 +35,7 @@ function ActionCard({ icon: Icon, title, description, accent, onClick, badge }) 
 
 export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId, customers = [], onManualEntry, onManualQuote }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [smartQuoteOpen, setSmartQuoteOpen] = useState(false);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
   const [billOpen, setBillOpen] = useState(false);
@@ -48,6 +54,7 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
   const { data: suppliers = [] } = useQuery({ queryKey: ['command-suppliers'], queryFn: () => base44.entities.Supplier.filter({ active: true }, 'corporate_name', 1000), ...queryOptions });
   const { data: payables = [] } = useQuery({ queryKey: ['command-payables'], queryFn: () => base44.entities.AccountsPayable.filter({}, 'due_date', 2000), ...queryOptions });
   const { data: receivables = [] } = useQuery({ queryKey: ['command-receivables'], queryFn: () => base44.entities.AccountsReceivable.filter({}, 'due_date', 2000), ...queryOptions });
+  const { data: payments = [] } = useQuery({ queryKey: ['command-payments'], queryFn: () => base44.entities.Payment.filter({}, '-created_date', 3000), ...queryOptions });
   const { data: financialDocuments = [] } = useQuery({ queryKey: ['command-financial-documents'], queryFn: () => base44.entities.FinancialDocument.filter({}, '-created_date', 1000), ...queryOptions });
   const { data: cashSessions = [] } = useQuery({ queryKey: ['command-cash-sessions'], queryFn: () => base44.entities.CashSession.filter({}, '-opened_at', 500), ...queryOptions });
   const { data: bankTransactions = [] } = useQuery({ queryKey: ['command-bank-transactions'], queryFn: () => base44.entities.BankTransaction.filter({}, '-transaction_date', 2000), ...queryOptions });
@@ -56,6 +63,16 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
   const { data: reworkCases = [] } = useQuery({ queryKey: ['command-rework-cases'], queryFn: () => base44.entities.ReworkCase.filter({}, '-opened_at', 1000), ...queryOptions });
   const { data: locations = [] } = useQuery({ queryKey: ['command-locations'], queryFn: () => base44.entities.Location.filter({ active: true }, 'code', 2000), ...queryOptions });
   const { data: orders = [] } = useQuery({ queryKey: ['command-orders'], queryFn: () => base44.entities.Order.filter({}, '-created_date', 3000), ...queryOptions });
+  const { data: quotes = [] } = useQuery({ queryKey: ['command-quotes'], queryFn: () => base44.entities.Quote.filter({}, '-created_date', 3000), ...queryOptions });
+  const { data: billingAgreements = [] } = useQuery({ queryKey: ['command-billing-agreements'], queryFn: () => base44.entities.BillingAgreement.filter({}, '-created_date', 1000), ...queryOptions });
+  const { data: billingStatements = [] } = useQuery({ queryKey: ['command-billing-statements'], queryFn: () => base44.entities.BillingStatement.filter({}, '-created_date', 2000), ...queryOptions });
+  const { data: fiscalProfiles = [] } = useQuery({ queryKey: ['command-fiscal-profiles'], queryFn: () => base44.entities.FiscalProfile.filter({}, '-created_date', 100), ...queryOptions });
+  const { data: fiscalDocuments = [] } = useQuery({ queryKey: ['command-fiscal-documents'], queryFn: () => base44.entities.FiscalDocument.filter({}, '-created_date', 2000), ...queryOptions });
+
+  const canViewFinancial = hasPermission(user, 'finance.view') || hasPermission(user, 'payments.manage');
+  const canManageQuotes = hasPermission(user, 'quotes.manage');
+  const canManageBilling = hasPermission(user, 'billing.manage') || hasPermission(user, 'billing.close');
+  const canManageFiscal = hasPermission(user, 'fiscal.manage');
 
   const scoped = (records) => records.filter((record) => selectedUnitId === 'all' || record.unit_id === selectedUnitId);
   const summary = useMemo(() => {
@@ -69,7 +86,7 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
   }, [garments, reviews, stockItems, payables, selectedUnitId]);
 
   const refreshAll = () => {
-    ['command-garments', 'command-reviews', 'command-stock', 'command-purchases', 'command-suppliers', 'command-payables', 'command-receivables', 'command-financial-documents', 'command-cash-sessions', 'command-bank-transactions', 'command-third-party-jobs', 'command-third-party-partners', 'command-rework-cases', 'command-locations', 'command-orders', 'mgmt-orders', 'mgmt-payments', 'mgmt-finance', 'mgmt-audit'].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
+    ['command-garments', 'command-reviews', 'command-stock', 'command-purchases', 'command-suppliers', 'command-payables', 'command-receivables', 'command-payments', 'command-financial-documents', 'command-cash-sessions', 'command-bank-transactions', 'command-third-party-jobs', 'command-third-party-partners', 'command-rework-cases', 'command-locations', 'command-orders', 'command-quotes', 'command-billing-agreements', 'command-billing-statements', 'command-fiscal-profiles', 'command-fiscal-documents', 'mgmt-orders', 'mgmt-payments', 'mgmt-finance', 'mgmt-audit'].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
   };
 
   return (
@@ -94,6 +111,10 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
         <ActionCard icon={PackagePlus} title="Nota de compra" description="Extrair fornecedor, itens, preços e quantidades." accent="from-orange-500 to-amber-500" onClick={() => setPurchaseOpen(true)} />
         <ActionCard icon={ReceiptText} title="Conta ou fatura" description="Ler vencimento, consumo, valor e código de pagamento." accent="from-sky-500 to-blue-600" onClick={() => setBillOpen(true)} />
         <ActionCard icon={Banknote} title="Caixa" description="Abrir, movimentar, conferir e fechar por operador." accent="from-emerald-500 to-teal-600" onClick={() => setCashOpen(true)} />
+        {canViewFinancial && <ActionCard icon={Landmark} title="Receber" description="Combinar meios, receber parcialmente e usar crédito do cliente." accent="from-emerald-500 to-cyan-600" onClick={() => { setWorkspaceTab('financial'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />}
+        {canManageBilling && <ActionCard icon={Handshake} title="Convênios" description="Limites, pedidos faturados e fechamentos periódicos." accent="from-violet-500 to-indigo-600" onClick={() => { setWorkspaceTab('commercial'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />}
+        {canManageQuotes && <ActionCard icon={FileClock} title="Ciclo do orçamento" description="Versões, validade, envio, aceite e cancelamento auditado." accent="from-fuchsia-500 to-rose-500" onClick={() => { setWorkspaceTab('commercial'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />}
+        {canManageFiscal && <ActionCard icon={ShieldCheck} title="Fiscal" description="Preparar RPS e validar a estrutura sem transmitir NFS-e." accent="from-sky-500 to-blue-600" onClick={() => { setWorkspaceTab('fiscal'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />}
         <ActionCard icon={FileText} title="Lançamento manual" description="Manter o formulário financeiro já conhecido." accent="from-slate-500 to-slate-700" onClick={onManualEntry} />
         <ActionCard icon={MapPin} title="Localizar peça" description="Buscar por ticket, cliente, características ou leitura da etiqueta." accent="from-cyan-500 to-blue-600" onClick={() => { setWorkspaceTab('custody'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
         <ActionCard icon={PackageCheck} title="Entrega parcial" description="Selecionar somente as peças prontas e emitir comprovante." accent="from-emerald-500 to-teal-600" onClick={() => { setWorkspaceTab('custody'); document.getElementById('management-workspace')?.scrollIntoView({ behavior: 'smooth' }); }} />
@@ -106,13 +127,17 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
           <TabsTrigger value="operations" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Gauge className="h-4 w-4" />Operação</TabsTrigger>
           <TabsTrigger value="custody" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><MapPin className="h-4 w-4" />Etiquetas e entrega</TabsTrigger>
           <TabsTrigger value="inventory" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Boxes className="h-4 w-4" />Insumos</TabsTrigger>
-          <TabsTrigger value="financial" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Banknote className="h-4 w-4" />Contas e caixa</TabsTrigger>
+          {canViewFinancial && <TabsTrigger value="financial" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Banknote className="h-4 w-4" />Recebimentos e caixa</TabsTrigger>}
+          {(canManageQuotes || canManageBilling) && <TabsTrigger value="commercial" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Handshake className="h-4 w-4" />Orçamentos e faturados</TabsTrigger>}
+          {canManageFiscal && <TabsTrigger value="fiscal" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Landmark className="h-4 w-4" />Fiscal</TabsTrigger>}
           <TabsTrigger value="reviews" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><ClipboardCheck className="h-4 w-4" />Revisões {summary.pendingReviews > 0 && <Badge className="ml-1 bg-orange-500 text-white">{summary.pendingReviews}</Badge>}</TabsTrigger>
         </TabsList>
         <TabsContent value="operations" className="space-y-6"><ProductionBoard garments={garments} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onInspect={setInspectionGarment} /><ExceptionsPanel jobs={thirdPartyJobs} partners={thirdPartyPartners} reworkCases={reworkCases} garments={garments} unitId={unitId} onRefresh={refreshAll} /></TabsContent>
         <TabsContent value="custody"><GarmentLocationPanel garments={garments} locations={locations} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onPrintLabels={setLabelGarments} onDeliver={setDeliveryGarments} /></TabsContent>
         <TabsContent value="inventory"><InventoryPanel stockItems={stockItems} purchaseDocuments={purchaseDocuments} suppliers={suppliers} selectedUnitId={selectedUnitId} onNewPurchase={() => setPurchaseOpen(true)} /></TabsContent>
-        <TabsContent value="financial"><FinancialOperationsPanel payables={payables} receivables={receivables} financialDocuments={financialDocuments} cashSessions={cashSessions} bankTransactions={bankTransactions} selectedUnitId={selectedUnitId} onNewBill={() => setBillOpen(true)} onCash={() => setCashOpen(true)} onRefresh={refreshAll} /></TabsContent>
+        {canViewFinancial && <TabsContent value="financial"><FinancialOperationsPanel payables={payables} receivables={receivables} payments={payments} financialDocuments={financialDocuments} cashSessions={cashSessions} bankTransactions={bankTransactions} orders={orders} customers={customers} selectedUnitId={selectedUnitId} onNewBill={() => setBillOpen(true)} onCash={() => setCashOpen(true)} onRefresh={refreshAll} /></TabsContent>}
+        {(canManageQuotes || canManageBilling) && <TabsContent value="commercial" className="space-y-8">{canManageQuotes && <QuoteLifecyclePanel quotes={quotes} customers={customers} selectedUnitId={selectedUnitId} onRefresh={refreshAll} />}{canManageBilling && <BillingAgreementsPanel agreements={billingAgreements} statements={billingStatements} customers={customers} orders={orders} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} />}</TabsContent>}
+        {canManageFiscal && <TabsContent value="fiscal"><FiscalReadinessPanel profiles={fiscalProfiles} documents={fiscalDocuments} orders={orders} statements={billingStatements} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
         <TabsContent value="reviews"><ReviewQueue reviews={reviews} selectedUnitId={selectedUnitId} onRefresh={refreshAll} /></TabsContent>
       </Tabs>
 

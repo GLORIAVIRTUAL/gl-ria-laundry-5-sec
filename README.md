@@ -12,7 +12,8 @@ Aplicação de gestão de lavanderia construída sobre **React, Vite e Base44**,
 | Operação | Peça individual, código, atributos, avarias, fotos, estado, localização, SLA e histórico imutável de eventos. |
 | Produção | Quadro por peça, transições controladas, qualidade, retrabalho, posições físicas, lotes e serviços terceirizados. |
 | Compras e estoque | Fornecedores, insumos, custo médio, estoque mínimo, movimentos, inventário, fichas de consumo e leitura de notas. |
-| Financeiro | Contas a pagar e receber, documentos financeiros, caixa por operador, alocações, conciliação e despesas recorrentes pendentes. |
+| Financeiro | Contas a pagar e receber, recebimentos mistos/parciais, crédito do cliente, convênios, faturados, caixa por operador, alocações, conciliação e despesas recorrentes pendentes. |
+| Comercial e fiscal | Ciclo versionado de orçamentos, validade, alçadas, fechamento periódico e preparação local de RPS/NFS-e com transmissão desativada. |
 | Segurança | Papéis, permissões, escopo por unidade, uploads validados, idempotência, auditoria ampliada e cancelamento sem exclusão destrutiva. |
 | Integrações | Configuração exclusivamente por ambiente e painel que informa apenas a presença dos segredos, nunca os seus valores. |
 
@@ -41,6 +42,7 @@ O script valida schemas, entidades obrigatórias, autenticação explícita das 
 
 ```bash
 npm run validate:counter-core
+npm run validate:wave2
 ```
 
 ## Configuração e implantação
@@ -51,6 +53,8 @@ npm run validate:counter-core
 | [`docs/operations-guide.md`](docs/operations-guide.md) | Uso dos novos fluxos de Gestão. |
 | [`docs/manual-garment-characteristics.md`](docs/manual-garment-characteristics.md) | Características e conferência individual das peças no orçamento manual. |
 | [`docs/operational-counter-core.md`](docs/operational-counter-core.md) | Serviços por peça, etiquetas, leitura, localização e entrega parcial. |
+| [`docs/wave2-financial-fiscal.md`](docs/wave2-financial-fiscal.md) | Pagamentos mistos, crédito, convênios, faturados, orçamentos, caixa e preparação fiscal. |
+| [`docs/nfse-porto-alegre-research.md`](docs/nfse-porto-alegre-research.md) | Base oficial para a futura integração com o Emissor Nacional de NFS-e. |
 | [`docs/migration-rollout.md`](docs/migration-rollout.md) | Sequência segura para homologação e ativação gradual. |
 | [`docs/security-architecture.md`](docs/security-architecture.md) | Papéis, unidades, auditoria, documentos, pagamentos e revisão humana. |
 | [`docs/validation-notes.md`](docs/validation-notes.md) | Testes executados e limitações atuais do repositório sem backend. |

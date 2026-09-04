@@ -112,7 +112,37 @@
     "preferred_unit_name": {
       "type": "string",
       "description": "Nome da unidade preferida do cliente"
-    }
+    },
+    "customer_type": {
+      "type": "string",
+      "enum": ["individual", "company", "agreement_member"],
+      "default": "individual"
+    },
+    "legal_name": { "type": "string" },
+    "tax_id": { "type": "string", "description": "CPF ou CNPJ normalizado" },
+    "municipal_registration": { "type": "string" },
+    "billing_email": { "type": "string" },
+    "billing_agreement_id": { "type": "string" },
+    "billing_status": {
+      "type": "string",
+      "enum": ["cash_only", "approved", "suspended", "blocked"],
+      "default": "cash_only"
+    },
+    "billing_cycle": {
+      "type": "string",
+      "enum": ["per_order", "weekly", "biweekly", "monthly"],
+      "default": "per_order"
+    },
+    "payment_term_days": { "type": "number", "default": 0 },
+    "credit_limit": { "type": "number", "default": 0 },
+    "credit_balance": { "type": "number", "default": 0 },
+    "credit_used": { "type": "number", "default": 0 },
+    "credit_available": { "type": "number", "default": 0 },
+    "credit_reviewed_at": { "type": "string", "format": "date-time" },
+    "credit_reviewed_by_user_id": { "type": "string" },
+    "cost_center": { "type": "string" },
+    "purchase_order_required": { "type": "boolean", "default": false },
+    "invoice_notes": { "type": "string" }
   },
   "required": [
     "full_name"

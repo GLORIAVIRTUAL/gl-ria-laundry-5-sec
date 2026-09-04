@@ -59,7 +59,7 @@ export async function loadLaundryPricingCatalog(base44, { unitId, customerId } =
     products: products.filter((product) => product.active !== false),
     services: services.filter((service) => service.active !== false && (!service.unit_id || service.unit_id === unitId)),
     rules,
-    customerGroup: customer?.customer_group || customer?.agreement_id || customer?.metadata?.customer_group || null,
+    customerGroup: customer?.customer_group || customer?.billing_agreement_id || customer?.agreement_id || customer?.metadata?.customer_group || null,
   };
 }
 

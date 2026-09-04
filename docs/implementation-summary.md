@@ -19,6 +19,10 @@ A branch `feat/intelligent-management-suite` transforma a página **Gestão** em
 | Serviços por peça | Composição de vários serviços, compatibilidade por produto, regras específicas e preço recalculado no servidor. |
 | Etiquetas e localização | QR térmico por peça, reimpressão auditada, leitor por câmera/USB, posições, capacidade e movimentação em lote. |
 | Entrega | Retirada total ou parcial, bloqueio por saldo, liberação gerencial, prova opcional e comprovante. |
+| Recebimentos | Recibo composto, múltiplos meios, pagamento parcial, troco, confirmação posterior e estorno sem perda do histórico. |
+| Crédito e faturados | Razão de crédito, convênios, limites, autorização de pedidos, fechamento periódico e títulos consolidados. |
+| Orçamentos | Validade individual, versões imutáveis, alçadas, envio, aceite, rejeição, reabertura, cancelamento e conversão em pedido. |
+| Fiscal | Perfil por unidade, RPS sequencial, preparação e validação local; transmissão NFS-e bloqueada até homologação futura. |
 
 ## Correção do orçamento manual
 
@@ -51,6 +55,13 @@ Os campos de condição e ciência permanecem persistidos por peça, mas os ajus
 | `manage_location` | Criar, atualizar e arquivar posições físicas com autorização. |
 | `move_garments` | Movimentar peças em lote com capacidade, ocupação, idempotência e eventos. |
 | `complete_garment_delivery` | Concluir entrega total/parcial com validação financeira e comprovante. |
+| `manage_payment_receipt` | Receber com múltiplos meios, alocar saldos e executar estorno auditado. |
+| `confirm_payment_tender` | Confirmar posteriormente meios eletrônicos e aplicar o valor ao saldo atual. |
+| `manage_customer_credit` | Conceder e ajustar crédito em razão imutável. |
+| `manage_billing_agreement` | Administrar convênios, limites, clientes e pedidos faturados. |
+| `close_billing_period` | Gerar prévia, demonstrativo e conta a receber consolidada por período. |
+| `manage_quote_lifecycle` | Versionar e governar todo o ciclo comercial do orçamento. |
+| `manage_fiscal_document` | Preparar e validar RPS, manter eventos e bloquear transmissão não homologada. |
 
 ## Funções endurecidas
 
@@ -62,4 +73,4 @@ O orçamento manual, os gráficos financeiros, a tabela de tickets, os registros
 
 ## Validação
 
-O build Vite conclui. Todos os arquivos novos e modificados passam no lint direcionado. As funções TypeScript alteradas passam no parser `esbuild`. O comando `npm run validate:counter-core` verifica **57 schemas, 21 funções autenticadas**, invariantes críticos, testes determinísticos de precificação e o build. Etiquetas e comprovantes também foram renderizados em amostras locais para validação visual. A prévia autenticada depende da associação a um backend Base44 de homologação.
+O build Vite conclui. Todos os arquivos novos e modificados passam no lint direcionado. As funções TypeScript alteradas passam no parser `esbuild`. O comando `npm run validate:wave2` verifica **65 schemas, 29 funções autenticadas**, invariantes críticos, cálculos de pagamentos, contrato fiscal, lint, typecheck direcionado e build. Os módulos financeiros, comerciais, caixa e fiscal foram inspecionados em prévia local controlada. O typecheck direcionado registra zero erros na Onda 2; o débito global remanescente pertence ao legado fora desta entrega.

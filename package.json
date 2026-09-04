@@ -12,6 +12,8 @@
     "validate:evolution": "python3 scripts/validate-laundry-evolution.py",
     "test:pricing": "node scripts/test-laundry-pricing.mjs",
     "validate:counter-core": "npm run validate:evolution && npm run test:pricing && eslint --quiet src/components/management/ManagementCommandCenter.jsx src/components/management/GarmentLocationPanel.jsx src/components/management/GarmentLabelPrintDialog.jsx src/components/management/GarmentScannerDialog.jsx src/components/management/GarmentDeliveryDialog.jsx src/components/crm/AdvancedQuoteModal.jsx src/components/crm/ManualGarmentCharacteristics.jsx src/lib/garmentLabels.js src/lib/deliveryReceiptDocument.js && npm run build",
+    "test:wave2": "node scripts/test-wave2-finance.mjs",
+    "validate:wave2": "node scripts/validate-wave2.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -8,6 +8,7 @@
     "amount": { "type": "number" },
     "payment_method": { "type": "string" },
     "payment_id": { "type": "string" },
+    "payment_receipt_id": { "type": "string" },
     "order_id": { "type": "string" },
     "customer_id": { "type": "string" },
     "supplier_id": { "type": "string" },

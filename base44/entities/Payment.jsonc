@@ -41,6 +41,21 @@
     "fee_percent": { "type": "number" },
     "fee_amount": { "type": "number" },
     "receipt_asset_id": { "type": "string" },
+    "payment_receipt_id": { "type": "string" },
+    "tender_sequence": { "type": "number" },
+    "tendered_amount": { "type": "number" },
+    "applied_amount": { "type": "number" },
+    "change_amount": { "type": "number", "default": 0 },
+    "settlement_status": {
+      "type": "string",
+      "enum": ["not_required", "pending", "settled", "failed", "reversed"],
+      "default": "pending"
+    },
+    "settled_at": { "type": "string", "format": "date-time" },
+    "reversed_at": { "type": "string", "format": "date-time" },
+    "reversed_by_user_id": { "type": "string" },
+    "reversal_payment_id": { "type": "string" },
+    "reversal_reason": { "type": "string" },
     "allocation_ids": { "type": "array", "items": { "type": "string" }, "default": [] },
     "notes": { "type": "string" },
     "metadata": { "type": "object", "additionalProperties": true }
