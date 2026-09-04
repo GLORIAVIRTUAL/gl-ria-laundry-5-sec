@@ -50,7 +50,19 @@
         "human_review",
         "user",
         "unit",
-        "integration"
+        "integration",
+        "access_policy",
+        "price_rule",
+        "operational_catalog",
+        "loyalty_program",
+        "loyalty_ledger",
+        "voucher",
+        "customer_package",
+        "vehicle",
+        "field_route",
+        "field_route_stop",
+        "driver_shift",
+        "specialized_report"
       ],
       "description": "Tipo do registro afetado"
     },
@@ -110,6 +122,39 @@
     "success": {
       "type": "boolean",
       "default": true
+    },
+    "domain": {
+      "type": "string",
+      "enum": ["security", "commercial", "finance", "fiscal", "inventory", "production", "quality", "crm", "loyalty", "analytics", "logistics", "integration", "system"]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "notice", "warning", "critical"],
+      "default": "info"
+    },
+    "result": {
+      "type": "string",
+      "enum": ["success", "denied", "validation_error", "failure"],
+      "default": "success"
+    },
+    "origin": {
+      "type": "string",
+      "enum": ["web", "mobile", "api", "webhook", "automation", "system"],
+      "default": "web"
+    },
+    "retention_class": {
+      "type": "string",
+      "enum": ["standard", "financial", "fiscal", "security", "privacy"],
+      "default": "standard"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "masked_fields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": []
     }
   },
   "required": [

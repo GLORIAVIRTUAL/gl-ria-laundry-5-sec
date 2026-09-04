@@ -1,17 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { format, addDays, startOfDay, isSameDay, parseISO, eachDayOfInterval, getDay } from 'date-fns';
+import { format, startOfDay, isSameDay, parseISO, eachDayOfInterval, getDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { 
   Truck, 
-  Calendar as CalendarIcon, 
   Clock, 
   MapPin, 
   Plus, 
   Search,
   CheckCircle,
   XCircle,
-  User,
   Bot,
   Phone,
   Store,
@@ -23,7 +21,6 @@ import {
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
@@ -32,8 +29,9 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import PickupRoutePlanner from '@/components/pickups/PickupRoutePlanner';
+import LogisticsOperationsPanel from '@/components/pickups/LogisticsOperationsPanel';
 import EditPickupModal from '@/components/pickups/EditPickupModal';
 import AdvancedQuoteModal from '@/components/crm/AdvancedQuoteModal';
 import OverflowPickupsSection from '@/components/pickups/OverflowPickupsSection';
@@ -61,7 +59,7 @@ export default function Pickups() {
   // Abre o fluxo de orçamento/ticket já com o cliente da coleta pré-selecionado
   const handleGenerateTicket = (pickup) => {
     const customer = customerMap[pickup.customer_id];
-    window.initialQuoteData = {
+    (/** @type {any} */ (window)).initialQuoteData = {
       id: pickup.customer_id,
       name: customer?.full_name || '',
       phone: (customer?.phones && customer.phones[0]) || ''
@@ -428,7 +426,7 @@ export default function Pickups() {
   const allocatePickupsToSlots = () => {
     const dayPickups = pickups
       .filter(p => isSameBrasiliaDay(p.scheduled_at, date) && p.status !== 'cancelled' && p.type !== 'extra')
-      .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
 
     const morningPickups = dayPickups.filter(p => getBrasiliaTimeParts(p.scheduled_at).hour < 13);
     const afternoonPickups = dayPickups.filter(p => getBrasiliaTimeParts(p.scheduled_at).hour >= 13);
@@ -454,7 +452,7 @@ export default function Pickups() {
   // Encaixes (coletas extras) do dia selecionado — não consomem slot, aparecem em seção separada
   const extraPickupsForDay = pickups
     .filter(p => isSameBrasiliaDay(p.scheduled_at, date) && p.status !== 'cancelled' && p.type === 'extra')
-    .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
+    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
 
   const handleDragEnd = async (result) => {
     if (!result.destination) return;
@@ -801,6 +799,12 @@ export default function Pickups() {
         customerMap={customerMap}
         date={date}
         onStatusChange={handleUpdateStatus}
+      />
+
+      <LogisticsOperationsPanel
+        pickups={pickups}
+        customers={customers}
+        onRefresh={loadData}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-0">

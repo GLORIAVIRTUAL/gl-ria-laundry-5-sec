@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Search, 
   Plus, 
@@ -12,7 +11,8 @@ import {
   Edit2,
   MessageSquare,
   Upload,
-  Loader2
+  Loader2,
+  Sparkles
 } from 'lucide-react';
 import {
   Dialog,
@@ -33,6 +33,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import CustomerHistoryModal from "@/components/customers/CustomerHistoryModal";
+import Customer360Dialog from "@/components/customers/Customer360Dialog";
 import CustomerUnitCounts from '@/components/customers/CustomerUnitCounts';
 import useUnitAccess, { filterRecordsByUnit } from '@/components/units/useUnitAccess';
 
@@ -45,6 +46,7 @@ export default function Customers() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [historyCustomer, setHistoryCustomer] = useState(null);
+  const [customer360, setCustomer360] = useState(null);
   const [customerCount, setCustomerCount] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
@@ -106,7 +108,8 @@ export default function Customers() {
         }
       });
 
-      const rows = Array.isArray(result.output) ? result.output : [];
+      const extracted = /** @type {any} */ (result);
+      const rows = Array.isArray(extracted.output) ? extracted.output : [];
       const normalizedRows = rows
         .map((row) => {
           const rawPhone = row.phone || row.telefone || row.whatsapp || row.celular || row.phones?.[0] || '';
@@ -522,6 +525,15 @@ export default function Customers() {
                                 >
                                     <MessageSquare className="w-4 h-4" />
                                 </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setCustomer360(customer)}
+                                    className="h-8 w-8 hover:bg-violet-500/15 hover:text-violet-300 text-gray-400"
+                                    title="CRM 360"
+                                >
+                                    <Sparkles className="w-4 h-4" />
+                                </Button>
                                 <Button 
                                     variant="ghost" 
                                     size="icon"
@@ -577,6 +589,11 @@ export default function Customers() {
         customer={historyCustomer} 
         isOpen={!!historyCustomer} 
         onClose={() => setHistoryCustomer(null)} 
+      />
+      <Customer360Dialog
+        customer={customer360}
+        open={!!customer360}
+        onClose={() => setCustomer360(null)}
       />
     </div>
   );

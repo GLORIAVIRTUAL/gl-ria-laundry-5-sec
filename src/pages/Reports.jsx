@@ -12,6 +12,7 @@ import DRESection from '@/components/reports/DRESection';
 import { jsPDF } from 'jspdf';
 import useUnitAccess, { filterRecordsByUnit, getUnitLabel } from '@/components/units/useUnitAccess';
 import UnitFilterSelect from '@/components/units/UnitFilterSelect';
+import SpecializedReportsPanel from '@/components/reports/SpecializedReportsPanel';
 
 const COLORS = ['#FF6600', '#4C12A1', '#25D366', '#00C853', '#FFC107', '#33691E'];
 
@@ -44,7 +45,7 @@ export default function ReportsPage() {
   const downloadReportPdf = async (functionName, filename, setLoading) => {
     setLoading(true);
     try {
-      const response = await base44.functions.invoke(functionName, {}, { responseType: 'blob' });
+      const response = await (/** @type {any} */ (base44.functions)).invoke(functionName, {}, { responseType: 'blob' });
       const blob = response.data instanceof Blob ? response.data : new Blob([response.data], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -128,7 +129,7 @@ export default function ReportsPage() {
     });
 
     const salesChartData = Object.keys(salesByDayMap)
-      .sort((a, b) => new Date(a) - new Date(b))
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
       .map((key) => ({ date: format(new Date(`${key}T12:00:00Z`), 'dd/MM'), total: salesByDayMap[key] }));
 
     const methodsCount = {};
@@ -171,7 +172,7 @@ export default function ReportsPage() {
     });
 
     const pickupsChartData = Object.keys(pickupsByDayMap)
-      .sort((a, b) => new Date(a) - new Date(b))
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
       .map((key) => ({ date: format(new Date(`${key}T12:00:00Z`), 'dd/MM'), total: pickupsByDayMap[key] }));
 
     const pickupsNeighborhoodData = Object.keys(pickupsByNeighborhoodMap)
@@ -318,8 +319,11 @@ export default function ReportsPage() {
 
   const exportSalesToPDF = () => {
     const pdf = new jsPDF('p', 'mm', 'a4');
+    /** @type {[number, number, number]} */
     const primaryColor = [26, 11, 54];
+    /** @type {[number, number, number]} */
     const lightGray = [240, 240, 240];
+    /** @type {[number, number, number]} */
     const darkGray = [60, 60, 60];
 
     pdf.setFillColor(...primaryColor);
@@ -392,7 +396,7 @@ export default function ReportsPage() {
       y += 8;
     });
 
-    const pageCount = pdf.internal.getNumberOfPages();
+    const pageCount = pdf.getNumberOfPages();
     for (let page = 1; page <= pageCount; page += 1) {
       pdf.setPage(page);
       pdf.setTextColor(150);
@@ -430,6 +434,13 @@ export default function ReportsPage() {
           value={selectedUnitId}
           onChange={setSelectedUnitId}
         />
+      </div>
+
+      <SpecializedReportsPanel />
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-white/35">Relatórios legados preservados</p>
+        <p className="mt-1 text-sm text-white/45">Vendas, DRE, meios de pagamento, produtos, conversas e coletas continuam disponíveis abaixo.</p>
       </div>
 
       <div className="flex flex-wrap gap-3">

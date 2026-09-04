@@ -26,6 +26,12 @@ A branch `feat/intelligent-management-suite` transforma a página **Gestão** em
 | Estoque operacional | Lotes, validade, disponibilidade, transferências, perdas, inventário cego, congelamento lógico e ajustes auditados. |
 | Produção e consumo | Fichas técnicas versionadas, previsão e baixa FEFO/FIFO, lotes por capacidade, máquinas configuráveis, execução guiada e reversão controlada. |
 | Custos e alertas | Apontamento do operador, custos reais por lote, perfil versionado, perdas, desvios, gargalos e alertas deduplicados. |
+| Governança | Papéis canônicos, permissões excepcionais, múltiplas unidades, suspensão, revisão de acesso, políticas de MFA e eventos de sessão. |
+| Auditoria avançada | Consulta mult domínio, severidade, resultado, histórico antes/depois, mascaramento e exportação justificada. |
+| Preços e catálogos | Regras versionadas, simulação pelo motor real, alçadas e catálogos pesquisáveis de características e exceções. |
+| CRM 360 | Consumo, recorrência, crédito, inadimplência, pontos, vouchers, pacotes, preferências e atividade recente. |
+| Analytics | Treze relatórios especializados com comparação, séries, distribuições, dados detalhados, definições e exportações. |
+| Logística de campo | Frota, rotas, motorista, capacidade, GPS, tentativas, provas, recebedor, odômetro e eventos imutáveis. |
 
 ## Correção do orçamento manual
 
@@ -74,6 +80,14 @@ Os campos de condição e ciência permanecem persistidos por peça, mas os ajus
 | `manage_labor_entry` | Apontar início, pausa, retomada, conclusão e custo do operador. |
 | `manage_production_cost_profile` | Versionar mão de obra, energia, água, embalagem, qualidade e rateio. |
 | `manage_operational_alerts` | Detectar, reconhecer, resolver e deduplicar exceções operacionais. |
+| `manage_access_control` | Administrar papéis, permissões, unidades, suspensão, revisão e estado verificável de MFA. |
+| `query_audit_log` | Consultar e exportar auditoria com escopo, filtros, mascaramento e justificativa. |
+| `manage_pricing_rules` | Criar, simular, ativar, encerrar e versionar regras de preço e alçadas. |
+| `manage_operational_catalog` | Normalizar, deduplicar, pesquisar e inativar catálogos operacionais. |
+| `manage_loyalty_crm` | Gerir programas, pontos, vouchers, pacotes e gerar o snapshot CRM 360. |
+| `generate_specialized_report` | Calcular os treze relatórios especializados com qualidade e definições. |
+| `manage_fleet` | Administrar veículos, documentos, capacidade, custos e manutenção. |
+| `manage_delivery_route` | Controlar rotas, paradas, jornada do motorista, geolocalização, tentativas e provas. |
 
 ## Funções endurecidas
 
@@ -85,4 +99,4 @@ O orçamento manual, os gráficos financeiros, a tabela de tickets, os registros
 
 ## Validação
 
-O build Vite conclui. Todos os arquivos novos e modificados passam no lint direcionado. As funções TypeScript alteradas passam no parser `esbuild`. O comando `npm run validate:wave2` verifica os domínios financeiro, comercial e fiscal. O comando `npm run validate:wave3` verifica **70 schemas, 38 funções autenticadas**, cálculos de estoque, consumo, capacidade e custos, lint, typecheck direcionado, dez funções server-side e build. Produção, estoque, inventário, fichas técnicas, alertas, execução, custos e criação de lotes foram inspecionados em prévia local controlada. O typecheck direcionado registra zero erros na Onda 3; o débito global remanescente pertence ao legado fora desta entrega.
+O build Vite conclui. Todos os arquivos novos e modificados passam no lint direcionado. As funções TypeScript alteradas passam no parser `esbuild`. O comando `npm run validate:wave2` verifica os domínios financeiro, comercial e fiscal. O comando `npm run validate:wave3` verifica os domínios de estoque e produção. O comando `npm run validate:wave4` confirma **84 schemas e 46 funções autenticadas**, os testes determinísticos de governança, analytics, fidelidade, vouchers e pacotes, lint, typecheck direcionado, oito funções server-side e build. Os sete módulos foram inspecionados em prévia local controlada; relatórios, catálogos e auditoria foram validados com dados completos. O typecheck direcionado registra zero erros na Onda 4; os 132 erros globais remanescentes pertencem ao legado fora desta entrega.

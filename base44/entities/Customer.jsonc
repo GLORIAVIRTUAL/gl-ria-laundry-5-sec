@@ -142,7 +142,23 @@
     "credit_reviewed_by_user_id": { "type": "string" },
     "cost_center": { "type": "string" },
     "purchase_order_required": { "type": "boolean", "default": false },
-    "invoice_notes": { "type": "string" }
+    "invoice_notes": { "type": "string" },
+    "customer_group": { "type": "string" },
+    "segment": { "type": "string", "enum": ["new", "active", "loyal", "vip", "at_risk", "inactive", "corporate"] },
+    "first_order_at": { "type": "string", "format": "date-time" },
+    "last_order_at": { "type": "string", "format": "date-time" },
+    "orders_count": { "type": "number", "default": 0 },
+    "garments_count": { "type": "number", "default": 0 },
+    "lifetime_value": { "type": "number", "default": 0 },
+    "average_ticket": { "type": "number", "default": 0 },
+    "average_monthly_value": { "type": "number", "default": 0 },
+    "active_months": { "type": "number", "default": 0 },
+    "loyalty_points_balance": { "type": "number", "default": 0 },
+    "loyalty_program_id": { "type": "string" },
+    "last_crm_snapshot_at": { "type": "string", "format": "date-time" },
+    "marketing_profile": { "type": "object", "additionalProperties": true },
+    "service_preferences": { "type": "object", "additionalProperties": true },
+    "relationship_owner_user_id": { "type": "string" }
   },
   "required": [
     "full_name"

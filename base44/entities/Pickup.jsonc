@@ -69,8 +69,35 @@
     "ticket_generated": {
       "type": "boolean",
       "default": false,
-      "description": "Indica se o ticket/or\u00e7amento j\u00e1 foi gerado para esta coleta"
-    }
+      "description": "Indica se o ticket/orçamento já foi gerado para esta coleta"
+    },
+    "unit_id": { "type": "string" },
+    "route_id": { "type": "string" },
+    "route_stop_id": { "type": "string" },
+    "driver_user_id": { "type": "string" },
+    "driver_name": { "type": "string" },
+    "vehicle_id": { "type": "string" },
+    "sequence": { "type": "number" },
+    "planned_arrival_at": { "type": "string", "format": "date-time" },
+    "arrival_at": { "type": "string", "format": "date-time" },
+    "service_started_at": { "type": "string", "format": "date-time" },
+    "completed_at": { "type": "string", "format": "date-time" },
+    "attempt_count": { "type": "number", "default": 0 },
+    "failure_reason_code": { "type": "string" },
+    "failure_notes": { "type": "string" },
+    "confirmation_code_hash": { "type": "string" },
+    "proof_asset_ids": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "signature_asset_id": { "type": "string" },
+    "recipient_name": { "type": "string" },
+    "recipient_document_last4": { "type": "string" },
+    "geo_check_in": { "type": "object", "additionalProperties": true },
+    "geo_check_out": { "type": "object", "additionalProperties": true },
+    "last_location": { "type": "object", "additionalProperties": true },
+    "distance_km": { "type": "number", "default": 0 },
+    "duration_minutes": { "type": "number", "default": 0 },
+    "idempotency_key": { "type": "string" },
+    "request_id": { "type": "string" },
+    "metadata": { "type": "object", "additionalProperties": true }
   },
   "required": [
     "customer_id",

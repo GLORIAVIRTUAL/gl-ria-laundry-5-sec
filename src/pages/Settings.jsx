@@ -1,29 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { 
   Settings as SettingsIcon, 
   Shirt, 
-  DollarSign, 
   Plus, 
-  Trash2, 
   Save,
   Loader2,
   Clock,
   MessageSquare,
-  Users,
-  Scissors,
   Sparkles,
-  ShoppingBag,
-  Package,
-  BedDouble,
-  Utensils,
   Tag,
   QrCode,
-  RefreshCw,
-  Wifi,
-  WifiOff,
-  LogOut,
   Download
   } from 'lucide-react';
 import { Input } from "@/components/ui/input";
@@ -31,12 +19,10 @@ import ProductIcon from "@/components/ui/ProductIcon";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Brain, Thermometer, Cpu } from "lucide-react";
+import { Brain } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -58,7 +44,10 @@ import GuardTelemetryPanel from '@/components/settings/GuardTelemetryPanel';
 import ZapiConnectionCard from '@/components/settings/ZapiConnectionCard';
 import MoinhosPromptCard from '@/components/settings/MoinhosPromptCard';
 import AiModelSettings from '@/components/settings/AiModelSettings';
-import { UserRound, PieChart, Building2, CreditCard, Receipt, Calculator } from "lucide-react";
+import PricingRulesManager from '@/components/settings/PricingRulesManager';
+import OperationalCatalogManager from '@/components/settings/OperationalCatalogManager';
+import LoyaltyProgramManager from '@/components/settings/LoyaltyProgramManager';
+import { UserRound, PieChart, Building2, CreditCard, Receipt, Calculator, ShieldCheck, Tags, ListChecks, Gift } from "lucide-react";
 
 export default function Settings() {
   const [products, setProducts] = useState([]);
@@ -650,7 +639,16 @@ Templates WhatsApp (3) — JSON [
             <SettingsIcon className="w-4 h-4 mr-2" /> Geral
           </TabsTrigger>
           <TabsTrigger value="unit_access" className="w-auto md:w-full justify-start data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-gray-400">
-            <Users className="w-4 h-4 mr-2" /> Usuários & Unidades
+            <ShieldCheck className="w-4 h-4 mr-2" /> Governança & Acessos
+          </TabsTrigger>
+          <TabsTrigger value="pricing_rules" className="w-auto md:w-full justify-start data-[state=active]:bg-violet-600 data-[state=active]:text-white text-gray-400">
+            <Tags className="w-4 h-4 mr-2" /> Regras de Preço
+          </TabsTrigger>
+          <TabsTrigger value="operational_catalogs" className="w-auto md:w-full justify-start data-[state=active]:bg-orange-600 data-[state=active]:text-white text-gray-400">
+            <ListChecks className="w-4 h-4 mr-2" /> Catálogos
+          </TabsTrigger>
+          <TabsTrigger value="loyalty" className="w-auto md:w-full justify-start data-[state=active]:bg-pink-600 data-[state=active]:text-white text-gray-400">
+            <Gift className="w-4 h-4 mr-2" /> Fidelidade
           </TabsTrigger>
           <TabsTrigger value="customers" className="w-auto md:w-full justify-start data-[state=active]:bg-cyan-600 data-[state=active]:text-white text-gray-400">
             <UserRound className="w-4 h-4 mr-2" /> Clientes
@@ -999,6 +997,18 @@ Templates WhatsApp (3) — JSON [
 
         <TabsContent value="unit_access" className="mt-0 space-y-6">
           <UnitAccessManager />
+        </TabsContent>
+
+        <TabsContent value="pricing_rules" className="mt-0 space-y-6">
+          <PricingRulesManager />
+        </TabsContent>
+
+        <TabsContent value="operational_catalogs" className="mt-0 space-y-6">
+          <OperationalCatalogManager />
+        </TabsContent>
+
+        <TabsContent value="loyalty" className="mt-0 space-y-6">
+          <LoyaltyProgramManager />
         </TabsContent>
 
         <TabsContent value="customers" className="mt-0">

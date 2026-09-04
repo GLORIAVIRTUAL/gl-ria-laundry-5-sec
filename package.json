@@ -16,6 +16,8 @@
     "validate:wave2": "node scripts/validate-wave2.mjs",
     "test:wave3": "node scripts/test-wave3-production.mjs",
     "validate:wave3": "node scripts/validate-wave3.mjs",
+    "test:wave4": "node scripts/test-wave4-governance-analytics.mjs",
+    "validate:wave4": "node scripts/validate-wave4.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
