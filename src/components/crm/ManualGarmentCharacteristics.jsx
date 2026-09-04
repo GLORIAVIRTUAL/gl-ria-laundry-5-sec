@@ -5,6 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
+import { useQuery } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import useUnitAccess from '@/components/units/useUnitAccess';
 
 const SUGGESTIONS = {
   color: ['Branco', 'Preto', 'Azul', 'Vermelho', 'Verde', 'Bege', 'Cinza', 'Rosa'],
@@ -61,9 +64,20 @@ export function manualPieceNeedsAttention(piece) {
 }
 
 export default function ManualGarmentCharacteristics({ pieces, activePieceId, onActivePieceChange, onPieceChange, onApplyAppearance, services = [], onRepricePiece, pricingPieceId }) {
+  const { selectedUnitId } = useUnitAccess();
+  const { data: catalogEntries = [] } = useQuery({
+    queryKey: ['operational-catalogs', selectedUnitId],
+    queryFn: () => base44.entities.OperationalCatalogEntry.filter({ active: true }, 'sort_order', 2000),
+    staleTime: 5 * 60 * 1000,
+  });
   const activePiece = pieces.find((piece) => piece.line_id === activePieceId) || pieces[0];
   if (!activePiece) return <div className="p-8 text-center text-white/45">Adicione peças ao carrinho para registrar as características.</div>;
 
+  const visibleCatalogs = catalogEntries.filter((entry) => !entry.unit_id || selectedUnitId === 'all' || !selectedUnitId || entry.unit_id === selectedUnitId);
+  const catalogOptions = (type, fallback) => {
+    const values = visibleCatalogs.filter((entry) => entry.catalog_type === type).map((entry) => entry.label).filter(Boolean);
+    return values.length ? [...new Set(values)] : fallback;
+  };
   const update = (patch) => onPieceChange(activePiece.line_id, { ...activePiece, ...patch });
   const updateAttribute = (field, value) => update({ attributes: { ...(activePiece.attributes || {}), [field]: value } });
   const hasCondition = (activePiece.damages || []).length > 0 || (activePiece.risk_tags || []).length > 0;
@@ -122,11 +136,11 @@ export default function ManualGarmentCharacteristics({ pieces, activePieceId, on
           <section className="space-y-4 rounded-3xl border border-white/10 bg-white/[0.025] p-5">
             <div><h4 className="font-semibold">Identificação visual</h4><p className="text-sm text-white/40">Use os atalhos ou digite livremente.</p></div>
             <div className="grid gap-5 md:grid-cols-2">
-              <SuggestionField label="Cor predominante" value={activePiece.attributes?.color} options={SUGGESTIONS.color} onChange={(value) => updateAttribute('color', value)} placeholder="Ex.: azul-marinho" />
-              <div className="space-y-2"><Label>Marca</Label><Input value={activePiece.attributes?.brand || ''} onChange={(event) => updateAttribute('brand', event.target.value)} placeholder="Ex.: Reserva" className="border-white/10 bg-black/20" /></div>
-              <SuggestionField label="Tecido / composição" value={activePiece.attributes?.material} options={SUGGESTIONS.material} onChange={(value) => updateAttribute('material', value)} placeholder="Ex.: 80% algodão, 20% poliéster" />
-              <SuggestionField label="Estampa" value={activePiece.attributes?.pattern} options={SUGGESTIONS.pattern} onChange={(value) => updateAttribute('pattern', value)} placeholder="Ex.: geométrica" />
-              <SuggestionField label="Tamanho" value={activePiece.attributes?.size} options={SUGGESTIONS.size} onChange={(value) => updateAttribute('size', value)} placeholder="Ex.: 42 ou king" />
+              <SuggestionField label="Cor predominante" value={activePiece.attributes?.color} options={catalogOptions('color', SUGGESTIONS.color)} onChange={(value) => updateAttribute('color', value)} placeholder="Ex.: azul-marinho" />
+              <SuggestionField label="Marca" value={activePiece.attributes?.brand} options={catalogOptions('brand', [])} onChange={(value) => updateAttribute('brand', value)} placeholder="Ex.: Reserva" />
+              <SuggestionField label="Tecido / composição" value={activePiece.attributes?.material} options={catalogOptions('material', SUGGESTIONS.material)} onChange={(value) => updateAttribute('material', value)} placeholder="Ex.: 80% algodão, 20% poliéster" />
+              <SuggestionField label="Estampa" value={activePiece.attributes?.pattern} options={catalogOptions('pattern', SUGGESTIONS.pattern)} onChange={(value) => updateAttribute('pattern', value)} placeholder="Ex.: geométrica" />
+              <SuggestionField label="Tamanho" value={activePiece.attributes?.size} options={catalogOptions('size', SUGGESTIONS.size)} onChange={(value) => updateAttribute('size', value)} placeholder="Ex.: 42 ou king" />
               <div className="space-y-2"><Label>Detalhes e acessórios</Label><Input value={activePiece.attributes?.freeform?.details || ''} onChange={(event) => updateAttribute('freeform', { ...(activePiece.attributes?.freeform || {}), details: event.target.value })} placeholder="Ex.: cinto, pedras, bordado, forro" className="border-white/10 bg-black/20" /></div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -165,8 +179,8 @@ export default function ManualGarmentCharacteristics({ pieces, activePieceId, on
 
           <section className="space-y-5 rounded-3xl border border-white/10 bg-white/[0.025] p-5">
             <div><h4 className="font-semibold">Condição de entrada</h4><p className="text-sm text-white/40">Registre o que já existe antes do processamento.</p></div>
-            <MultiChoice title="Avarias observadas" values={activePiece.damages || []} options={DAMAGES} onChange={(damages) => update({ damages, condition_checked: true, customer_authorized_risks: damages.length || (activePiece.risk_tags || []).length ? false : activePiece.customer_authorized_risks })} tone="red" />
-            <MultiChoice title="Riscos do tratamento" values={activePiece.risk_tags || []} options={RISKS} onChange={(risk_tags) => update({ risk_tags, condition_checked: true, customer_authorized_risks: risk_tags.length || (activePiece.damages || []).length ? false : activePiece.customer_authorized_risks })} />
+            <MultiChoice title="Avarias observadas" values={activePiece.damages || []} options={catalogOptions('damage', DAMAGES)} onChange={(damages) => update({ damages, condition_checked: true, customer_authorized_risks: damages.length || (activePiece.risk_tags || []).length ? false : activePiece.customer_authorized_risks })} tone="red" />
+            <MultiChoice title="Riscos do tratamento" values={activePiece.risk_tags || []} options={catalogOptions('risk', RISKS)} onChange={(risk_tags) => update({ risk_tags, condition_checked: true, customer_authorized_risks: risk_tags.length || (activePiece.damages || []).length ? false : activePiece.customer_authorized_risks })} />
             <div className="space-y-2"><Label>Observações da peça</Label><Textarea value={activePiece.notes || ''} onChange={(event) => update({ notes: event.target.value })} placeholder="Local da mancha, estado dos botões, instruções do cliente…" className="min-h-24 border-white/10 bg-black/20" /></div>
 
             <div className="grid gap-3 md:grid-cols-2">

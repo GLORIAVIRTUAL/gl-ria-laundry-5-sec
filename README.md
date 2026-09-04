@@ -14,7 +14,9 @@ Aplicação de gestão de lavanderia construída sobre **React, Vite e Base44**,
 | Compras e estoque | Fornecedores, insumos, lotes, validade, custo médio, disponibilidade, transferências, perdas, inventário cego, fichas técnicas e leitura de notas. |
 | Financeiro | Contas a pagar e receber, recebimentos mistos/parciais, crédito do cliente, convênios, faturados, caixa por operador, alocações, conciliação e despesas recorrentes pendentes. |
 | Comercial e fiscal | Ciclo versionado de orçamentos, validade, alçadas, fechamento periódico e preparação local de RPS/NFS-e com transmissão desativada. |
-| Segurança | Papéis, permissões, escopo por unidade, uploads validados, idempotência, auditoria ampliada e cancelamento sem exclusão destrutiva. |
+| Segurança e governança | Papéis, permissões, múltiplas unidades, suspensão, revisão de acesso, políticas de MFA, sessões, uploads validados, idempotência e auditoria completa. |
+| Analytics e CRM | Treze relatórios especializados, comparação de período, CRM 360, fidelidade, vouchers, pacotes e catálogos operacionais pesquisáveis. |
+| Logística de campo | Frota, capacidade, documentos, rotas, motorista, GPS, tentativas, provas de serviço, recebedor e odômetro. |
 | Integrações | Configuração exclusivamente por ambiente e painel que informa apenas a presença dos segredos, nunca os seus valores. |
 
 ## Execução local
@@ -44,6 +46,7 @@ O script valida schemas, entidades obrigatórias, autenticação explícita das 
 npm run validate:counter-core
 npm run validate:wave2
 npm run validate:wave3
+npm run validate:wave4
 ```
 
 ## Configuração e implantação
@@ -56,6 +59,7 @@ npm run validate:wave3
 | [`docs/operational-counter-core.md`](docs/operational-counter-core.md) | Serviços por peça, etiquetas, leitura, localização e entrega parcial. |
 | [`docs/wave2-financial-fiscal.md`](docs/wave2-financial-fiscal.md) | Pagamentos mistos, crédito, convênios, faturados, orçamentos, caixa e preparação fiscal. |
 | [`docs/wave3-stock-production.md`](docs/wave3-stock-production.md) | Estoque por lote, inventário, consumo, máquinas, produção, custos, perdas e alertas. |
+| [`docs/wave4-governance-analytics-crm-logistics.md`](docs/wave4-governance-analytics-crm-logistics.md) | Governança, MFA, auditoria, preços, catálogos, CRM 360, fidelidade, relatórios e logística de campo. |
 | [`docs/nfse-porto-alegre-research.md`](docs/nfse-porto-alegre-research.md) | Base oficial para a futura integração com o Emissor Nacional de NFS-e. |
 | [`docs/migration-rollout.md`](docs/migration-rollout.md) | Sequência segura para homologação e ativação gradual. |
 | [`docs/security-architecture.md`](docs/security-architecture.md) | Papéis, unidades, auditoria, documentos, pagamentos e revisão humana. |

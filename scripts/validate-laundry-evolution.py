@@ -18,7 +18,9 @@ NEW_ENTITIES = {
     "StockItem", "StockMovement", "Supplier", "ThirdPartyJob", "ThirdPartyPartner", "DeliveryReceipt",
     "PaymentReceipt", "CustomerCreditLedger", "BillingAgreement", "BillingStatement", "QuoteVersion",
     "FiscalProfile", "FiscalDocument", "FiscalEvent", "StockLot", "ProductionEvent", "LaborEntry",
-    "OperationalAlert", "ProductionCostProfile",
+    "OperationalAlert", "ProductionCostProfile", "AccessPolicy", "UserSessionEvent", "PriceRuleVersion",
+    "CommercialApprovalPolicy", "OperationalCatalogEntry", "LoyaltyProgram", "LoyaltyLedger", "Voucher",
+    "CustomerPackage", "CustomerPackageLedger", "FleetVehicle", "DeliveryRoute", "RouteStop", "RouteEvent",
 }
 
 NEW_FUNCTIONS = {
@@ -31,7 +33,9 @@ NEW_FUNCTIONS = {
     "close_billing_period", "manage_quote_lifecycle", "manage_fiscal_document", "checkExpiredQuotes",
     "manage_stock_operation", "manage_inventory_count", "manage_consumption_recipe", "post_production_consumption",
     "manage_machine", "manage_production_batch", "manage_labor_entry", "manage_production_cost_profile",
-    "manage_operational_alerts",
+    "manage_operational_alerts", "manage_access_control", "query_audit_log", "manage_pricing_rules",
+    "manage_operational_catalog", "manage_loyalty_crm", "generate_specialized_report", "manage_fleet",
+    "manage_delivery_route",
 }
 
 
@@ -249,6 +253,64 @@ def main() -> int:
     for marker in ["ProductionBatchDialog", "BatchExecutionDialog", "MachineManagementDialog", "ProductionCostProfileDialog"]:
         if marker not in production_panel:
             fail(f"Central de produção sem jornada da Onda 3: {marker}", failures)
+
+    access = (FUNCTIONS / "manage_access_control" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["AccessPolicy", "UserSessionEvent", "access_revision", "session_revoked_after", "mfa_status", "self_role_change_forbidden"]:
+        if marker not in access:
+            fail(f"Governança sem garantia da Onda 4: {marker}", failures)
+
+    audit_query = (FUNCTIONS / "query_audit_log" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["audit_export_forbidden", "export_reason_required", "forbidden_unit", "exports"]:
+        if marker not in audit_query:
+            fail(f"Auditoria avançada sem garantia da Onda 4: {marker}", failures)
+
+    pricing_rules = (FUNCTIONS / "manage_pricing_rules" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["PriceRuleVersion", "CommercialApprovalPolicy", "simulate", "conflicts", "negative_price_forbidden"]:
+        if marker not in pricing_rules:
+            fail(f"Administração de preços sem garantia da Onda 4: {marker}", failures)
+
+    catalogs = (FUNCTIONS / "manage_operational_catalog" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["duplicate_catalog_entry", "synonyms", "forbidden_unit"]:
+        if marker not in catalogs:
+            fail(f"Catálogo operacional sem garantia da Onda 4: {marker}", failures)
+
+    loyalty = (FUNCTIONS / "manage_loyalty_crm" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["LoyaltyLedger", "CustomerPackageLedger", "Voucher", "idempotency_key", "forbidden_unit"]:
+        if marker not in loyalty:
+            fail(f"CRM e fidelidade sem garantia da Onda 4: {marker}", failures)
+
+    specialized_reports = (FUNCTIONS / "generate_specialized_report" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["REPORT_TYPES", "reportEnvelope", "forbidden_unit", "unit_profitability", "employee_productivity"]:
+        if marker not in specialized_reports:
+            fail(f"Relatórios especializados sem garantia da Onda 4: {marker}", failures)
+
+    fleet = (FUNCTIONS / "manage_fleet" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["FleetVehicle", "vehicle_plate_exists", "vehicle_in_active_route", "forbidden_unit"]:
+        if marker not in fleet:
+            fail(f"Frota sem garantia da Onda 4: {marker}", failures)
+
+    routes = (FUNCTIONS / "manage_delivery_route" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["RouteEvent", "idempotency_key", "route_execution_forbidden", "route_has_pending_stops", "invalid_odometer"]:
+        if marker not in routes:
+            fail(f"Jornada logística sem garantia da Onda 4: {marker}", failures)
+
+    layout = (ROOT / "src" / "Layout.jsx").read_text(encoding="utf-8")
+    for marker in ["/reports", "reports.view", "logistics.view"]:
+        if marker not in layout:
+            fail(f"Navegação sem módulo da Onda 4: {marker}", failures)
+
+    settings = (ROOT / "src" / "pages" / "Settings.jsx").read_text(encoding="utf-8")
+    for marker in ["PricingRulesManager", "OperationalCatalogManager", "LoyaltyProgramManager", "Governança & Acessos"]:
+        if marker not in settings:
+            fail(f"Configurações sem módulo da Onda 4: {marker}", failures)
+
+    customers_page = (ROOT / "src" / "pages" / "Customers.jsx").read_text(encoding="utf-8")
+    if "Customer360Dialog" not in customers_page:
+        fail("Clientes sem visão CRM 360", failures)
+
+    pickups_page = (ROOT / "src" / "pages" / "Pickups.jsx").read_text(encoding="utf-8")
+    if "LogisticsOperationsPanel" not in pickups_page:
+        fail("Coletas sem jornada logística da Onda 4", failures)
 
     if failures:
         print("VALIDAÇÃO FALHOU")

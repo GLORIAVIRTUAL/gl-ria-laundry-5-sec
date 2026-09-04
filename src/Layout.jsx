@@ -9,7 +9,6 @@ import {
   Users, 
   Settings, 
   LogOut,
-  Shirt,
   Globe,
   HelpCircle,
   Send,
@@ -27,6 +26,7 @@ import {
   TrendingUp
 } from 'lucide-react';
 import NotificationsMenu from '@/components/layout/NotificationsMenu';
+import { hasPermission } from '@/lib/accessControl';
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 
@@ -72,7 +72,7 @@ export default function Layout({ children }) {
   const toggleSound = () => {
     const newVal = !soundEnabled;
     setSoundEnabled(newVal);
-    localStorage.setItem('soundEnabled', newVal);
+    localStorage.setItem('soundEnabled', String(newVal));
     if (newVal) {
       audioRef.current.volume = 0;
       audioRef.current.play().then(() => {
@@ -116,7 +116,7 @@ export default function Layout({ children }) {
     // Subscribe to quotes that need human review and approved quotes
     const unsubQuotes = base44.entities.Quote.subscribe((event) => {
         if ((event.type === 'create' && event.data.status === 'HUMAN_REVIEW') || 
-            (event.type === 'update' && event.data.status === 'HUMAN_REVIEW' && event.old_data?.status !== 'HUMAN_REVIEW')) {
+            (event.type === 'update' && event.data.status === 'HUMAN_REVIEW' && (/** @type {any} */ (event)).old_data?.status !== 'HUMAN_REVIEW')) {
             
             // Play sound
             if (soundEnabledRef.current) {
@@ -134,7 +134,7 @@ export default function Layout({ children }) {
             });
         }
 
-        if (event.type === 'update' && event.data.status === 'ACCEPTED' && event.old_data?.status !== 'ACCEPTED') {
+        if (event.type === 'update' && event.data.status === 'ACCEPTED' && (/** @type {any} */ (event)).old_data?.status !== 'ACCEPTED') {
             // Play success sound
             if (soundEnabledRef.current) {
                 successAudioRef.current.play().catch(e => console.warn("Audio play blocked", e));
@@ -156,7 +156,7 @@ export default function Layout({ children }) {
     const unsubPayments = base44.entities.Payment.subscribe((event) => {
         const becameSucceeded =
             (event.type === 'create' && event.data.status === 'succeeded') ||
-            (event.type === 'update' && event.data.status === 'succeeded' && event.old_data?.status !== 'succeeded');
+            (event.type === 'update' && event.data.status === 'succeeded' && (/** @type {any} */ (event)).old_data?.status !== 'succeeded');
 
         if (becameSucceeded) {
             // Play success sound
@@ -284,7 +284,7 @@ export default function Layout({ children }) {
     }
 
     if (!isMainDomain && location.pathname === '/') {
-      if (currentUser?.role === 'entregador' || currentUser?.role === 'coletas') {
+      if (['entregador', 'coletas', 'driver'].includes(currentUser?.role)) {
         navigate('/pickups');
       } else {
         navigate('/dashboard');
@@ -297,7 +297,7 @@ export default function Layout({ children }) {
 
     if (!isPublic && !isAuth) {
       await base44.auth.redirectToLogin(location.pathname);
-    } else if (!isPublic && isAuth && (currentUser?.role === 'entregador' || currentUser?.role === 'coletas') && location.pathname !== '/pickups' && location.pathname !== '/customers') {
+    } else if (!isPublic && isAuth && ['entregador', 'coletas', 'driver'].includes(currentUser?.role) && location.pathname !== '/pickups' && location.pathname !== '/customers') {
       navigate('/pickups');
     }
   };
@@ -311,14 +311,15 @@ export default function Layout({ children }) {
   }
 
   const menuItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', roles: ['admin', 'user'] },
-    { icon: MessageSquare, label: 'Chat IA & Humano', path: '/chat', roles: ['admin', 'user'] },
-    { icon: ShoppingBag, label: 'Pedidos (CRM)', path: '/orders', roles: ['admin', 'user'] },
-    { icon: Users, label: 'Clientes', path: '/customers', roles: ['entregador', 'coletas'] },
-    { icon: Truck, label: 'Coletas', path: '/pickups', roles: ['admin', 'user', 'entregador', 'coletas'] },
-    { icon: Banknote, label: 'Gestão', path: '/Management', roles: ['admin', 'user'] },
-    { icon: Settings, label: 'Configurações', path: '/settings', roles: ['admin', 'user'] },
-  ].filter(item => !user || item.roles.includes(user?.role || 'user'));
+    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'cashier', 'production', 'inventory', 'finance', 'auditor'] },
+    { icon: MessageSquare, label: 'Chat IA & Humano', path: '/chat', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant'] },
+    { icon: ShoppingBag, label: 'Pedidos (CRM)', path: '/orders', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'cashier', 'production', 'driver', 'inventory', 'finance', 'auditor'] },
+    { icon: Users, label: 'Clientes', path: '/customers', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'driver', 'entregador', 'coletas'], permissions: ['crm.view', 'crm.manage', 'customers.manage'] },
+    { icon: Truck, label: 'Coletas', path: '/pickups', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'driver', 'entregador', 'coletas'], permissions: ['pickups.manage', 'logistics.view', 'logistics.manage'] },
+    { icon: Banknote, label: 'Gestão', path: '/Management', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'cashier', 'production', 'inventory', 'finance', 'auditor'], permissions: ['management.view'] },
+    { icon: PieChart, label: 'Relatórios', path: '/reports', roles: ['admin', 'super_admin', 'manager', 'finance', 'auditor'], permissions: ['reports.view', 'reports.view_all'] },
+    { icon: Settings, label: 'Configurações', path: '/settings', roles: ['admin', 'user', 'super_admin', 'manager'], permissions: ['settings.manage', 'users.manage', 'prices.manage', 'catalogs.manage', 'loyalty.manage'] },
+  ].filter(item => !user || item.roles.includes(user?.role || 'user') || item.permissions?.some(permission => hasPermission(user, permission)));
 
   const marketingItems = [
     { icon: Sparkles, label: 'Campanhas', path: '/campanhas' },

@@ -27,6 +27,9 @@ import {
   CircleDot
 } from 'lucide-react';
 
+/**
+ * @param {{ product?: any, name?: string, category?: string, family?: string, className?: string }} props
+ */
 export default function ProductIcon({ product, name, category, family, className }) {
     // Normalize inputs
     const pName = (product?.name || name || "").toLowerCase();
