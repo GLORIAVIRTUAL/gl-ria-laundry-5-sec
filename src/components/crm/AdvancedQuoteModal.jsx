@@ -295,7 +295,11 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
       setStep((current) => current + 1);
       return;
     }
-    if (!unitId || garmentItems.length === 0) return;
+    if (garmentItems.length === 0) return;
+    if (!unitId || unitId === 'all') {
+      toast.error('Selecione uma unidade específica antes de continuar.');
+      return;
+    }
 
     setLoading(true);
     try {

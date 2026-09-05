@@ -1,4 +1,4 @@
-import { ROLE_DEFINITIONS, normalizeLegacyRole } from '../../base44/shared/accessGovernance.js';
+import { ROLE_DEFINITIONS, normalizeLegacyRole } from '@/lib/roleDefinitions';
 
 export const ROLE_PERMISSIONS = Object.fromEntries(
   Object.entries(ROLE_DEFINITIONS).map(([role, definition]) => [role, [...definition.permissions]]),
@@ -16,7 +16,8 @@ export function hasPermission(user, permission) {
 export function getAllowedUnitIds(user) {
   if (!user) return [];
   const role = normalizeLegacyRole(user.role);
-  if (role === 'super_admin' || hasPermission(user, 'units.view_all')) return ['*'];
+  // Administradores enxergam todas as unidades da rede.
+  if (role === 'super_admin' || role === 'admin' || hasPermission(user, 'units.view_all')) return ['*'];
   return [...new Set([
     user.primary_unit_id,
     ...(Array.isArray(user.allowed_unit_ids) ? user.allowed_unit_ids : []),

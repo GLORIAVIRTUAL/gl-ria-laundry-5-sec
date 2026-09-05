@@ -1,6 +1,6 @@
 export const ROLE_DEFINITIONS = {
   super_admin: { label: 'Super administrador', permissions: ['*'], mfaRequired: true },
-  admin: { label: 'Administrador', permissions: ['users.manage', 'audit.view', 'audit.export', 'prices.manage', 'catalogs.manage', 'reports.view_all', 'crm.manage', 'loyalty.manage', 'fleet.manage', 'settings.manage'], mfaRequired: true },
+  admin: { label: 'Administrador', permissions: ['*'], mfaRequired: true },
   manager: { label: 'Gerente', permissions: ['audit.view', 'prices.manage', 'catalogs.manage', 'reports.view', 'crm.manage', 'loyalty.manage', 'fleet.manage', 'cash.approve', 'quotes.discount_override'], mfaRequired: true },
   attendant: { label: 'Atendimento', permissions: ['customers.manage', 'quotes.manage', 'orders.view', 'deliveries.complete', 'loyalty.view'], mfaRequired: false },
   cashier: { label: 'Caixa', permissions: ['payments.receive', 'cash.manage', 'orders.view', 'customer_credit.view', 'loyalty.redeem'], mfaRequired: false },

@@ -62,6 +62,8 @@ export default function Customers() {
       status: "active",
       birthdate: "",
       zip_code: "",
+      neighborhood: "",
+      tax_id: "",
       unit_id: ""
   });
 
@@ -182,6 +184,8 @@ export default function Customers() {
             status: formData.status,
             birthdate: formData.birthdate,
             zip_code: formData.zip_code,
+            neighborhood: formData.neighborhood,
+            tax_id: formData.tax_id?.replace(/\D/g, '') || '',
             unit_id: formData.unit_id || '',
             preferred_unit_name: selectedUnitObj?.name || '',
             opt_in_whatsapp: true
@@ -195,7 +199,7 @@ export default function Customers() {
 
         setIsDialogOpen(false);
         setEditingCustomer(null);
-        setFormData({ full_name: "", email: "", phone: "", address: "", address_number: "", address_complement: "", status: "active", birthdate: "", zip_code: "", unit_id: "" });
+        setFormData({ full_name: "", email: "", phone: "", address: "", address_number: "", address_complement: "", status: "active", birthdate: "", zip_code: "", neighborhood: "", tax_id: "", unit_id: "" });
         loadCustomers();
     } catch (err) {
         console.error("Error saving customer:", err);
@@ -222,6 +226,8 @@ export default function Customers() {
           status: customer.status || "active",
           birthdate: customer.birthdate || "",
           zip_code: customer.zip_code || "",
+          neighborhood: customer.neighborhood || "",
+          tax_id: customer.tax_id || "",
           unit_id: customer.unit_id || ""
       });
       setIsDialogOpen(true);
@@ -236,7 +242,8 @@ export default function Customers() {
             if (!data.erro) {
                 setFormData(prev => ({
                     ...prev,
-                    address: `${data.logradouro}, ${data.bairro}, ${data.localidade} - ${data.uf}`
+                    address: `${data.logradouro}, ${data.bairro}, ${data.localidade} - ${data.uf}`,
+                    neighborhood: prev.neighborhood || data.bairro || ''
                 }));
             }
         } catch (error) {
@@ -321,7 +328,7 @@ export default function Customers() {
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
                 <Button 
-                    onClick={() => { setEditingCustomer(null); setFormData({ full_name: "", email: "", phone: "", address: "", address_number: "", address_complement: "", status: "active", birthdate: "", zip_code: "", unit_id: "" }); }}
+                    onClick={() => { setEditingCustomer(null); setFormData({ full_name: "", email: "", phone: "", address: "", address_number: "", address_complement: "", status: "active", birthdate: "", zip_code: "", neighborhood: "", tax_id: "", unit_id: "" }); }}
                     className="bg-[#FF6600] hover:bg-[#ff7b24] text-white gap-2"
                 >
                     <Plus className="w-4 h-4" /> Novo Cliente
@@ -361,6 +368,16 @@ export default function Customers() {
                                 className="bg-white/5 border-white/10" 
                             />
                         </div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label>CPF / CNPJ</Label>
+                        <Input
+                            value={formData.tax_id}
+                            onChange={e => setFormData({...formData, tax_id: e.target.value})}
+                            placeholder="Somente números"
+                            className="bg-white/5 border-white/10"
+                        />
+                        <p className="text-[11px] text-gray-500">Exigido pelo Asaas para gerar cobranças Pix ou cartão.</p>
                     </div>
                     <div className="space-y-2">
                         <Label>Email</Label>
@@ -405,7 +422,16 @@ export default function Customers() {
                                 placeholder="Ex: 123"
                             />
                         </div>
-                        <div className="col-span-2 space-y-2">
+                        <div className="col-span-1 space-y-2">
+                            <Label>Bairro</Label>
+                            <Input
+                                value={formData.neighborhood}
+                                onChange={e => setFormData({...formData, neighborhood: e.target.value})}
+                                className="bg-white/5 border-white/10"
+                                placeholder="Ex: Centro"
+                            />
+                        </div>
+                        <div className="col-span-1 space-y-2">
                             <Label>Complemento</Label>
                             <Input 
                                 value={formData.address_complement} 
