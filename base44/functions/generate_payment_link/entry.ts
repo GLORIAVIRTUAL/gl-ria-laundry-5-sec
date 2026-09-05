@@ -98,7 +98,7 @@ async function createDirectPixPayment(
   referenceLabel: string,
   referenceId: string,
   customerName: string
-): Promise<any | null> {
+): Promise<{ data: any; error: string | null }> {
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + 1);
 
@@ -119,13 +119,14 @@ async function createDirectPixPayment(
     });
     const json = await resp.json();
     if (!resp.ok) {
-      console.error('[generate_payment_link] Direct PIX error', json);
-      return null;
+      const errMsg = json?.errors?.map((e: any) => e.description).join('; ') || JSON.stringify(json);
+      console.error('[generate_payment_link] Direct PIX error', errMsg);
+      return { data: null, error: errMsg };
     }
-    return json;
+    return { data: json, error: null };
   } catch (err) {
     console.error('[generate_payment_link] Direct PIX fetch error', err);
-    return null;
+    return { data: null, error: String(err) };
   }
 }
 
@@ -138,7 +139,7 @@ async function createCheckoutSession(
   referenceId: string,
   customer: any,
   origin: string
-): Promise<any | null> {
+): Promise<{ data: any; error: string | null }> {
   const asaasBillingType = billingType === 'pix' ? 'PIX' : 'CREDIT_CARD';
 
   const customerData: any = {};
@@ -176,13 +177,14 @@ async function createCheckoutSession(
     });
     const json = await resp.json();
     if (!resp.ok) {
-      console.error('[generate_payment_link] Checkout error', json);
-      return null;
+      const errMsg = json?.errors?.map((e: any) => e.description).join('; ') || JSON.stringify(json);
+      console.error('[generate_payment_link] Checkout error', errMsg);
+      return { data: null, error: errMsg };
     }
-    return json;
+    return { data: json, error: null };
   } catch (err) {
     console.error('[generate_payment_link] Checkout fetch error', err);
-    return null;
+    return { data: null, error: String(err) };
   }
 }
 
@@ -252,38 +254,50 @@ Deno.serve(async (req) => {
     const referenceIdForAsaas = order?.id || quote?.id || referenceId;
 
     let result: { type: string; asaasId: string; url: string; pixQrCode?: string; pixCopyPasteKey?: string } | null = null;
+    let lastError: string | null = null;
 
     // For PIX: try direct payment first (returns QR code + copy-paste key)
     if (billingType === 'pix') {
       const asaasCustomerId = await ensureAsaasCustomer(apiKey, customer);
       if (asaasCustomerId) {
-        const pixPayment = await createDirectPixPayment(apiKey, asaasCustomerId, amount, referenceLabel, referenceIdForAsaas, customer?.full_name);
-        if (pixPayment && pixPayment.pixQrCode) {
+        const pixResult = await createDirectPixPayment(apiKey, asaasCustomerId, amount, referenceLabel, referenceIdForAsaas, customer?.full_name);
+        if (pixResult.data?.pixQrCode) {
           result = {
             type: 'direct_pix',
-            asaasId: pixPayment.id,
-            url: pixPayment.invoiceUrl,
-            pixQrCode: pixPayment.pixQrCode,
-            pixCopyPasteKey: pixPayment.pixCopyPasteKey,
+            asaasId: pixResult.data.id,
+            url: pixResult.data.invoiceUrl,
+            pixQrCode: pixResult.data.pixQrCode,
+            pixCopyPasteKey: pixResult.data.pixCopyPasteKey,
           };
+        } else {
+          lastError = pixResult.error;
         }
+      } else {
+        lastError = 'Não foi possível criar/obter cliente no Asaas (CPF/CNPJ pode ser necessário).';
       }
     }
 
     // Fallback: checkout session (for credit card, or if direct PIX failed)
     if (!result) {
-      const checkout = await createCheckoutSession(apiKey, billingType, amount, referenceLabel, referenceIdForAsaas, customer, origin);
-      if (checkout) {
+      const checkoutResult = await createCheckoutSession(apiKey, billingType, amount, referenceLabel, referenceIdForAsaas, customer, origin);
+      if (checkoutResult.data) {
         result = {
           type: 'checkout',
-          asaasId: checkout.id,
-          url: checkout.link || `https://asaas.com/checkoutSession/show?id=${checkout.id}`,
+          asaasId: checkoutResult.data.id,
+          url: checkoutResult.data.link || `https://asaas.com/checkoutSession/show?id=${checkoutResult.data.id}`,
         };
+      } else {
+        lastError = checkoutResult.error || lastError;
       }
     }
 
     if (!result) {
-      return Response.json({ error: 'asaas_request_failed', request_id: requestId }, { status: 502 });
+      return Response.json({
+        error: 'asaas_request_failed',
+        asaas_error: lastError,
+        message: lastError || 'Falha ao comunicar com o Asaas.',
+        request_id: requestId,
+      }, { status: 502 });
     }
 
     // Create internal payment record
