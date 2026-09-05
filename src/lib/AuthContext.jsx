@@ -92,8 +92,17 @@ export const AuthProvider = ({ children }) => {
       // Now check if the user is authenticated
       setIsLoadingAuth(true);
       const currentUser = await base44.auth.me();
-      const accessResponse = await base44.functions.invoke('check_access_session', {});
-      const access = accessResponse?.data || {};
+      let access = {};
+      try {
+        const accessResponse = await base44.functions.invoke('check_access_session', {});
+        access = accessResponse?.data || {};
+      } catch (accessError) {
+        const accessCode = accessError?.response?.data?.code || accessError?.data?.code;
+        // Bloqueios reais de segurança continuam interrompendo o acesso.
+        if (['ACCOUNT_BLOCKED', 'MFA_REQUIRED', 'SESSION_REVOKED'].includes(accessCode)) throw accessError;
+        console.warn('Falha ao validar política de acesso; usando papel do usuário.', accessCode);
+        access = {};
+      }
       setUser({
         ...currentUser,
         effective_permissions: access.permissions || currentUser.permissions || [],
