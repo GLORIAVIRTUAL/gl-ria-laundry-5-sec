@@ -334,7 +334,7 @@ export default function Layout({ children }) {
               );
             })}
 
-            {(!user || ['admin', 'user'].includes(user?.role || 'user')) && (
+            {(!user || ['super_admin', 'admin', 'manager', 'user'].includes(user?.role || 'user')) && (
               <Link
                 to="/dispatches"
                 className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-200 group relative border
