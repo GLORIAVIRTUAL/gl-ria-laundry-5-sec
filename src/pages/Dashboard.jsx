@@ -17,6 +17,7 @@ import LaundryFactory from '../components/dashboard/LaundryFactoryV2';
 import StatsCard from '../components/dashboard/StatsCard';
 import TodayPickupsColumn from '@/components/dashboard/TodayPickupsColumn';
 import TodaySalesColumn from '@/components/dashboard/TodaySalesColumn';
+import ProductionBatchesColumn from '@/components/dashboard/ProductionBatchesColumn';
 import useUnitAccess, { filterRecordsByUnit, getUnitLabel } from '@/components/units/useUnitAccess';
 import UnitFilterSelect from '@/components/units/UnitFilterSelect';
 import AdvancedQuoteModal from '@/components/crm/AdvancedQuoteModal';
@@ -41,6 +42,7 @@ export default function Dashboard() {
   });
   const [todayPickups, setTodayPickups] = useState([]);
   const [todaySales, setTodaySales] = useState([]);
+  const [productionBatches, setProductionBatches] = useState([]);
   const [customerMap, setCustomerMap] = useState({});
   const [timesByCustomer, setTimesByCustomer] = useState({});
   const [loading, setLoading] = useState(true);
@@ -78,6 +80,7 @@ export default function Dashboard() {
     const unsubPayments = base44.entities.Payment.subscribe(debouncedRefetch);
     const unsubQuotes = base44.entities.Quote.subscribe(debouncedRefetch);
     const unsubPickups = base44.entities.Pickup.subscribe(debouncedRefetch);
+    const unsubBatches = base44.entities.ProductionBatch.subscribe(debouncedRefetch);
 
     return () => {
       if (refetchTimeoutRef.current) clearTimeout(refetchTimeoutRef.current);
@@ -86,19 +89,25 @@ export default function Dashboard() {
       unsubPayments();
       unsubQuotes();
       unsubPickups();
+      unsubBatches();
     };
   }, [unitsLoading, selectedUnitId, defaultUnitId]);
 
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const [conversations, orders, payments, quotes, pickups] = await Promise.all([
+      const [conversations, orders, payments, quotes, pickups, batches] = await Promise.all([
         base44.entities.Conversation.list('-last_message_at', 50),
         base44.entities.Order.list('-updated_date', 200),
         base44.entities.Payment.list('-paid_at', 200),
         base44.entities.Quote.list('-updated_date', 200),
-        base44.entities.Pickup.list('-scheduled_at', 1000)
+        base44.entities.Pickup.list('-scheduled_at', 1000),
+        base44.entities.ProductionBatch.list('-created_date', 200)
       ]);
+
+      const openBatches = filterRecordsByUnit(batches, selectedUnitId, defaultUnitId)
+        .filter((batch) => ['draft', 'scheduled', 'waiting_materials', 'queued', 'processing', 'paused'].includes(batch.status));
+      setProductionBatches(openBatches);
 
       const visibleOrders = filterRecordsByUnit(orders, selectedUnitId, defaultUnitId);
       const visiblePayments = filterRecordsByUnit(payments, selectedUnitId, defaultUnitId);
@@ -312,6 +321,8 @@ export default function Dashboard() {
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }}>
         <LaundryFactory />
       </motion.div>
+
+      <ProductionBatchesColumn batches={productionBatches} />
 
       <div>
         <div className="mb-6 flex items-center justify-between">
