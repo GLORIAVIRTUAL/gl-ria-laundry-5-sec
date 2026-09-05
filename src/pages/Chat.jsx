@@ -118,17 +118,26 @@ export default function Chat() {
   // Parser consistente: o backend grava created_date SEM o sufixo "Z" (UTC).
   // Sem ele, new Date() interpreta como horário LOCAL e a ordenação fica errada
   // (frases fora de ordem no chat). Sempre normalizamos para UTC antes de ordenar.
+  // Normaliza formatos vindos do banco/tempo real: "2026-09-05 23:24:06.545000",
+  // com "T", com ou sem "Z". Sem isso, uma data não reconhecida virava 0 e a
+  // mensagem ia para o topo do chat (ordem errada).
+  const toUtcDate = (dateStr) => {
+    if (typeof dateStr !== 'string') return new Date(dateStr);
+    let s = dateStr.trim().replace(' ', 'T');
+    if (!/(Z|[+-]\d{2}:?\d{2})$/.test(s)) s += 'Z';
+    return new Date(s);
+  };
+
   const parseDate = (dateStr) => {
     if (!dateStr) return 0;
-    const d = new Date(typeof dateStr === 'string' && !dateStr.endsWith('Z') ? dateStr + 'Z' : dateStr);
-    const t = d.getTime();
+    const t = toUtcDate(dateStr).getTime();
     return isNaN(t) ? 0 : t;
   };
 
   const formatTime = (dateStr) => {
     try {
         if (!dateStr) return '';
-        const d = new Date(typeof dateStr === 'string' && !dateStr.endsWith('Z') ? dateStr + 'Z' : dateStr);
+        const d = toUtcDate(dateStr);
         if (isNaN(d.getTime())) return '';
         
         if (isToday(d)) {
@@ -145,7 +154,7 @@ export default function Chat() {
   const formatDateTime = (dateStr) => {
     try {
         if (!dateStr) return '';
-        const d = new Date(typeof dateStr === 'string' && !dateStr.endsWith('Z') ? dateStr + 'Z' : dateStr);
+        const d = toUtcDate(dateStr);
         if (isNaN(d.getTime())) return '';
         return format(d, "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
     } catch { return ''; }
