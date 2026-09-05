@@ -4,10 +4,7 @@ import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/fun
 const DEFINITIONS = [
   { id: 'garment_ai', name: 'IA para peças e documentos', type: 'ai', required: ['GEMINI_API_KEY'] },
   { id: 'asaas', name: 'Pagamentos Asaas', type: 'payment', required: ['ASAAS_API_KEY', 'ASAAS_ENVIRONMENT'] },
-  { id: 'stripe', name: 'Pagamentos Stripe', type: 'payment', required: ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'] },
   { id: 'zapi_main', name: 'WhatsApp Z-API principal', type: 'messaging', required: ['ZAPI_INSTANCE_ID', 'ZAPI_TOKEN', 'ZAPI_SECURITY_TOKEN'] },
-  { id: 'zapi_moinhos', name: 'WhatsApp Z-API Moinhos', type: 'messaging', required: ['ZAPI_MOINHOS_INSTANCE_ID', 'ZAPI_MOINHOS_TOKEN', 'ZAPI_MOINHOS_SECURITY_TOKEN'] },
-  { id: 'whatsapp_moinhos', name: 'WhatsApp Cloud Moinhos', type: 'messaging', required: ['WHATSAPP_MOINHOS_ACCESS_TOKEN', 'WHATSAPP_MOINHOS_PHONE_NUMBER_ID', 'WHATSAPP_MOINHOS_VERIFY_TOKEN', 'WHATSAPP_MOINHOS_APP_SECRET'] },
   { id: 'maps', name: 'Google Maps', type: 'maps', required: ['GOOGLE_MAPS_API_KEY'] },
   { id: 'automation', name: 'Automações internas', type: 'automation', required: ['INTERNAL_FUNCTION_TOKEN'] },
 ];
