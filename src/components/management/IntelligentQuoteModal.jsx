@@ -193,14 +193,22 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
     try {
       const uploaded = [];
       for (const entry of files) {
-        const result = await uploadSecureFile({
-          file: entry.file,
-          documentType: 'garment_photo',
-          unitId: defaultUnitId,
-          customerId,
-          metadata: { source: 'management_vision_quote' },
-        });
-        uploaded.push(result.asset.id);
+        try {
+          const result = await uploadSecureFile({
+            file: entry.file,
+            documentType: 'garment_photo',
+            unitId: defaultUnitId,
+            customerId,
+            metadata: { source: 'management_vision_quote' },
+          });
+          uploaded.push(result.asset.id);
+        } catch (uploadError) {
+          if (uploadError.code === 'DUPLICATE_DOCUMENT' && uploadError.asset?.id) {
+            uploaded.push(uploadError.asset.id);
+          } else {
+            throw uploadError;
+          }
+        }
       }
 
       const response = await base44.functions.invoke('analyze_garment_images', {
