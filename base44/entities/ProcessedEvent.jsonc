@@ -4,7 +4,7 @@
   "properties": {
     "event_key": {
       "type": "string",
-      "description": "Chave idempotente única definida pelo provedor ou comando"
+      "description": "Chave idempotente \u00fanica definida pelo provedor ou comando"
     },
     "event_type": {
       "type": "string"
@@ -13,6 +13,7 @@
       "type": "string",
       "enum": [
         "stripe",
+        "asaas",
         "whatsapp",
         "document",
         "scheduler",
