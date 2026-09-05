@@ -58,7 +58,7 @@ async function downloadImage(url: URL) {
   try {
     const response = await fetch(url, {
       signal: controller.signal,
-      redirect: 'error',
+      redirect: 'follow',
       headers: { 'user-agent': 'Lavanderia5aSecVision/1.0' },
     });
 
