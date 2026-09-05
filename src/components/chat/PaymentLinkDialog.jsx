@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { base44 } from '@/api/base44Client';
-import { Loader2, CreditCard, QrCode, Send, AlertCircle } from 'lucide-react';
+import { Loader2, CreditCard, QrCode, Send, AlertCircle, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLink }) {
@@ -11,7 +11,7 @@ export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLin
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [billingType, setBillingType] = useState('pix');
   const [generating, setGenerating] = useState(false);
-  const [generatedUrl, setGeneratedUrl] = useState('');
+  const [paymentResult, setPaymentResult] = useState(null);
 
   useEffect(() => {
     if (isOpen && customer?.id) {
@@ -19,7 +19,7 @@ export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLin
     }
     if (!isOpen) {
       setSelectedOrderId('');
-      setGeneratedUrl('');
+      setPaymentResult(null);
       setBillingType('pix');
     }
   }, [isOpen, customer?.id]);
@@ -52,16 +52,21 @@ export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLin
       return;
     }
     setGenerating(true);
-    setGeneratedUrl('');
+    setPaymentResult(null);
     try {
       const response = await base44.functions.invoke('generate_payment_link', {
         order_id: selectedOrderId,
         billing_type: billingType,
       });
-      const url = response.data?.url;
-      if (!url) throw new Error('no_url_returned');
-      setGeneratedUrl(url);
-      toast.success('Link de pagamento gerado!');
+      // base44.functions.invoke retorna o objeto direto (sem wrapper .data)
+      const result = response?.data || response;
+      if (result?.status === 'pending_verification') {
+        toast.warning('Verificação pendente', { description: result.message || 'A cobrança pode ter sido criada. Verifique antes de repetir.' });
+        return;
+      }
+      if (!result?.url && !result?.pix_qr_code) throw new Error(result?.message || 'no_url_returned');
+      setPaymentResult(result);
+      toast.success(result?.pix_qr_code ? 'Pix gerado!' : 'Link de pagamento gerado!');
     } catch (err) {
       console.error(err);
       const msg = err?.response?.data?.message || err?.message || 'Não foi possível gerar o link.';
@@ -72,9 +77,14 @@ export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLin
   };
 
   const handleSend = async () => {
-    if (!generatedUrl || !onSendLink) return;
+    if (!paymentResult || !onSendLink) return;
     const label = billingType === 'pix' ? 'Pix' : 'Cartão de Crédito';
-    const message = `💳 *Pagamento via ${label}*\n\nOlá! Você pode pagar seu pedido de R$ ${openAmount.toFixed(2)} clicando no link seguro abaixo:\n\n${generatedUrl}\n\nApós o pagamento, seu pedido será confirmado automaticamente. 🧺`;
+    let message = `💳 *Pagamento via ${label}*\n\nOlá! Você pode pagar seu pedido de R$ ${openAmount.toFixed(2)} `;
+    if (paymentResult.pix_copy_paste_key) {
+      message += `usando o Pix Copia e Cola abaixo:\n\n${paymentResult.pix_copy_paste_key}\n\nApós o pagamento, seu pedido será confirmado automaticamente. 🧺`;
+    } else if (paymentResult.url) {
+      message += `clicando no link seguro abaixo:\n\n${paymentResult.url}\n\nApós o pagamento, seu pedido será confirmado automaticamente. 🧺`;
+    }
     await onSendLink(message);
     onClose();
   };
@@ -106,7 +116,7 @@ export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLin
             ) : (
               <select
                 value={selectedOrderId}
-                onChange={(e) => { setSelectedOrderId(e.target.value); setGeneratedUrl(''); }}
+                onChange={(e) => { setSelectedOrderId(e.target.value); setPaymentResult(null); }}
                 className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white focus:border-[#FF6600]/50 focus:outline-none"
                 style={{ colorScheme: 'dark' }}
               >
@@ -129,7 +139,7 @@ export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLin
                 <label className="text-sm font-medium text-gray-300">Forma de pagamento</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={() => { setBillingType('pix'); setGeneratedUrl(''); }}
+                    onClick={() => { setBillingType('pix'); setPaymentResult(null); }}
                     className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${
                       billingType === 'pix'
                       ? 'bg-[#FF6600]/20 border-[#FF6600] text-white'
@@ -140,7 +150,7 @@ export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLin
                     <span className="text-xs">Pix</span>
                   </button>
                   <button
-                    onClick={() => { setBillingType('credit_card'); setGeneratedUrl(''); }}
+                    onClick={() => { setBillingType('credit_card'); setPaymentResult(null); }}
                     className={`flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${
                       billingType === 'credit_card'
                       ? 'bg-[#FF6600]/20 border-[#FF6600] text-white'
@@ -170,7 +180,7 @@ export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLin
                 </div>
               )}
 
-              {!generatedUrl ? (
+              {!paymentResult ? (
                 <Button
                   onClick={handleGenerate}
                   disabled={generating || !selectedOrderId}
@@ -182,11 +192,52 @@ export default function PaymentLinkDialog({ isOpen, onClose, customer, onSendLin
               ) : (
                 <div className="space-y-3">
                   <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 text-sm text-green-200">
-                    ✅ Link gerado com sucesso! Clique abaixo para enviar na conversa.
+                    ✅ {paymentResult.pix_qr_code ? 'Pix gerado!' : 'Link gerado!'} Clique abaixo para enviar na conversa.
                   </div>
-                  <div className="bg-black/20 border border-white/10 rounded-lg p-2 text-xs text-gray-400 break-all max-h-20 overflow-y-auto">
-                    {generatedUrl}
-                  </div>
+
+                  {paymentResult.pix_qr_code && (
+                    <div className="flex flex-col items-center gap-2">
+                      <img
+                        src={paymentResult.pix_qr_code.startsWith('data:')
+                          ? paymentResult.pix_qr_code
+                          : `data:image/png;base64,${paymentResult.pix_qr_code}`}
+                        alt="QR Code Pix"
+                        className="w-44 h-44 rounded-lg bg-white p-2"
+                      />
+                      <p className="text-xs text-gray-400">Escaneie o QR Code acima</p>
+                    </div>
+                  )}
+
+                  {paymentResult.pix_copy_paste_key && (
+                    <div className="space-y-2">
+                      <label className="text-xs text-gray-400">Código Pix Copia e Cola</label>
+                      <div className="flex gap-2">
+                        <input
+                          readOnly
+                          value={paymentResult.pix_copy_paste_key}
+                          className="flex-1 bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs font-mono text-white"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            navigator.clipboard.writeText(paymentResult.pix_copy_paste_key);
+                            toast.success('Código Pix copiado!');
+                          }}
+                          className="px-3"
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {paymentResult.url && !paymentResult.pix_qr_code && (
+                    <div className="bg-black/20 border border-white/10 rounded-lg p-2 text-xs text-gray-400 break-all max-h-20 overflow-y-auto">
+                      {paymentResult.url}
+                    </div>
+                  )}
+
                   <Button
                     onClick={handleSend}
                     className="w-full bg-green-600 hover:bg-green-700 gap-2"
