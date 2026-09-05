@@ -2,9 +2,8 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 
 const DEFINITIONS = [
   { id: 'garment_ai', name: 'IA para peças e documentos', type: 'ai', required: ['GEMINI_API_KEY'] },
-  { id: 'stripe', name: 'Pagamentos Stripe', type: 'payment', required: ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'] },
+  { id: 'asaas', name: 'Pagamentos Asaas', type: 'payment', required: ['ASAAS_API_KEY', 'ASAAS_WEBHOOK_SECRET', 'ASAAS_ENVIRONMENT'] },
   { id: 'zapi_main', name: 'WhatsApp Z-API principal', type: 'messaging', required: ['ZAPI_INSTANCE_ID', 'ZAPI_TOKEN', 'ZAPI_SECURITY_TOKEN'] },
-  { id: 'zapi_moinhos', name: 'WhatsApp Z-API Moinhos', type: 'messaging', required: ['ZAPI_MOINHOS_INSTANCE_ID', 'ZAPI_MOINHOS_TOKEN', 'ZAPI_MOINHOS_SECURITY_TOKEN'] },
   { id: 'maps', name: 'Google Maps', type: 'maps', required: ['GOOGLE_MAPS_API_KEY'] },
   { id: 'automation', name: 'Automações internas', type: 'automation', required: ['AUTOMATION_INTERNAL_TOKEN'] },
 ];
