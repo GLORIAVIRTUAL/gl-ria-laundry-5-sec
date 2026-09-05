@@ -790,9 +790,12 @@ export default function Chat() {
         await handleSendMessage("Atendimento finalizado. Agradecemos o contato! Se precisar de algo mais, estamos à disposição. 👋");
         
         // 2. Close Conversation in DB
+        // Ao finalizar, devolvemos o controle para a Glória: a mensagem de
+        // encerramento (humana) não pode silenciar a IA no próximo contato.
         await base44.entities.Conversation.update(activeConversation.id, {
             status: 'CLOSED',
-            handoff_required: false
+            handoff_required: false,
+            metadata: { ...(activeConversation.metadata || {}), ai_resumed_at: new Date().toISOString() }
         });
         
         toast.dismiss(toastId);
