@@ -4,9 +4,12 @@ const DEFAULT_ORIGIN = 'https://lavanderia-5asec-connect-copy-d8ddd176.base44.ap
 
 const ALLOWED_BILLING_TYPES = new Set(['pix', 'credit_card']);
 
-function apiBase() {
-  const env = (Deno.env.get('ASAAS_ENVIRONMENT') || 'sandbox').toLowerCase();
-  return env === 'production' ? 'https://api.asaas.com/v3' : 'https://api-sandbox.asaas.com/v3';
+// Gateway intermediário na VPS — administra a chave Asaas e o ambiente.
+// A URL já termina em /v3 (não duplicar).
+function gatewayBase(): string {
+  const url = (Deno.env.get('ASAAS_GATEWAY_URL') || '').trim();
+  if (!url) throw new Error('ASAAS_GATEWAY_URL não configurado');
+  return url.replace(/\/+$/, '');
 }
 
 function canAccessUnit(user: any, unitId?: string) {
@@ -19,23 +22,25 @@ function canAccessUnit(user: any, unitId?: string) {
   return allowed.has(unitId);
 }
 
-function asaasHeaders(apiKey: string) {
+// Headers enviados ao gateway — token do gateway, NÃO a chave Asaas.
+function gatewayHeaders(gatewayToken: string) {
   return {
     'Content-Type': 'application/json',
-    'access_token': apiKey,
+    'X-Gateway-Token': gatewayToken,
     'accept': 'application/json',
   };
 }
 
-// Find or create an Asaas customer, returns Asaas customer ID
-async function ensureAsaasCustomer(apiKey: string, customer: any): Promise<string | null> {
+// Find or create an Asaas customer via gateway, returns Asaas customer ID
+async function ensureAsaasCustomer(gatewayToken: string, customer: any): Promise<string | null> {
   if (!customer) return null;
+  const base = gatewayBase();
 
   // Search by CPF/CNPJ
   if (customer.tax_id) {
     try {
-      const resp = await fetch(`${apiBase()}/customers?cpfCnpj=${encodeURIComponent(customer.tax_id)}`, {
-        headers: asaasHeaders(apiKey),
+      const resp = await fetch(`${base}/customers?cpfCnpj=${encodeURIComponent(customer.tax_id)}`, {
+        headers: gatewayHeaders(gatewayToken),
       });
       if (resp.ok) {
         const json = await resp.json();
@@ -47,8 +52,8 @@ async function ensureAsaasCustomer(apiKey: string, customer: any): Promise<strin
   // Search by email
   if (customer.email) {
     try {
-      const resp = await fetch(`${apiBase()}/customers?email=${encodeURIComponent(customer.email)}`, {
-        headers: asaasHeaders(apiKey),
+      const resp = await fetch(`${base}/customers?email=${encodeURIComponent(customer.email)}`, {
+        headers: gatewayHeaders(gatewayToken),
       });
       if (resp.ok) {
         const json = await resp.json();
@@ -64,9 +69,9 @@ async function ensureAsaasCustomer(apiKey: string, customer: any): Promise<strin
   if (customer.phones?.length) body.phone = customer.phones[0].replace(/\D/g, '');
 
   try {
-    const resp = await fetch(`${apiBase()}/customers`, {
+    const resp = await fetch(`${base}/customers`, {
       method: 'POST',
-      headers: asaasHeaders(apiKey),
+      headers: gatewayHeaders(gatewayToken),
       body: JSON.stringify(body),
     });
     if (resp.ok) {
@@ -76,8 +81,8 @@ async function ensureAsaasCustomer(apiKey: string, customer: any): Promise<strin
     // If duplicate, try searching again by CPF/CNPJ
     if (customer.tax_id) {
       try {
-        const resp2 = await fetch(`${apiBase()}/customers?cpfCnpj=${encodeURIComponent(customer.tax_id)}`, {
-          headers: asaasHeaders(apiKey),
+        const resp2 = await fetch(`${base}/customers?cpfCnpj=${encodeURIComponent(customer.tax_id)}`, {
+          headers: gatewayHeaders(gatewayToken),
         });
         if (resp2.ok) {
           const json2 = await resp2.json();
@@ -90,15 +95,17 @@ async function ensureAsaasCustomer(apiKey: string, customer: any): Promise<strin
   return null;
 }
 
-// Create a direct PIX payment — returns QR code + copy-paste key
+// Create a direct PIX payment — returns QR code + copy-paste key.
+// status: 'ok' | 'error' | 'inconclusive'
+// 'inconclusive' = timeout/falha de rede: a cobrança PODE ter sido criada — não repetir.
 async function createDirectPixPayment(
-  apiKey: string,
+  gatewayToken: string,
   asaasCustomerId: string,
   amount: number,
   referenceLabel: string,
   referenceId: string,
   customerName: string
-): Promise<{ data: any; error: string | null }> {
+): Promise<{ data: any; error: string | null; status: 'ok' | 'error' | 'inconclusive' }> {
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + 1);
 
@@ -112,34 +119,45 @@ async function createDirectPixPayment(
   };
 
   try {
-    const resp = await fetch(`${apiBase()}/payments`, {
+    const resp = await fetch(`${gatewayBase()}/payments`, {
       method: 'POST',
-      headers: asaasHeaders(apiKey),
+      headers: gatewayHeaders(gatewayToken),
       body: JSON.stringify(body),
     });
-    const json = await resp.json();
+    const text = await resp.text();
+    let json: any = null;
+    try { json = JSON.parse(text); } catch (_) { json = null; }
+
     if (!resp.ok) {
-      const errMsg = json?.errors?.map((e: any) => e.description).join('; ') || JSON.stringify(json);
-      console.error('[generate_payment_link] Direct PIX error', errMsg);
-      return { data: null, error: errMsg };
+      const errMsg = json?.errors?.map((e: any) => e.description).join('; ')
+        || (json && JSON.stringify(json))
+        || `HTTP ${resp.status}: ${text.slice(0, 200)}`;
+      console.error('[generate_payment_link] Direct PIX error', resp.status);
+      return { data: null, error: errMsg, status: 'error' };
     }
-    return { data: json, error: null };
+    if (!json) {
+      // Resposta não-JSON: inconclusiva — não repetir POST.
+      return { data: null, error: 'Resposta não-JSON do gateway', status: 'inconclusive' };
+    }
+    return { data: json, error: null, status: 'ok' };
   } catch (err) {
-    console.error('[generate_payment_link] Direct PIX fetch error', err);
-    return { data: null, error: String(err) };
+    // Timeout / falha de rede: a cobrança pode ter sido criada — NÃO repetir.
+    console.error('[generate_payment_link] Direct PIX network error (inconclusive)');
+    return { data: null, error: String(err), status: 'inconclusive' };
   }
 }
 
-// Create a checkout session (used for credit card or PIX fallback)
+// Create a checkout session (used for credit card or PIX fallback).
+// status: 'ok' | 'error' | 'inconclusive'
 async function createCheckoutSession(
-  apiKey: string,
+  gatewayToken: string,
   billingType: string,
   amount: number,
   referenceLabel: string,
   referenceId: string,
   customer: any,
   origin: string
-): Promise<{ data: any; error: string | null }> {
+): Promise<{ data: any; error: string | null; status: 'ok' | 'error' | 'inconclusive' }> {
   const asaasBillingType = billingType === 'pix' ? 'PIX' : 'CREDIT_CARD';
 
   const customerData: any = {};
@@ -170,21 +188,29 @@ async function createCheckoutSession(
   }
 
   try {
-    const resp = await fetch(`${apiBase()}/checkouts`, {
+    const resp = await fetch(`${gatewayBase()}/checkouts`, {
       method: 'POST',
-      headers: asaasHeaders(apiKey),
+      headers: gatewayHeaders(gatewayToken),
       body: JSON.stringify(body),
     });
-    const json = await resp.json();
+    const text = await resp.text();
+    let json: any = null;
+    try { json = JSON.parse(text); } catch (_) { json = null; }
+
     if (!resp.ok) {
-      const errMsg = json?.errors?.map((e: any) => e.description).join('; ') || JSON.stringify(json);
-      console.error('[generate_payment_link] Checkout error', errMsg);
-      return { data: null, error: errMsg };
+      const errMsg = json?.errors?.map((e: any) => e.description).join('; ')
+        || (json && JSON.stringify(json))
+        || `HTTP ${resp.status}: ${text.slice(0, 200)}`;
+      console.error('[generate_payment_link] Checkout error', resp.status);
+      return { data: null, error: errMsg, status: 'error' };
     }
-    return { data: json, error: null };
+    if (!json) {
+      return { data: null, error: 'Resposta não-JSON do gateway', status: 'inconclusive' };
+    }
+    return { data: json, error: null, status: 'ok' };
   } catch (err) {
-    console.error('[generate_payment_link] Checkout fetch error', err);
-    return { data: null, error: String(err) };
+    console.error('[generate_payment_link] Checkout network error (inconclusive)');
+    return { data: null, error: String(err), status: 'inconclusive' };
   }
 }
 
@@ -239,11 +265,19 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'customer_not_found_on_reference', request_id: requestId }, { status: 422 });
     }
 
-    const apiKey = Deno.env.get('ASAAS_API_KEY');
-    if (!apiKey) {
+    const gatewayToken = Deno.env.get('ASAAS_GATEWAY_TOKEN');
+    if (!gatewayToken) {
       return Response.json({
         error: 'payment_integration_not_configured',
-        message: 'Configure ASAAS_API_KEY antes de gerar links.',
+        message: 'Configure ASAAS_GATEWAY_TOKEN antes de gerar links.',
+        request_id: requestId,
+      }, { status: 503 });
+    }
+    // Valida presença da URL do gateway (sem expor o valor)
+    try { gatewayBase(); } catch (e: any) {
+      return Response.json({
+        error: 'payment_integration_not_configured',
+        message: 'Configure ASAAS_GATEWAY_URL antes de gerar links.',
         request_id: requestId,
       }, { status: 503 });
     }
@@ -255,13 +289,18 @@ Deno.serve(async (req) => {
 
     let result: { type: string; asaasId: string; url: string; pixQrCode?: string; pixCopyPasteKey?: string } | null = null;
     let lastError: string | null = null;
+    let inconclusive = false;
 
     // For PIX: try direct payment first (returns QR code + copy-paste key)
     if (billingType === 'pix') {
-      const asaasCustomerId = await ensureAsaasCustomer(apiKey, customer);
+      const asaasCustomerId = await ensureAsaasCustomer(gatewayToken, customer);
       if (asaasCustomerId) {
-        const pixResult = await createDirectPixPayment(apiKey, asaasCustomerId, amount, referenceLabel, referenceIdForAsaas, customer?.full_name);
-        if (pixResult.data?.pixQrCode) {
+        const pixResult = await createDirectPixPayment(gatewayToken, asaasCustomerId, amount, referenceLabel, referenceIdForAsaas, customer?.full_name);
+        if (pixResult.status === 'inconclusive') {
+          // Cobrança PODE ter sido criada — não repetir, não criar checkout.
+          inconclusive = true;
+          lastError = pixResult.error;
+        } else if (pixResult.data?.pixQrCode) {
           result = {
             type: 'direct_pix',
             asaasId: pixResult.data.id,
@@ -273,14 +312,17 @@ Deno.serve(async (req) => {
           lastError = pixResult.error;
         }
       } else {
-        lastError = 'Não foi possível criar/obter cliente no Asaas (CPF/CNPJ pode ser necessário).';
+        lastError = 'Não foi possível criar/obter cliente no gateway (CPF/CNPJ pode ser necessário).';
       }
     }
 
-    // Fallback: checkout session (for credit card, or if direct PIX failed)
-    if (!result) {
-      const checkoutResult = await createCheckoutSession(apiKey, billingType, amount, referenceLabel, referenceIdForAsaas, customer, origin);
-      if (checkoutResult.data) {
+    // Fallback: checkout session (apenas se não houve tentativa Pix inconclusiva)
+    if (!result && !inconclusive) {
+      const checkoutResult = await createCheckoutSession(gatewayToken, billingType, amount, referenceLabel, referenceIdForAsaas, customer, origin);
+      if (checkoutResult.status === 'inconclusive') {
+        inconclusive = true;
+        lastError = checkoutResult.error;
+      } else if (checkoutResult.data) {
         result = {
           type: 'checkout',
           asaasId: checkoutResult.data.id,
@@ -291,11 +333,21 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (inconclusive) {
+      // A cobrança pode ter sido criada — sinaliza verificação pendente.
+      return Response.json({
+        status: 'pending_verification',
+        message: 'Requisição ao gateway não retornou resposta conclusiva. A cobrança pode ter sido criada — verifique via webhook/consulta antes de repetir.',
+        reference_id: referenceIdForAsaas,
+        request_id: requestId,
+      }, { status: 202 });
+    }
+
     if (!result) {
       return Response.json({
         error: 'asaas_request_failed',
         asaas_error: lastError,
-        message: lastError || 'Falha ao comunicar com o Asaas.',
+        message: lastError || 'Falha ao comunicar com o gateway Asaas.',
         request_id: requestId,
       }, { status: 502 });
     }
