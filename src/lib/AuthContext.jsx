@@ -41,8 +41,8 @@ export const AuthProvider = ({ children }) => {
         if (appParams.token) {
           await checkUserAuth();
         } else {
-          setIsLoadingAuth(false);
-          setIsAuthenticated(false);
+          // Sem token não há sessão: tenta recuperá-la via me() e, se falhar, manda para o login.
+          await checkUserAuth();
         }
         setIsLoadingPublicSettings(false);
       } catch (appError) {
