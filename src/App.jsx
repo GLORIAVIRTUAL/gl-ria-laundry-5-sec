@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import DownloadReport from '@/pages/DownloadReport';
 import Apresentacao from '@/pages/Apresentacao';
+import Prospeccao from '@/pages/Prospeccao';
 import { MachineProvider } from '@/components/dashboard/MachineContext';
 import { hasPermission } from '@/lib/accessControl';
 
@@ -129,6 +130,11 @@ const AuthenticatedApp = () => {
           }
         />
       ))}
+      <Route path="/prospeccao" element={
+        <LayoutWrapper currentPageName="Prospeccao">
+          <Prospeccao />
+        </LayoutWrapper>
+      } />
       <Route path="/apresentacao" element={<Apresentacao />} />
       <Route path="/download-report" element={
         <LayoutWrapper currentPageName="download-report">

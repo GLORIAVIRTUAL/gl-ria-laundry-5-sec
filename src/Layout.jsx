@@ -22,6 +22,7 @@ import {
   Image as ImageIcon,
   Network,
   Megaphone,
+  Building2,
   ChevronDown,
   TrendingUp
 } from 'lucide-react';
@@ -41,7 +42,7 @@ export default function Layout({ children }) {
     return saved !== null ? saved === 'true' : true;
   });
   const soundEnabledRef = React.useRef(soundEnabled);
-  const marketingPaths = ['/campanhas', '/campanhasrede', '/trafego', '/trafegogoogle'];
+  const marketingPaths = ['/campanhas', '/campanhasrede', '/trafego', '/trafegogoogle', '/prospeccao'];
   const [marketingOpen, setMarketingOpen] = useState(() => marketingPaths.includes(location.pathname));
   
   // Using reliable notification sounds
@@ -271,6 +272,7 @@ export default function Layout({ children }) {
     { icon: Network, label: 'Campanhas da Rede', path: '/campanhasrede' },
     { icon: Megaphone, label: 'Tráfego Meta', path: '/trafego' },
     { icon: Megaphone, label: 'Tráfego Google', path: '/trafegogoogle' },
+    { icon: Building2, label: 'Prospecção', path: '/prospeccao' },
   ];
   const showMarketing = ['super_admin', 'admin'].includes(user?.role || '');
 
