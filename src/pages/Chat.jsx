@@ -25,7 +25,8 @@ import {
   Forward,
   UserCog,
   ChevronsLeft,
-  ChevronsRight
+  ChevronsRight,
+  CreditCard
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -34,6 +35,7 @@ import { toast } from "sonner";
 import { format, isToday, isYesterday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import AdvancedQuoteModal from '@/components/crm/AdvancedQuoteModal';
+import PaymentLinkDialog from '@/components/chat/PaymentLinkDialog';
 import EditCustomerModal from '@/components/chat/EditCustomerModal';
 import DeleteConversationButton from '@/components/chat/DeleteConversationButton';
 import ConversationListItem from '@/components/chat/ConversationListItem';
@@ -176,6 +178,7 @@ export default function Chat() {
   // Quote Modal State
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
   const [initialQuoteData, setInitialQuoteData] = useState(null);
+  const [isPaymentLinkOpen, setIsPaymentLinkOpen] = useState(false);
 
   // Edit Customer Modal State
   const [isEditCustomerOpen, setIsEditCustomerOpen] = useState(false);
@@ -1100,6 +1103,13 @@ export default function Chat() {
         }}
       />
 
+      <PaymentLinkDialog
+        isOpen={isPaymentLinkOpen}
+        onClose={() => setIsPaymentLinkOpen(false)}
+        customer={customers[activeConversation?.customer_id]}
+        onSendLink={(message) => handleSendMessage(message)}
+      />
+
       <Dialog open={isForwardModalOpen} onOpenChange={(open) => {
         setIsForwardModalOpen(open);
         if (!open) resetForwardModal();
@@ -1292,7 +1302,15 @@ export default function Chat() {
                        className="h-10 px-3 bg-[#FF6600]/10 text-[#FF6600] hover:bg-[#FF6600]/20 rounded-lg text-xs font-medium transition-colors border border-[#FF6600]/20 flex items-center gap-1.5 whitespace-nowrap"
                    >
                        <Zap className="w-3.5 h-3.5" /> Orçamento
-                   </button>
+                       </button>
+
+                       <button
+                       onClick={() => setIsPaymentLinkOpen(true)}
+                       className="h-10 px-3 bg-green-600/20 text-green-400 hover:bg-green-600/30 rounded-lg text-xs font-medium transition-colors border border-green-600/30 flex items-center gap-1.5 whitespace-nowrap"
+                       title="Gerar link de pagamento Asaas"
+                       >
+                       <CreditCard className="w-3.5 h-3.5" /> Pagamento
+                       </button>
 
                   {activeConversation.handoff_required ? (
                      <button 

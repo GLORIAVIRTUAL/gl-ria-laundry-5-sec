@@ -35,7 +35,7 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
   const [garmentItems, setGarmentItems] = useState([]); // Uma entrada para cada peça física
   const [activeGarmentId, setActiveGarmentId] = useState('');
   const [priority, setPriority] = useState('MEDIUM');
-  const [paymentMethod, setPaymentMethod] = useState('cash'); // cash, pix, machine
+  const [paymentMethod, setPaymentMethod] = useState('cash'); // cash, pix, credit_card, machine
   const [machineType, setMachineType] = useState('debit'); // debit, credit (quando machine)
   const [installments, setInstallments] = useState(1); // parcelas quando crédito
   const [cardBrandId, setCardBrandId] = useState(''); // bandeira selecionada na maquininha
@@ -413,6 +413,9 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
           feePercent = machineType === 'credit' ? selectedBrand?.credit_fees?.[installments] : selectedBrand?.debit_fee;
           paymentNote = machineType === 'credit' ? `Maquininha - Crédito ${installments}x` : 'Maquininha - Débito';
           if (cardBrand) paymentNote += ` (${cardBrand})`;
+        } else if (paymentMethod === 'credit_card') {
+          finalMethod = 'credit';
+          paymentNote = 'Cartão de Crédito (link Asaas) confirmado';
         } else {
           paymentNote = paymentMethod === 'pix' ? 'Pix informado no balcão' : 'Dinheiro recebido no balcão';
         }
@@ -738,10 +741,11 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                         
                         <div className="mt-6 space-y-2">
                             <Label>Forma de pagamento, se já recebida</Label>
-                            <div className="grid grid-cols-3 gap-2">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                 {[
                                     { id: 'cash', label: 'Dinheiro', icon: DollarSign },
                                     { id: 'pix', label: 'Pix', icon: DollarSign },
+                                    { id: 'credit_card', label: 'Cartão de Crédito', icon: CreditCard },
                                     { id: 'machine', label: 'Maquininha', icon: CreditCard }
                                 ].map(method => (
                                     <button

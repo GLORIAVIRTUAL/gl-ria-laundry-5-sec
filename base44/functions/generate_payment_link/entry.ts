@@ -1,31 +1,25 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
-import Stripe from 'npm:stripe@^14.0.0';
 
-const DEFAULT_ORIGIN = 'https://chat5asec.com.br';
+const DEFAULT_ORIGIN = 'https://lavanderia-5asec-connect-copy-d8ddd176.base44.app';
 
-function allowedOrigins() {
-  return new Set(
-    (Deno.env.get('PAYMENT_ALLOWED_ORIGINS') || DEFAULT_ORIGIN)
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean)
-  );
+const ALLOWED_BILLING_TYPES = new Set(['pix', 'credit_card']);
+
+function apiBase() {
+  const env = (Deno.env.get('ASAAS_ENVIRONMENT') || 'sandbox').toLowerCase();
+  return env === 'production' ? 'https://api.asaas.com/v3' : 'https://api-sandbox.asaas.com/v3';
 }
 
 function resolveOrigin(req: Request) {
-  const requestedOrigin = req.headers.get('origin') || '';
-  return allowedOrigins().has(requestedOrigin) ? requestedOrigin : DEFAULT_ORIGIN;
+  return DEFAULT_ORIGIN;
 }
 
 function canAccessUnit(user: any, unitId?: string) {
   if (!unitId) return true;
   if (['super_admin', 'admin'].includes(user?.role)) return true;
-
   const allowed = new Set([
     user?.primary_unit_id,
     ...(Array.isArray(user?.allowed_unit_ids) ? user.allowed_unit_ids : []),
   ].filter(Boolean));
-
   return allowed.has(unitId);
 }
 
@@ -49,21 +43,23 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'order_or_quote_required', request_id: requestId }, { status: 400 });
     }
 
+    const billingTypeRaw = (body.billing_type || 'pix').toString().toLowerCase();
+    if (!ALLOWED_BILLING_TYPES.has(billingTypeRaw)) {
+      return Response.json({ error: 'invalid_billing_type', request_id: requestId }, { status: 400 });
+    }
+    const asaasBillingType = billingTypeRaw === 'pix' ? 'PIX' : 'CREDIT_CARD';
+
     let order: any = null;
     let quote: any = null;
 
     try {
       order = await base44.asServiceRole.entities.Order.get(referenceId);
-    } catch (_) {
-      // O identificador também pode ser de um orçamento legado.
-    }
+    } catch (_) { /* maybe it's a quote */ }
 
     if (!order) {
       try {
         quote = await base44.asServiceRole.entities.Quote.get(referenceId);
-      } catch (_) {
-        // Tratado abaixo como registro não encontrado.
-      }
+      } catch (_) { /* not found */ }
     }
 
     const source = order || quote;
@@ -85,52 +81,66 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'customer_not_found_on_reference', request_id: requestId }, { status: 422 });
     }
 
-    const stripeKey = Deno.env.get('STRIPE_SECRET_KEY');
-    if (!stripeKey) {
+    const apiKey = Deno.env.get('ASAAS_API_KEY');
+    if (!apiKey) {
       return Response.json({
         error: 'payment_integration_not_configured',
-        message: 'Configure STRIPE_SECRET_KEY antes de gerar links reais.',
+        message: 'Configure ASAAS_API_KEY antes de gerar links.',
         request_id: requestId,
       }, { status: 503 });
     }
 
-    const stripe = new Stripe(stripeKey);
-    const origin = resolveOrigin(req);
     const customer = await base44.asServiceRole.entities.Customer.get(customerId);
-    const customerEmail = customer?.email || undefined;
+    const origin = resolveOrigin(req);
     const referenceLabel = order?.ticket_number || referenceId.slice(0, 8).toUpperCase();
 
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card', 'boleto'],
-      line_items: [{
-        price_data: {
-          currency: 'brl',
-          product_data: { name: `Pedido/Orçamento #${referenceLabel}` },
-          unit_amount: Math.round(amount * 100),
-        },
+    // Build customer data for Asaas checkout
+    const customerData: any = {};
+    if (customer?.full_name) customerData.name = customer.full_name;
+    if (customer?.tax_id) customerData.cpfCnpj = customer.tax_id;
+    if (customer?.email) customerData.email = customer.email;
+    if (customer?.phones?.length) customerData.phone = customer.phones[0].replace(/\D/g, '');
+
+    const checkoutBody: any = {
+      billingTypes: [asaasBillingType],
+      chargeTypes: ['DETACHED'],
+      minutesToExpire: body.minutes_to_expire || 1440,
+      externalReference: order?.id || quote?.id || referenceId,
+      callback: {
+        successUrl: `${origin}/PaymentSuccess?reference_id=${encodeURIComponent(referenceId)}`,
+        cancelUrl: `${origin}/Orders?canceled=true`,
+        expiredUrl: `${origin}/Orders?expired=true`,
+      },
+      items: [{
+        name: `Pedido #${referenceLabel}`,
+        description: `Pagamento de lavanderia - ${customer?.full_name || 'Cliente'}`,
         quantity: 1,
+        value: Math.round(amount * 100) / 100,
       }],
-      mode: 'payment',
-      success_url: `${origin}/PaymentSuccess?reference_id=${encodeURIComponent(referenceId)}`,
-      cancel_url: `${origin}/Orders?canceled=true`,
-      customer_email: customerEmail,
-      metadata: {
-        quote_id: quote?.id || '',
-        order_id: order?.id || '',
-        customer_id: customerId,
-        unit_id: source.unit_id || '',
-        request_id: requestId,
+    };
+    if (Object.keys(customerData).length > 0) {
+      checkoutBody.customerData = customerData;
+    }
+
+    const asaasResponse = await fetch(`${apiBase()}/checkouts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'access_token': apiKey,
+        'accept': 'application/json',
       },
-      payment_intent_data: {
-        metadata: {
-          quote_id: quote?.id || '',
-          order_id: order?.id || '',
-          customer_id: customerId,
-          unit_id: source.unit_id || '',
-          request_id: requestId,
-        },
-      },
+      body: JSON.stringify(checkoutBody),
     });
+
+    const asaasJson = await asaasResponse.json();
+
+    if (!asaasResponse.ok) {
+      console.error(`[generate_payment_link:${requestId}] Asaas error`, asaasJson);
+      const errorMsg = asaasJson?.errors?.[0]?.description || asaasJson?.error || 'asaas_request_failed';
+      return Response.json({ error: 'asaas_checkout_failed', message: errorMsg, request_id: requestId }, { status: 502 });
+    }
+
+    const checkoutUrl = asaasJson.link || `https://asaas.com/checkoutSession/show?id=${asaasJson.id}`;
 
     const payment = await base44.asServiceRole.entities.Payment.create({
       customer_id: customerId,
@@ -139,9 +149,10 @@ Deno.serve(async (req) => {
       unit_id: source.unit_id,
       status: 'pending',
       amount,
-      payment_method: 'link',
-      stripe_intent_id: session.id,
-      notes: `Checkout criado com cálculo server-side. request_id=${requestId}`,
+      payment_method: billingTypeRaw === 'pix' ? 'pix' : 'credit_card',
+      external_reference: asaasJson.id,
+      idempotency_key: `asaas:${asaasJson.id}`,
+      notes: `Checkout Asaas (${asaasBillingType}). request_id=${requestId}`,
     });
 
     await base44.asServiceRole.entities.AuditLog.create({
@@ -151,7 +162,7 @@ Deno.serve(async (req) => {
       item_label: referenceLabel,
       customer_name: customer?.full_name,
       amount,
-      reason: 'payment_link_created',
+      reason: 'payment_link_created_asaas',
       user_email: user.email,
       user_name: user.full_name || user.display_name,
       user_role: user.role,
@@ -160,7 +171,13 @@ Deno.serve(async (req) => {
       success: true,
     });
 
-    return Response.json({ url: session.url, payment_id: payment.id, request_id: requestId });
+    return Response.json({
+      url: checkoutUrl,
+      checkout_id: asaasJson.id,
+      payment_id: payment.id,
+      billing_type: billingTypeRaw,
+      request_id: requestId,
+    });
   } catch (error) {
     console.error(`[generate_payment_link:${requestId}]`, error);
     return Response.json({ error: 'payment_link_failed', request_id: requestId }, { status: 500 });
