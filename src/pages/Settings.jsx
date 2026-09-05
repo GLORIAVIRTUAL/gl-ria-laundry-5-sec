@@ -32,8 +32,6 @@ import {
 } from "@/components/ui/dialog";
 import UnitAccessManager from '@/components/settings/UnitAccessManager';
 import PromotionsManager from '@/components/settings/PromotionsManager';
-import CustomersPage from '@/pages/Customers';
-import ReportsPage from '@/pages/Reports';
 import ProspectionManager from '@/components/settings/ProspectionManager';
 import CardFeesManager from '@/components/settings/CardFeesManager';
 import ExpensesManager from '@/components/settings/ExpensesManager';
@@ -47,7 +45,7 @@ import AiModelSettings from '@/components/settings/AiModelSettings';
 import PricingRulesManager from '@/components/settings/PricingRulesManager';
 import OperationalCatalogManager from '@/components/settings/OperationalCatalogManager';
 import LoyaltyProgramManager from '@/components/settings/LoyaltyProgramManager';
-import { UserRound, PieChart, Building2, CreditCard, Receipt, Calculator, ShieldCheck, Tags, ListChecks, Gift } from "lucide-react";
+import { Building2, CreditCard, Receipt, Calculator, ShieldCheck, Tags, ListChecks, Gift } from "lucide-react";
 
 export default function Settings() {
   const [products, setProducts] = useState([]);
@@ -650,12 +648,6 @@ Templates WhatsApp (3) — JSON [
           <TabsTrigger value="loyalty" className="w-auto md:w-full justify-start data-[state=active]:bg-pink-600 data-[state=active]:text-white text-gray-400">
             <Gift className="w-4 h-4 mr-2" /> Fidelidade
           </TabsTrigger>
-          <TabsTrigger value="customers" className="w-auto md:w-full justify-start data-[state=active]:bg-cyan-600 data-[state=active]:text-white text-gray-400">
-            <UserRound className="w-4 h-4 mr-2" /> Clientes
-          </TabsTrigger>
-          <TabsTrigger value="reports" className="w-auto md:w-full justify-start data-[state=active]:bg-indigo-600 data-[state=active]:text-white text-gray-400">
-            <PieChart className="w-4 h-4 mr-2" /> Relatórios
-          </TabsTrigger>
           <TabsTrigger value="prospection" className="w-auto md:w-full justify-start data-[state=active]:bg-[#FF6600] data-[state=active]:text-white text-gray-400">
             <Building2 className="w-4 h-4 mr-2" /> Prospecção
           </TabsTrigger>
@@ -1009,14 +1001,6 @@ Templates WhatsApp (3) — JSON [
 
         <TabsContent value="loyalty" className="mt-0 space-y-6">
           <LoyaltyProgramManager />
-        </TabsContent>
-
-        <TabsContent value="customers" className="mt-0">
-          <CustomersPage />
-        </TabsContent>
-
-        <TabsContent value="reports" className="mt-0">
-          <ReportsPage />
         </TabsContent>
 
         <TabsContent value="prospection" className="mt-0">
