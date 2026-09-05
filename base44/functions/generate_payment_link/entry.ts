@@ -9,10 +9,6 @@ function apiBase() {
   return env === 'production' ? 'https://api.asaas.com/v3' : 'https://api-sandbox.asaas.com/v3';
 }
 
-function resolveOrigin(req: Request) {
-  return DEFAULT_ORIGIN;
-}
-
 function canAccessUnit(user: any, unitId?: string) {
   if (!unitId) return true;
   if (['super_admin', 'admin'].includes(user?.role)) return true;
@@ -21,6 +17,173 @@ function canAccessUnit(user: any, unitId?: string) {
     ...(Array.isArray(user?.allowed_unit_ids) ? user.allowed_unit_ids : []),
   ].filter(Boolean));
   return allowed.has(unitId);
+}
+
+function asaasHeaders(apiKey: string) {
+  return {
+    'Content-Type': 'application/json',
+    'access_token': apiKey,
+    'accept': 'application/json',
+  };
+}
+
+// Find or create an Asaas customer, returns Asaas customer ID
+async function ensureAsaasCustomer(apiKey: string, customer: any): Promise<string | null> {
+  if (!customer) return null;
+
+  // Search by CPF/CNPJ
+  if (customer.tax_id) {
+    try {
+      const resp = await fetch(`${apiBase()}/customers?cpfCnpj=${encodeURIComponent(customer.tax_id)}`, {
+        headers: asaasHeaders(apiKey),
+      });
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.data && json.data.length > 0) return json.data[0].id;
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  // Search by email
+  if (customer.email) {
+    try {
+      const resp = await fetch(`${apiBase()}/customers?email=${encodeURIComponent(customer.email)}`, {
+        headers: asaasHeaders(apiKey),
+      });
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json.data && json.data.length > 0) return json.data[0].id;
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  // Create new customer
+  const body: any = { name: customer.full_name || 'Cliente' };
+  if (customer.tax_id) body.cpfCnpj = customer.tax_id;
+  if (customer.email) body.email = customer.email;
+  if (customer.phones?.length) body.phone = customer.phones[0].replace(/\D/g, '');
+
+  try {
+    const resp = await fetch(`${apiBase()}/customers`, {
+      method: 'POST',
+      headers: asaasHeaders(apiKey),
+      body: JSON.stringify(body),
+    });
+    if (resp.ok) {
+      const json = await resp.json();
+      return json.id;
+    }
+    // If duplicate, try searching again by CPF/CNPJ
+    if (customer.tax_id) {
+      try {
+        const resp2 = await fetch(`${apiBase()}/customers?cpfCnpj=${encodeURIComponent(customer.tax_id)}`, {
+          headers: asaasHeaders(apiKey),
+        });
+        if (resp2.ok) {
+          const json2 = await resp2.json();
+          if (json2.data && json2.data.length > 0) return json2.data[0].id;
+        }
+      } catch (_) { /* ignore */ }
+    }
+  } catch (_) { /* ignore */ }
+
+  return null;
+}
+
+// Create a direct PIX payment — returns QR code + copy-paste key
+async function createDirectPixPayment(
+  apiKey: string,
+  asaasCustomerId: string,
+  amount: number,
+  referenceLabel: string,
+  referenceId: string,
+  customerName: string
+): Promise<any | null> {
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + 1);
+
+  const body = {
+    customer: asaasCustomerId,
+    billingType: 'PIX',
+    value: Math.round(amount * 100) / 100,
+    dueDate: dueDate.toISOString().split('T')[0],
+    externalReference: referenceId,
+    description: `Pedido #${referenceLabel} - ${customerName || 'Cliente'}`,
+  };
+
+  try {
+    const resp = await fetch(`${apiBase()}/payments`, {
+      method: 'POST',
+      headers: asaasHeaders(apiKey),
+      body: JSON.stringify(body),
+    });
+    const json = await resp.json();
+    if (!resp.ok) {
+      console.error('[generate_payment_link] Direct PIX error', json);
+      return null;
+    }
+    return json;
+  } catch (err) {
+    console.error('[generate_payment_link] Direct PIX fetch error', err);
+    return null;
+  }
+}
+
+// Create a checkout session (used for credit card or PIX fallback)
+async function createCheckoutSession(
+  apiKey: string,
+  billingType: string,
+  amount: number,
+  referenceLabel: string,
+  referenceId: string,
+  customer: any,
+  origin: string
+): Promise<any | null> {
+  const asaasBillingType = billingType === 'pix' ? 'PIX' : 'CREDIT_CARD';
+
+  const customerData: any = {};
+  if (customer?.full_name) customerData.name = customer.full_name;
+  if (customer?.tax_id) customerData.cpfCnpj = customer.tax_id;
+  if (customer?.email) customerData.email = customer.email;
+  if (customer?.phones?.length) customerData.phone = customer.phones[0].replace(/\D/g, '');
+
+  const body: any = {
+    billingTypes: [asaasBillingType],
+    chargeTypes: ['DETACHED'],
+    minutesToExpire: 1440,
+    externalReference: referenceId,
+    callback: {
+      successUrl: `${origin}/PaymentSuccess?reference_id=${encodeURIComponent(referenceId)}`,
+      cancelUrl: `${origin}/Orders?canceled=true`,
+      expiredUrl: `${origin}/Orders?expired=true`,
+    },
+    items: [{
+      name: `Pedido #${referenceLabel}`,
+      description: `Pagamento de lavanderia - ${customer?.full_name || 'Cliente'}`,
+      quantity: 1,
+      value: Math.round(amount * 100) / 100,
+    }],
+  };
+  if (Object.keys(customerData).length > 0) {
+    body.customerData = customerData;
+  }
+
+  try {
+    const resp = await fetch(`${apiBase()}/checkouts`, {
+      method: 'POST',
+      headers: asaasHeaders(apiKey),
+      body: JSON.stringify(body),
+    });
+    const json = await resp.json();
+    if (!resp.ok) {
+      console.error('[generate_payment_link] Checkout error', json);
+      return null;
+    }
+    return json;
+  } catch (err) {
+    console.error('[generate_payment_link] Checkout fetch error', err);
+    return null;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -43,23 +206,16 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'order_or_quote_required', request_id: requestId }, { status: 400 });
     }
 
-    const billingTypeRaw = (body.billing_type || 'pix').toString().toLowerCase();
-    if (!ALLOWED_BILLING_TYPES.has(billingTypeRaw)) {
+    const billingType = (body.billing_type || 'pix').toString().toLowerCase();
+    if (!ALLOWED_BILLING_TYPES.has(billingType)) {
       return Response.json({ error: 'invalid_billing_type', request_id: requestId }, { status: 400 });
     }
-    const asaasBillingType = billingTypeRaw === 'pix' ? 'PIX' : 'CREDIT_CARD';
 
     let order: any = null;
     let quote: any = null;
-
-    try {
-      order = await base44.asServiceRole.entities.Order.get(referenceId);
-    } catch (_) { /* maybe it's a quote */ }
-
+    try { order = await base44.asServiceRole.entities.Order.get(referenceId); } catch (_) { /* maybe quote */ }
     if (!order) {
-      try {
-        quote = await base44.asServiceRole.entities.Quote.get(referenceId);
-      } catch (_) { /* not found */ }
+      try { quote = await base44.asServiceRole.entities.Quote.get(referenceId); } catch (_) { /* not found */ }
     }
 
     const source = order || quote;
@@ -91,57 +247,46 @@ Deno.serve(async (req) => {
     }
 
     const customer = await base44.asServiceRole.entities.Customer.get(customerId);
-    const origin = resolveOrigin(req);
+    const origin = DEFAULT_ORIGIN;
     const referenceLabel = order?.ticket_number || referenceId.slice(0, 8).toUpperCase();
+    const referenceIdForAsaas = order?.id || quote?.id || referenceId;
 
-    // Build customer data for Asaas checkout
-    const customerData: any = {};
-    if (customer?.full_name) customerData.name = customer.full_name;
-    if (customer?.tax_id) customerData.cpfCnpj = customer.tax_id;
-    if (customer?.email) customerData.email = customer.email;
-    if (customer?.phones?.length) customerData.phone = customer.phones[0].replace(/\D/g, '');
+    let result: { type: string; asaasId: string; url: string; pixQrCode?: string; pixCopyPasteKey?: string } | null = null;
 
-    const checkoutBody: any = {
-      billingTypes: [asaasBillingType],
-      chargeTypes: ['DETACHED'],
-      minutesToExpire: body.minutes_to_expire || 1440,
-      externalReference: order?.id || quote?.id || referenceId,
-      callback: {
-        successUrl: `${origin}/PaymentSuccess?reference_id=${encodeURIComponent(referenceId)}`,
-        cancelUrl: `${origin}/Orders?canceled=true`,
-        expiredUrl: `${origin}/Orders?expired=true`,
-      },
-      items: [{
-        name: `Pedido #${referenceLabel}`,
-        description: `Pagamento de lavanderia - ${customer?.full_name || 'Cliente'}`,
-        quantity: 1,
-        value: Math.round(amount * 100) / 100,
-      }],
-    };
-    if (Object.keys(customerData).length > 0) {
-      checkoutBody.customerData = customerData;
+    // For PIX: try direct payment first (returns QR code + copy-paste key)
+    if (billingType === 'pix') {
+      const asaasCustomerId = await ensureAsaasCustomer(apiKey, customer);
+      if (asaasCustomerId) {
+        const pixPayment = await createDirectPixPayment(apiKey, asaasCustomerId, amount, referenceLabel, referenceIdForAsaas, customer?.full_name);
+        if (pixPayment && pixPayment.pixQrCode) {
+          result = {
+            type: 'direct_pix',
+            asaasId: pixPayment.id,
+            url: pixPayment.invoiceUrl,
+            pixQrCode: pixPayment.pixQrCode,
+            pixCopyPasteKey: pixPayment.pixCopyPasteKey,
+          };
+        }
+      }
     }
 
-    const asaasResponse = await fetch(`${apiBase()}/checkouts`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'access_token': apiKey,
-        'accept': 'application/json',
-      },
-      body: JSON.stringify(checkoutBody),
-    });
-
-    const asaasJson = await asaasResponse.json();
-
-    if (!asaasResponse.ok) {
-      console.error(`[generate_payment_link:${requestId}] Asaas error`, asaasJson);
-      const errorMsg = asaasJson?.errors?.[0]?.description || asaasJson?.error || 'asaas_request_failed';
-      return Response.json({ error: 'asaas_checkout_failed', message: errorMsg, request_id: requestId }, { status: 502 });
+    // Fallback: checkout session (for credit card, or if direct PIX failed)
+    if (!result) {
+      const checkout = await createCheckoutSession(apiKey, billingType, amount, referenceLabel, referenceIdForAsaas, customer, origin);
+      if (checkout) {
+        result = {
+          type: 'checkout',
+          asaasId: checkout.id,
+          url: checkout.link || `https://asaas.com/checkoutSession/show?id=${checkout.id}`,
+        };
+      }
     }
 
-    const checkoutUrl = asaasJson.link || `https://asaas.com/checkoutSession/show?id=${asaasJson.id}`;
+    if (!result) {
+      return Response.json({ error: 'asaas_request_failed', request_id: requestId }, { status: 502 });
+    }
 
+    // Create internal payment record
     const payment = await base44.asServiceRole.entities.Payment.create({
       customer_id: customerId,
       quote_id: quote?.id,
@@ -149,10 +294,12 @@ Deno.serve(async (req) => {
       unit_id: source.unit_id,
       status: 'pending',
       amount,
-      payment_method: billingTypeRaw === 'pix' ? 'pix' : 'credit_card',
-      external_reference: asaasJson.id,
-      idempotency_key: `asaas:${asaasJson.id}`,
-      notes: `Checkout Asaas (${asaasBillingType}). request_id=${requestId}`,
+      payment_method: billingType === 'pix' ? 'pix' : 'credit_card',
+      external_reference: result.asaasId,
+      idempotency_key: `asaas:${result.asaasId}`,
+      notes: result.type === 'direct_pix'
+        ? `Pix direto Asaas. request_id=${requestId}`
+        : `Checkout Asaas. request_id=${requestId}`,
     });
 
     await base44.asServiceRole.entities.AuditLog.create({
@@ -162,7 +309,7 @@ Deno.serve(async (req) => {
       item_label: referenceLabel,
       customer_name: customer?.full_name,
       amount,
-      reason: 'payment_link_created_asaas',
+      reason: result.type === 'direct_pix' ? 'pix_payment_created_asaas' : 'payment_link_created_asaas',
       user_email: user.email,
       user_name: user.full_name || user.display_name,
       user_role: user.role,
@@ -172,10 +319,13 @@ Deno.serve(async (req) => {
     });
 
     return Response.json({
-      url: checkoutUrl,
-      checkout_id: asaasJson.id,
+      url: result.url,
+      pix_qr_code: result.pixQrCode || null,
+      pix_copy_paste_key: result.pixCopyPasteKey || null,
+      checkout_id: result.type === 'checkout' ? result.asaasId : null,
       payment_id: payment.id,
-      billing_type: billingTypeRaw,
+      billing_type: billingType,
+      payment_type: result.type,
       request_id: requestId,
     });
   } catch (error) {

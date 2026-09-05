@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { base44 } from '@/api/base44Client';
-import { Loader2, Search, Plus, Minus, ShoppingCart, User, CreditCard, CheckCircle2, ArrowRight, ArrowLeft, Shirt, DollarSign } from 'lucide-react';
+import { Loader2, Search, Plus, Minus, ShoppingCart, User, CreditCard, CheckCircle2, ArrowRight, ArrowLeft, Shirt, DollarSign, Copy, Send } from 'lucide-react';
 import ProductIcon from '@/components/ui/ProductIcon';
 import TimeField from '@/components/management/TimeField';
 import { toast } from 'sonner';
@@ -18,6 +18,7 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
   const [loading, setLoading] = useState(false);
   const [paymentReceived, setPaymentReceived] = useState(false);
   const [createdOrder, setCreatedOrder] = useState(null);
+  const [paymentLinkResult, setPaymentLinkResult] = useState(null);
   const [products, setProducts] = useState([]);
   const [laundryServices, setLaundryServices] = useState([]);
   const [pricingPieceId, setPricingPieceId] = useState(null);
@@ -53,6 +54,7 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
       setActiveGarmentId('');
       setPaymentReceived(false);
       setCreatedOrder(null);
+      setPaymentLinkResult(null);
       setCustomerPhone('');
       setCustomerName('');
       setCustomerId(null);
@@ -433,6 +435,20 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
         });
         finalOrder = paymentResponse.data?.order || order;
         paymentRequiresReconciliation = paymentResponse.data?.requires_reconciliation === true;
+      }
+
+      // Generate Asaas payment link for Pix/Credit Card when payment not yet received
+      if (!paymentReceived && (paymentMethod === 'pix' || paymentMethod === 'credit_card')) {
+        try {
+          const linkResponse = await base44.functions.invoke('generate_payment_link', {
+            order_id: finalOrder.id,
+            billing_type: paymentMethod === 'credit_card' ? 'credit_card' : 'pix',
+          });
+          setPaymentLinkResult(linkResponse.data || linkResponse);
+        } catch (linkError) {
+          console.error('Failed to generate Asaas payment link', linkError);
+          toast.error('Venda criada, mas falhou ao gerar link de pagamento Asaas.');
+        }
       }
 
       setCreatedOrder(finalOrder);
@@ -855,13 +871,13 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
             
             {/* STEP 5: SUCESSO */}
             {step === 5 && (
-                <div className="flex flex-col h-full items-center justify-center p-8 space-y-8">
+                <div className="flex flex-col h-full items-center justify-center p-8 space-y-6 overflow-y-auto">
                     <div className="bg-green-500/10 p-4 rounded-full">
                         <CheckCircle2 className="w-16 h-16 text-green-500" />
                     </div>
                     <div className="text-center space-y-2">
                         <h2 className="text-2xl font-bold">Ticket criado com rastreabilidade</h2>
-                        <p className="text-gray-400">O orçamento foi convertido em peças individuais sem cobrança automática.</p>
+                        <p className="text-gray-400">O orçamento foi convertido em peças individuais.</p>
                     </div>
                     <div className="bg-white/5 rounded-2xl p-6 w-full max-w-lg border border-white/10 text-center">
                         <p className="text-sm text-gray-400">Número do ticket</p>
@@ -870,6 +886,97 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                             {paymentReceived ? 'Pagamento registrado após confirmação explícita do funcionário.' : 'Pagamento pendente. Gere um link ou receba no caixa quando necessário.'}
                         </p>
                     </div>
+
+                    {paymentLinkResult && (
+                        <div className="bg-white/5 rounded-2xl p-6 w-full max-w-lg border border-[#FF6600]/30 space-y-4">
+                            <h3 className="text-lg font-bold text-[#FF6600] flex items-center gap-2">
+                                <CreditCard className="w-5 h-5" />
+                                {paymentLinkResult.billing_type === 'pix' ? 'Pix Gerado — Envie ao Cliente' : 'Link de Pagamento Gerado'}
+                            </h3>
+
+                            {paymentLinkResult.pix_qr_code && (
+                                <div className="flex flex-col items-center gap-3">
+                                    <img
+                                        src={paymentLinkResult.pix_qr_code.startsWith('data:')
+                                            ? paymentLinkResult.pix_qr_code
+                                            : `data:image/png;base64,${paymentLinkResult.pix_qr_code}`}
+                                        alt="QR Code Pix"
+                                        className="w-48 h-48 rounded-lg bg-white p-2"
+                                    />
+                                    <p className="text-xs text-gray-400">Escaneie o QR Code acima</p>
+                                </div>
+                            )}
+
+                            {paymentLinkResult.pix_copy_paste_key && (
+                                <div className="space-y-2">
+                                    <Label className="text-xs text-gray-400">Código Pix Copia e Cola</Label>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            readOnly
+                                            value={paymentLinkResult.pix_copy_paste_key}
+                                            className="bg-black/30 border-white/10 text-xs font-mono"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(paymentLinkResult.pix_copy_paste_key);
+                                                toast.success('Código Pix copiado!');
+                                            }}
+                                            className="px-3"
+                                        >
+                                            <Copy className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {paymentLinkResult.url && !paymentLinkResult.pix_qr_code && (
+                                <div className="space-y-2">
+                                    <Label className="text-xs text-gray-400">Link de Pagamento</Label>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            readOnly
+                                            value={paymentLinkResult.url}
+                                            className="bg-black/30 border-white/10 text-xs"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(paymentLinkResult.url);
+                                                toast.success('Link copiado!');
+                                            }}
+                                            className="px-3"
+                                        >
+                                            <Copy className="w-4 h-4" />
+                                        </Button>
+                                    </div>
+                                    <a href={paymentLinkResult.url} target="_blank" rel="noopener noreferrer" className="block">
+                                        <Button type="button" className="w-full bg-[#FF6600] hover:bg-[#ff7b24]">
+                                            Abrir Link de Pagamento
+                                        </Button>
+                                    </a>
+                                </div>
+                            )}
+
+                            {customerPhone && (
+                                <a
+                                    href={`https://wa.me/${customerPhone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                                        `Olá! Aqui está o seu pagamento de R$ ${cartTotal.toFixed(2)} referente ao pedido #${createdOrder?.ticket_number || createdOrder?.id?.slice(0, 8)}.${paymentLinkResult.pix_copy_paste_key ? `\n\nPix Copia e Cola:\n${paymentLinkResult.pix_copy_paste_key}` : ''}${paymentLinkResult.url && !paymentLinkResult.pix_qr_code ? `\n\nLink de pagamento: ${paymentLinkResult.url}` : ''}`
+                                    )}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block"
+                                >
+                                    <Button type="button" className="w-full bg-green-600 hover:bg-green-700 gap-2">
+                                        <Send className="w-4 h-4" />
+                                        Enviar via WhatsApp
+                                    </Button>
+                                </a>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
         </div>
