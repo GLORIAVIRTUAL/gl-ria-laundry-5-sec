@@ -11,6 +11,13 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CatalogMultiField, CatalogSelectField } from '@/components/management/CatalogChoiceFields';
+
+const FALLBACK_OPTIONS = {
+  size: ['PP', 'P', 'M', 'G', 'GG', 'XG', 'Único'],
+  damage: ['Mancha', 'Rasgo', 'Furo', 'Desgaste', 'Desbotado', 'Costura solta', 'Botão ausente', 'Zíper danificado'],
+  brand: [],
+};
 
 const EMPTY_ATTRIBUTES = { color: '', brand: '', pattern: '', size: '', material: '' };
 
@@ -38,7 +45,7 @@ function PreviewCard({ entry, onRemove }) {
   );
 }
 
-function ReviewCard({ item, index, products, onChange }) {
+function ReviewCard({ item, index, products, onChange, catalogOptions }) {
   const selectedProduct = products.find((product) => product.id === item.product_id);
   const confidence = Number(item.confidence || 0);
   const needsAttention = item.recognition_status !== 'confirmed';
@@ -104,21 +111,18 @@ function ReviewCard({ item, index, products, onChange }) {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {[
-              ['color', 'Cor'], ['brand', 'Marca'], ['pattern', 'Estampa'], ['size', 'Tamanho'], ['material', 'Material'],
-            ].map(([field, label]) => (
+            {[['color', 'Cor'], ['pattern', 'Estampa'], ['material', 'Material']].map(([field, label]) => (
               <div key={field} className="space-y-1.5">
                 <Label>{label}</Label>
                 <Input value={item.attributes?.[field] || ''} onChange={(event) => updateAttribute(field, event.target.value)} className="border-white/10 bg-black/20" />
               </div>
             ))}
+            <CatalogSelectField label="Marca" value={item.attributes?.brand} options={catalogOptions.brand} onChange={(value) => updateAttribute('brand', value)} />
+            <CatalogSelectField label="Tamanho" value={item.attributes?.size} options={catalogOptions.size} onChange={(value) => updateAttribute('size', value)} />
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Avarias e riscos</Label>
-              <Input value={(item.damages || []).join(', ')} onChange={(event) => onChange({ ...item, damages: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} placeholder="Mancha, rasgo, botão quebrado…" className="border-white/10 bg-black/20" />
-            </div>
+            <CatalogMultiField label="Avarias e riscos" values={item.damages || []} options={catalogOptions.damage} onChange={(damages) => onChange({ ...item, damages })} />
             <div className="space-y-1.5">
               <Label>Observação</Label>
               <Input value={item.notes || ''} onChange={(event) => updateField('notes', event.target.value)} className="border-white/10 bg-black/20" />
@@ -136,6 +140,7 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
   const [files, setFiles] = useState([]);
   const [items, setItems] = useState([]);
   const [products, setProducts] = useState([]);
+  const [catalogEntries, setCatalogEntries] = useState([]);
   const [busy, setBusy] = useState(false);
   const [createdQuote, setCreatedQuote] = useState(null);
   const [createdOrder, setCreatedOrder] = useState(null);
@@ -145,7 +150,21 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
     base44.entities.Product.filter({ active: true }, 'name', 500)
       .then(setProducts)
       .catch(() => toast.error('Não foi possível carregar o catálogo.'));
+    base44.entities.OperationalCatalogEntry.filter({ active: true }, 'sort_order', 2000)
+      .then(setCatalogEntries)
+      .catch(() => setCatalogEntries([]));
   }, [open]);
+
+  const catalogOptions = useMemo(() => {
+    const byType = (type) => {
+      const values = catalogEntries
+        .filter((entry) => entry.catalog_type === type && (!entry.unit_id || !defaultUnitId || entry.unit_id === defaultUnitId))
+        .map((entry) => entry.label)
+        .filter(Boolean);
+      return values.length ? [...new Set(values)] : FALLBACK_OPTIONS[type];
+    };
+    return { brand: byType('brand'), size: byType('size'), damage: byType('damage') };
+  }, [catalogEntries, defaultUnitId]);
 
   useEffect(() => () => files.forEach((entry) => URL.revokeObjectURL(entry.preview)), [files]);
 
@@ -343,7 +362,7 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
                 </div>
                 {items.map((item, index) => (
                   <div key={item.line_id || index} className="space-y-2">
-                    <ReviewCard item={item} index={index} products={products} onChange={(next) => setItems((current) => current.map((candidate, itemIndex) => itemIndex === index ? next : candidate))} />
+                    <ReviewCard item={item} index={index} products={products} catalogOptions={catalogOptions} onChange={(next) => setItems((current) => current.map((candidate, itemIndex) => itemIndex === index ? next : candidate))} />
                     {item.product_id && item.recognition_status !== 'confirmed' && <div className="flex justify-end"><Button size="sm" variant="outline" onClick={() => confirmItem(index)}><Check className="mr-2 h-4 w-4" />Confirmar item</Button></div>}
                   </div>
                 ))}
