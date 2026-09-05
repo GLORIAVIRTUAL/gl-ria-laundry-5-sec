@@ -53,11 +53,27 @@ export default async function (req: Request): Promise<Response> {
       payments = [...(byOrder || []), ...(byQuote || [])].filter((p: any) => p.status === 'pending');
     }
 
+    if (!payments?.length) {
+      // Último recurso: cobrança gerada por checkout (sem externalReference no evento).
+      // Casa por valor exato entre os pagamentos pendentes das últimas 48h, se houver apenas um.
+      const value = Number(asaasPayment?.value) || 0;
+      const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+      const pending = await db.Payment.filter({ status: 'pending' }, '-created_date', 50);
+      const candidates = (pending || []).filter((p: any) =>
+        Math.abs((Number(p.amount) || 0) - value) < 0.01
+        && new Date(p.created_date).getTime() >= cutoff);
+      if (candidates.length === 1) payments = candidates;
+    }
+
     const payment = payments?.[0];
     const nowIso = new Date().toISOString();
     let applied = 'no_matching_payment';
 
     if (payment) {
+      if (payment.external_reference !== asaasId) {
+        // Guarda o id do Asaas para que os próximos eventos casem diretamente.
+        await db.Payment.update(payment.id, { external_reference: asaasId }).catch(() => null);
+      }
       if (PAID_EVENTS.has(event)) {
         if (payment.status !== 'succeeded') {
           await db.Payment.update(payment.id, {
@@ -119,7 +135,12 @@ export default async function (req: Request): Promise<Response> {
       entity_type: 'payment',
       entity_id: payment?.id,
       completed_at: nowIso,
-      result: { applied, asaas_payment_id: asaasId },
+      result: {
+        applied,
+        asaas_payment_id: asaasId,
+        asaas_external_reference: asaasPayment?.externalReference || null,
+        asaas_value: asaasPayment?.value ?? null,
+      },
     }).catch(() => null);
 
     return Response.json({ ok: true, event, applied, request_id: requestId });
