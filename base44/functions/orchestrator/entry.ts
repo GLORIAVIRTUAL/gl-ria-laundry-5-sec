@@ -7,6 +7,7 @@ import { detectUncheckedAvailabilityClaim, UNCHECKED_CLAIM_INSTRUCTION } from '.
 import { buildConversationContinuityFacts, isExplicitNewQuoteIntent } from '../../shared/conversationContinuity.js';
 import { buildDeliveryPriceResponse, detectDeliveryIntent, enforceDeliveryFeeNotice, enforceVariableQuoteSafety, isDeliveryPriceQuestion, resolveKnownDeliveryTotal } from '../../shared/quoteSafety.js';
 import { handlePromotionToolCall, promotionAiTools } from '../../shared/promotionOrchestrator.js';
+import { handlePaymentChargeToolCall } from '../../shared/paymentChargeTool.js';
 import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../../shared/dispatchReplyPolicy.js';
 import { buildStainReply, detectStainInquiry, looksLikeDetailPhotos } from '../../shared/stainInquiry.js';
 import { getAiSettings } from '../../shared/aiSettings.js';
@@ -1395,6 +1396,24 @@ Deno.serve(async (req) => {
                     {
                         type: "function",
                         function: {
+                            name: "generate_payment_charge",
+                            description: "Gera a cobrança REAL no Asaas para o cliente pagar: 'pix' devolve o código Pix copia e cola, 'credit_card' devolve o link de pagamento no cartão. Chame SEMPRE que o cliente escolher pagar antecipado por Pix ou cartão. É PROIBIDO informar chave Pix manual — use SOMENTE o código que esta ferramenta devolver.",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    billing_type: {
+                                        type: "string",
+                                        enum: ["pix", "credit_card"],
+                                        description: "'pix' para código Pix copia e cola; 'credit_card' para link de pagamento no cartão."
+                                    }
+                                },
+                                required: ["billing_type"]
+                            }
+                        }
+                    },
+                    {
+                        type: "function",
+                        function: {
                             name: "transfer_to_human",
                             description: "Transfere o atendimento para um atendente humano. Use essa ferramenta se o cliente pedir para falar com um humano ou se perguntar sobre o status de um pedido que não consta no sistema.",
                             parameters: {
@@ -1615,7 +1634,7 @@ Deno.serve(async (req) => {
                                 chatMessages.push({
                                     role: "tool",
                                     tool_call_id: toolCall.id,
-                                    content: JSON.stringify({ success: true, pieces_total: piecesTotal, delivery_fee: include_delivery_fee ? 15 : 0, final_total: finalAmount, message: `Orçamento aprovado no sistema! Total final das peças (sem desconto): R$ ${piecesTotal.toFixed(2)}. Taxa de coleta/entrega: ${include_delivery_fee ? 'R$ 15,00 (total final ≤ R$ 150)' : 'GRÁTIS (total final > R$ 150)'}. Total a cobrar: R$ ${finalAmount.toFixed(2)}.${priceCorrectionNote} OBRIGATÓRIO: Informe ao cliente que o pagamento deve ser feito via Pix para a chave celular: 51993003927. Peça para ele enviar a foto/imagem do comprovante aqui no chat. ${nextStepMsg}` })
+                                    content: JSON.stringify({ success: true, pieces_total: piecesTotal, delivery_fee: include_delivery_fee ? 15 : 0, final_total: finalAmount, message: `Orçamento aprovado no sistema! Total final das peças (sem desconto): R$ ${piecesTotal.toFixed(2)}. Taxa de coleta/entrega: ${include_delivery_fee ? 'R$ 15,00 (total final ≤ R$ 150)' : 'GRÁTIS (total final > R$ 150)'}. Total a cobrar: R$ ${finalAmount.toFixed(2)}.${priceCorrectionNote} OBRIGATÓRIO: pergunte ao cliente se ele prefere pagar por Pix ou cartão de crédito e chame a ferramenta 'generate_payment_charge' para gerar a cobrança real — é PROIBIDO informar chave Pix manual. ${nextStepMsg}` })
                                 });
                             } else {
                                 chatMessages.push({
@@ -1679,7 +1698,7 @@ Deno.serve(async (req) => {
                                 chatMessages.push({
                                     role: "tool",
                                     tool_call_id: toolCall.id,
-                                    content: JSON.stringify({ success: true, message: "Pacote/Plano registrado no sistema! OBRIGATÓRIO: Informe ao cliente que o pagamento deve ser feito via Pix para a chave celular: 51993003927. Peça para ele enviar a foto/imagem do comprovante aqui no chat." })
+                                    content: JSON.stringify({ success: true, message: "Pacote/Plano registrado no sistema! OBRIGATÓRIO: pergunte se o cliente prefere Pix ou cartão de crédito e chame 'generate_payment_charge' para gerar a cobrança real no Asaas. É PROIBIDO informar chave Pix manual." })
                                 });
                             }
                         } catch (e) {
@@ -1770,6 +1789,12 @@ Deno.serve(async (req) => {
                                 content: JSON.stringify({ error: "Erro ao registrar urgência." })
                             });
                         }
+                    }
+
+                    const chargeResult = await handlePaymentChargeToolCall({ toolCall, base44, customer });
+                    if (chargeResult) {
+                        chatMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: chargeResult.content });
+                        continue;
                     }
 
                     if (toolCall.function.name === 'transfer_to_human') {

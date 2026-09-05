@@ -1,4 +1,4 @@
-import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
+import { authorizeUserOrInternal } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 
 const DEFAULT_ORIGIN = 'https://lavanderia-5asec-connect-copy-d8ddd176.base44.app';
@@ -242,13 +242,12 @@ Deno.serve(async (req) => {
     }
 
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    await enforceExistingUserSecurity(base44, req, user, { source: 'generate_payment_link' });
-    if (!user) {
-      return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
-    }
-
     const body = await req.json();
+    // Aceita usuário autenticado OU chamada interna (ex: a Glória gerando a cobrança no WhatsApp).
+    const auth = await authorizeUserOrInternal(base44, req, body, { source: 'generate_payment_link' });
+    const isInternal = auth.kind === 'internal';
+    const user = auth.user;
+
     const referenceId = body.order_id || body.quote_id;
     if (!referenceId || typeof referenceId !== 'string') {
       return Response.json({ error: 'order_or_quote_required', request_id: requestId }, { status: 400 });
@@ -271,7 +270,7 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'order_or_quote_not_found', request_id: requestId }, { status: 404 });
     }
 
-    if (!canAccessUnit(user, source.unit_id)) {
+    if (!isInternal && !canAccessUnit(user, source.unit_id)) {
       return Response.json({ error: 'forbidden_unit', request_id: requestId }, { status: 403 });
     }
 
@@ -407,9 +406,9 @@ Deno.serve(async (req) => {
       customer_name: customer?.full_name,
       amount,
       reason: result.type === 'direct_pix' ? 'pix_payment_created_asaas' : 'payment_link_created_asaas',
-      user_email: user.email,
-      user_name: user.full_name || user.display_name,
-      user_role: user.role,
+      user_email: user?.email || 'gloria-ia@sistema',
+      user_name: user?.full_name || user?.display_name || 'Glória (IA)',
+      user_role: user?.role || 'internal',
       unit_id: source.unit_id,
       request_id: requestId,
       success: true,
