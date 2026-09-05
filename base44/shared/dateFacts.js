@@ -90,6 +90,22 @@ export const buildDateFacts = () => {
         calendarLines.push(`- ${label(d)} = ${WEEKDAYS[d.getDay()]} → ${note} | se a peça entrar neste dia, fica pronta em ${readyFrom(d)}`);
     }
 
+    // Próxima ocorrência de cada dia da semana (ex: "segunda que vem") — evita a IA escolher a semana errada.
+    const nextWeekdayLines = [];
+    for (let wd = 0; wd <= 6; wd++) {
+        const d = new Date(now);
+        d.setDate(d.getDate() + (((wd - now.getDay()) + 7) % 7 || 7));
+        const holiday = HOLIDAYS_FIXED[ddmm(d)] || HOLIDAYS_MOBILE[key(d)];
+        const blocked = holiday ? `feriado ${holiday}` : (d.getDay() === 0 ? 'domingo' : null);
+        let extra = '';
+        if (blocked) {
+            const alt = new Date(d);
+            do { alt.setDate(alt.getDate() + 7); } while (!isBusinessDay(alt));
+            extra = ` → SEM COLETA (${blocked}). Próxima ${WEEKDAYS[wd]} disponível: ${label(alt)}`;
+        }
+        nextWeekdayLines.push(`- "${WEEKDAYS[wd]} que vem" / "próxima ${WEEKDAYS[wd]}" = ${label(d)}${extra}`);
+    }
+
     const content = `DATA E HORA ATUAL DO SISTEMA: ${dateFormatter.format(new Date())} (fuso UTC-3 Brasília).
 
 FATOS DETERMINÍSTICOS SOBRE FERIADOS (calculados pelo sistema, use SEMPRE estes — NÃO calcule por conta própria):
@@ -104,6 +120,10 @@ Se o cliente pedir agendamento para uma data que seja feriado, recuse educadamen
 
 CALENDÁRIO DETERMINÍSTICO DOS PRÓXIMOS 30 DIAS (dia da semana JÁ CALCULADO pelo sistema — é PROIBIDO deduzir o dia da semana de uma data por conta própria; use SEMPRE esta lista):
 ${calendarLines.join('\n')}
+
+🚨 RESOLUÇÃO DETERMINÍSTICA DE DIAS DA SEMANA (use SEMPRE esta lista, NUNCA calcule):
+${nextWeekdayLines.join('\n')}
+REGRA INVIOLÁVEL: quando o cliente disser um dia da semana (ex: "segunda que vem", "na quarta"), use EXATAMENTE a data desta lista. Se essa data estiver marcada como SEM COLETA, é OBRIGATÓRIO avisar o cliente explicitamente o motivo e a data original (ex: "dia 07/09 é feriado da Independência e não temos coleta") ANTES de propor a alternativa, e CONFIRMAR com ele antes de agendar. É PROIBIDO agendar silenciosamente em outra data sem explicar.
 
 🚨 DATAS EM QUE É PROIBIDO OFERECER, SUGERIR OU AGENDAR COLETA (loja fechada):
 ${blockedDates.join(' | ')}
