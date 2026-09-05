@@ -18,9 +18,20 @@ Deno.serve(async (req) => {
     try {
         const base44 = createClientFromRequest(req);
         
-        // O webhook só processa eventos assinados pelo Client-Token configurado na Z-API.
-        requireProviderToken(req, 'ZAPI_SECURITY_TOKEN', ['client-token']);
+        // A Z-API NÃO envia o Client-Token nos webhooks. Se o cabeçalho vier (chamada
+        // interna/teste), validamos; caso contrário, autenticamos pelo instanceId do payload.
+        const hasProviderHeader = Boolean(req.headers.get('client-token'));
+        if (hasProviderHeader) {
+            requireProviderToken(req, 'ZAPI_SECURITY_TOKEN', ['client-token']);
+        }
         const payload = await req.json();
+        if (!hasProviderHeader) {
+            const expectedInstance = Deno.env.get('ZAPI_INSTANCE_ID');
+            if (expectedInstance && payload.instanceId && payload.instanceId !== expectedInstance) {
+                console.log('Ignored webhook from unknown instance.');
+                return Response.json({ status: 'ignored_unknown_instance' });
+            }
+        }
         
         console.log("Webhook received payload keys:", JSON.stringify(Object.keys(payload)));
         console.log('Webhook message received.', { has_message_id: Boolean(payload.messageId), from_me: Boolean(payload.fromMe) });
