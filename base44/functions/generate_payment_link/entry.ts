@@ -32,6 +32,31 @@ function gatewayHeaders(gatewayToken: string) {
   };
 }
 
+// Dados do pagador exigidos pelo Asaas. Retorna a lista de campos faltantes no cadastro.
+function missingPayerFields(customer: any): string[] {
+  const missing: string[] = [];
+  if (!customer?.tax_id) missing.push('CPF/CNPJ');
+  if (!customer?.address) missing.push('endereço (rua)');
+  if (!customer?.address_number) missing.push('número');
+  if (!customer?.zip_code) missing.push('CEP');
+  if (!customer?.neighborhood) missing.push('bairro');
+  return missing;
+}
+
+// Monta o objeto de pagador no formato do Asaas a partir do cadastro do CRM.
+function asaasPayerData(customer: any) {
+  const payer: any = { name: customer?.full_name || 'Cliente' };
+  if (customer?.tax_id) payer.cpfCnpj = String(customer.tax_id).replace(/\D/g, '');
+  if (customer?.email) payer.email = customer.email;
+  if (customer?.phones?.length) payer.phone = String(customer.phones[0]).replace(/\D/g, '');
+  if (customer?.address) payer.address = customer.address;
+  if (customer?.address_number) payer.addressNumber = String(customer.address_number);
+  if (customer?.address_complement) payer.complement = customer.address_complement;
+  if (customer?.neighborhood) payer.province = customer.neighborhood;
+  if (customer?.zip_code) payer.postalCode = String(customer.zip_code).replace(/\D/g, '');
+  return payer;
+}
+
 // Find or create an Asaas customer via gateway, returns Asaas customer ID
 async function ensureAsaasCustomer(gatewayToken: string, customer: any): Promise<string | null> {
   if (!customer) return null;
@@ -64,10 +89,7 @@ async function ensureAsaasCustomer(gatewayToken: string, customer: any): Promise
   }
 
   // Create new customer
-  const body: any = { name: customer.full_name || 'Cliente' };
-  if (customer.tax_id) body.cpfCnpj = customer.tax_id;
-  if (customer.email) body.email = customer.email;
-  if (customer.phones?.length) body.phone = customer.phones[0].replace(/\D/g, '');
+  const body: any = asaasPayerData(customer);
 
   try {
     const resp = await fetch(`${base}/customers`, {
@@ -161,11 +183,7 @@ async function createCheckoutSession(
 ): Promise<{ data: any; error: string | null; status: 'ok' | 'error' | 'inconclusive' }> {
   const asaasBillingType = billingType === 'pix' ? 'PIX' : 'CREDIT_CARD';
 
-  const customerData: any = {};
-  if (customer?.full_name) customerData.name = customer.full_name;
-  if (customer?.tax_id) customerData.cpfCnpj = customer.tax_id;
-  if (customer?.email) customerData.email = customer.email;
-  if (customer?.phones?.length) customerData.phone = customer.phones[0].replace(/\D/g, '');
+  const customerData: any = asaasPayerData(customer);
 
   const body: any = {
     billingTypes: [asaasBillingType],
@@ -285,6 +303,17 @@ Deno.serve(async (req) => {
     }
 
     const customer = await base44.asServiceRole.entities.Customer.get(customerId);
+    // O Asaas recusa a cobrança sem os dados do pagador — avisa antes de chamar o gateway.
+    const missing = missingPayerFields(customer);
+    if (missing.length) {
+      return Response.json({
+        error: 'customer_data_incomplete',
+        missing_fields: missing,
+        message: `Complete o cadastro de ${customer?.full_name || 'cliente'} antes de gerar a cobrança. Faltando: ${missing.join(', ')}.`,
+        request_id: requestId,
+      }, { status: 422 });
+    }
+
     const origin = DEFAULT_ORIGIN;
     const referenceLabel = order?.ticket_number || referenceId.slice(0, 8).toUpperCase();
     const referenceIdForAsaas = order?.id || quote?.id || referenceId;
