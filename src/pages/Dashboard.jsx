@@ -44,6 +44,7 @@ export default function Dashboard() {
   const [customerMap, setCustomerMap] = useState({});
   const [timesByCustomer, setTimesByCustomer] = useState({});
   const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [ticketPickup, setTicketPickup] = useState(null);
   const [sellModalOpen, setSellModalOpen] = useState(false);
 
@@ -192,6 +193,7 @@ export default function Dashboard() {
       }
     } finally {
       setLoading(false);
+      setHasLoadedOnce(true);
     }
   };
 
@@ -211,7 +213,10 @@ export default function Dashboard() {
 
   const unitTitle = getUnitLabel(selectedUnit, selectedUnitId).toUpperCase();
 
-  if (unitsLoading || loading) {
+  // Só mostra o loader de tela cheia na primeira carga. Recarregamentos em background
+  // (assinaturas em tempo real) não podem desmontar a árvore, senão o modal de venda
+  // é reiniciado e a tela do Pix/QR Code desaparece.
+  if (unitsLoading || (loading && !hasLoadedOnce)) {
     return (
       <div className="flex h-96 items-center justify-center text-gray-400">
         <Loader2 className="mr-2 h-6 w-6 animate-spin text-[#FF6600]" /> Carregando dashboard...
