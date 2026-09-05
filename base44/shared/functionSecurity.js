@@ -150,7 +150,9 @@ export async function enforceAuthenticatedUser(base44, req, user, options = {}) 
   }
 
   const applicablePolicies = policies.filter((policy) => !policy.unit_id || unitIds.includes(policy.unit_id));
-  const mustUseMfa = ROLE_DEFINITIONS[role]?.mfaRequired === true || user.require_mfa === true || applicablePolicies.some((policy) => policy.require_mfa === true);
+  // MFA só é exigido quando marcado explicitamente no usuário ou numa política de acesso.
+  // Não é mais derivado automaticamente do papel, pois o app não possui fluxo de cadastro de MFA.
+  const mustUseMfa = user.require_mfa === true || applicablePolicies.some((policy) => policy.require_mfa === true);
   if (mustUseMfa && user.mfa_status !== 'verified') {
     await recordDenied(base44, user, { source, reason: 'mfa_required' });
     throw new SecurityError('Esta operação exige MFA verificado.', 403, 'MFA_REQUIRED');

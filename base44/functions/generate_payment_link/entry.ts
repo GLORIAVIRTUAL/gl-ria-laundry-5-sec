@@ -398,6 +398,14 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     console.error(`[generate_payment_link:${requestId}]`, error);
+    // Falhas de autorização devem informar o motivo real, não virar 500 genérico.
+    if ((error as any)?.name === 'SecurityError') {
+      return Response.json({
+        error: (error as any).code || 'ACCESS_DENIED',
+        message: (error as any).message,
+        request_id: requestId,
+      }, { status: Number((error as any).status) || 403 });
+    }
     return Response.json({ error: 'payment_link_failed', request_id: requestId }, { status: 500 });
   }
 });
