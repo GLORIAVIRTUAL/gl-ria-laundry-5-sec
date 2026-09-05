@@ -2,8 +2,7 @@ import React from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { TrendingUp, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+import { formatBrasiliaTime } from '@/lib/pickupDateTime';
 import CustomerStatusBadge from '@/components/dashboard/CustomerStatusBadge';
 import PaymentStatusBadge from '@/components/payments/PaymentStatusBadge';
 
@@ -81,7 +80,7 @@ export default function TodaySalesColumn({ sales, customerMap, timesByCustomer =
                             R$ {Number(sale.total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </div>
                           <div className="text-xs font-mono text-white/40">
-                            {sale.time ? format(new Date(sale.time), 'HH:mm', { locale: ptBR }) : ''}
+                            {formatBrasiliaTime(sale.time)}
                           </div>
                         </div>
                       </div>

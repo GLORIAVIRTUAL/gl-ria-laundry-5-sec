@@ -18,6 +18,16 @@ export function formatBrasiliaDateTime(value) {
   }).format(new Date(normalizeUtcTimestamp(value))).replace(',', ' às');
 }
 
+export function formatBrasiliaTime(value) {
+  if (!value) return '';
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: PICKUP_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).format(new Date(normalizeUtcTimestamp(value)));
+}
+
 export function getBrasiliaDateKey(value = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: PICKUP_TIME_ZONE,

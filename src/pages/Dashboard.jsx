@@ -119,7 +119,7 @@ export default function Dashboard() {
       // Coletas de hoje (mesma ordem da página de Coletas: por horário agendado)
       const now = new Date();
       const pickupsToday = pickups
-        .filter((p) => p.status !== 'cancelled' && isSameBrasiliaDay(p.scheduled_at, now))
+        .filter((p) => p.status !== 'cancelled' && isSameBrasiliaDay(p.scheduled_at, today))
         .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
 
       // Situação de pagamento por orçamento: usa a Order vinculada e, como reforço,
@@ -141,7 +141,7 @@ export default function Dashboard() {
         .filter((q) => ['ACCEPTED', 'APPROVED'].includes(q.status))
         .filter((q) => {
           const ref = q.updated_date || q.created_date;
-          return ref && getBrasiliaDateKey(ref) === getBrasiliaDateKey(now);
+          return ref && getBrasiliaDateKey(ref) === today;
         })
         .sort((a, b) => new Date(a.created_date) - new Date(b.created_date))
         .map((q) => ({
