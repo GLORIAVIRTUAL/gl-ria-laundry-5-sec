@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Send, Loader2, Info, Image as ImageIcon } from 'lucide-react';
+import { Input } from "@/components/ui/input";
+import { Send, Loader2, Info, Image as ImageIcon, MessageCircle, Mail } from 'lucide-react';
 import { toast } from "sonner";
 
 export default function ProspectDispatchModal({ open, onOpenChange, prospects, selectedIds }) {
@@ -14,9 +15,15 @@ export default function ProspectDispatchModal({ open, onOpenChange, prospects, s
   const [imageUrl, setImageUrl] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sendWhatsapp, setSendWhatsapp] = useState(true);
+  const [sendEmail, setSendEmail] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('Serviços corporativos 5àsec');
 
-  const eligible = prospects.filter(p => p.phone);
-  const targetCount = sendToAll ? eligible.length : selectedIds.length;
+  const isEligible = (p) => (sendWhatsapp && p.phone) || (sendEmail && p.email);
+  const eligible = prospects.filter(isEligible);
+  const targetCount = sendToAll
+    ? eligible.length
+    : prospects.filter(p => selectedIds.includes(p.id) && isEligible(p)).length;
 
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -43,6 +50,10 @@ export default function ProspectDispatchModal({ open, onOpenChange, prospects, s
       toast.error("Selecione pelo menos uma empresa ou ative 'Enviar para todas'");
       return;
     }
+    if (!sendWhatsapp && !sendEmail) {
+      toast.error("Escolha pelo menos um canal de envio");
+      return;
+    }
     if (!confirm(`Confirma o envio para ${targetCount} empresa(s)?`)) return;
 
     setSending(true);
@@ -51,9 +62,12 @@ export default function ProspectDispatchModal({ open, onOpenChange, prospects, s
         message,
         image_url: imageUrl || null,
         prospect_ids: sendToAll ? [] : selectedIds,
-        send_to_all: sendToAll
+        send_to_all: sendToAll,
+        channels: [sendWhatsapp && 'whatsapp', sendEmail && 'email'].filter(Boolean),
+        email_subject: emailSubject
       });
-      toast.success(`Disparo concluído! ${data.results.sent} enviados, ${data.results.failed} falharam.`);
+      const r = data.results;
+      toast.success(`Disparo concluído! WhatsApp: ${r.sent} enviados / ${r.failed} falhas. E-mail: ${r.emails_sent || 0} enviados / ${r.emails_failed || 0} falhas.`);
       onOpenChange(false);
       setImageUrl('');
       setSendToAll(false);
@@ -75,6 +89,28 @@ export default function ProspectDispatchModal({ open, onOpenChange, prospects, s
         </DialogHeader>
 
         <div className="space-y-5 mt-4">
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
+            <Label>Canais de envio</Label>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm text-gray-300">
+                <MessageCircle className="w-4 h-4 text-[#25D366]" /> WhatsApp
+              </div>
+              <Switch checked={sendWhatsapp} onCheckedChange={setSendWhatsapp} />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm text-gray-300">
+                <Mail className="w-4 h-4 text-[#FF6600]" /> E-mail
+              </div>
+              <Switch checked={sendEmail} onCheckedChange={setSendEmail} />
+            </div>
+            {sendEmail && (
+              <div className="space-y-2 pt-2">
+                <Label>Assunto do e-mail</Label>
+                <Input value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} className="bg-white/5 border-white/10" />
+              </div>
+            )}
+          </div>
+
           <div className="space-y-2">
             <Label>Mensagem</Label>
             <Textarea
