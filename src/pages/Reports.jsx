@@ -65,14 +65,20 @@ export default function ReportsPage() {
   const downloadUsersReportPdf = () => downloadReportPdf('userPerformanceReportPdf', 'relatorio-performance-usuarios-5asec.pdf', setGeneratingUsersPdf);
   const downloadConversationsReportPdf = () => downloadReportPdf('conversationsPerDayReportPdf', 'relatorio-conversas-por-dia-5asec.pdf', setGeneratingConvPdf);
 
+  // Relatórios precisam refletir pagamentos confirmados agora (webhook/caixa),
+  // por isso não reutilizam cache antigo ao abrir a página.
+  const freshQuery = { staleTime: 0, refetchOnMount: 'always' };
+
   const { data: payments = [], isLoading: loadingPayments } = useQuery({
     queryKey: ['reports-payments'],
-    queryFn: () => base44.entities.Payment.filter({}, '-created_date', 2000)
+    queryFn: () => base44.entities.Payment.filter({}, '-created_date', 2000),
+    ...freshQuery
   });
 
   const { data: quotes = [], isLoading: loadingQuotes } = useQuery({
     queryKey: ['reports-quotes'],
-    queryFn: () => base44.entities.Quote.filter({ status: 'ACCEPTED' }, '-created_date', 2000)
+    queryFn: () => base44.entities.Quote.filter({ status: 'ACCEPTED' }, '-created_date', 2000),
+    ...freshQuery
   });
 
   const { data: pickups = [], isLoading: loadingPickups } = useQuery({
@@ -92,7 +98,8 @@ export default function ReportsPage() {
 
   const { data: financeEntries = [], isLoading: loadingFinance } = useQuery({
     queryKey: ['reports-finance'],
-    queryFn: () => base44.entities.FinanceEntry.filter({}, '-created_date', 2000)
+    queryFn: () => base44.entities.FinanceEntry.filter({}, '-created_date', 2000),
+    ...freshQuery
   });
 
   const isLoading = unitsLoading || loadingPayments || loadingQuotes || loadingPickups || loadingProducts || loadingCustomers || loadingFinance;

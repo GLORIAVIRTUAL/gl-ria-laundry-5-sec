@@ -9,6 +9,7 @@ import { Search, Ticket, Download, Printer, Pencil, Trash2 } from 'lucide-react'
 import { downloadTicketPdf, printTicket } from '@/components/management/ticketDocument';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
+import PaymentStatusBadge from '@/components/payments/PaymentStatusBadge';
 
 const STATUS_LABEL = {
   pending: { label: 'Pendente', cls: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30' },
@@ -101,6 +102,7 @@ export default function ServiceTicketsTable({ orders, customerMap, onEdit, onDel
                 <TableHead className="text-gray-400">Previsão</TableHead>
                 <TableHead className="text-gray-400">Prazo (dias)</TableHead>
                 <TableHead className="text-gray-400">Valor</TableHead>
+                <TableHead className="text-gray-400">Pagamento</TableHead>
                 <TableHead className="text-gray-400">Status</TableHead>
                 <TableHead className="text-right text-gray-400">Ações</TableHead>
               </TableRow>
@@ -108,7 +110,7 @@ export default function ServiceTicketsTable({ orders, customerMap, onEdit, onDel
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow className="border-white/10">
-                  <TableCell colSpan={8} className="py-8 text-center text-gray-500">Nenhum ticket encontrado</TableCell>
+                  <TableCell colSpan={9} className="py-8 text-center text-gray-500">Nenhum ticket encontrado</TableCell>
                 </TableRow>
               ) : (
                 filtered.map((o) => {
@@ -121,6 +123,7 @@ export default function ServiceTicketsTable({ orders, customerMap, onEdit, onDel
                       <TableCell className="text-gray-400">{fmtDate(o.expected_finish_at)}</TableCell>
                       <TableCell className="text-gray-300">{deliveryDays(o) ?? '—'}</TableCell>
                       <TableCell className="text-[#25D366]">R$ {Number(o.total_amount || 0).toFixed(2)}</TableCell>
+                      <TableCell><PaymentStatusBadge status={o.payment_status} /></TableCell>
                       <TableCell><Badge className={`border ${st.cls}`}>{st.label}</Badge></TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">

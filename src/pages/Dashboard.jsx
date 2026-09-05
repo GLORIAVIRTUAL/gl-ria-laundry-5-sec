@@ -122,6 +122,20 @@ export default function Dashboard() {
         .filter((p) => p.status !== 'cancelled' && isSameBrasiliaDay(p.scheduled_at, now))
         .sort((a, b) => new Date(a.scheduled_at) - new Date(b.scheduled_at));
 
+      // Situação de pagamento por orçamento: usa a Order vinculada e, como reforço,
+      // os pagamentos confirmados que apontam para o orçamento.
+      const paymentStatusByQuote = {};
+      visibleOrders.forEach((order) => {
+        if (order.source_quote_id && !paymentStatusByQuote[order.source_quote_id]) {
+          paymentStatusByQuote[order.source_quote_id] = order.payment_status || 'unpaid';
+        }
+      });
+      visiblePayments.forEach((payment) => {
+        if (payment.status === 'succeeded' && payment.quote_id) {
+          paymentStatusByQuote[payment.quote_id] = 'paid';
+        }
+      });
+
       // Vendas de hoje (orçamentos finalizados): orçamentos aceitos/aprovados criados/atualizados hoje
       const salesToday = visibleQuotes
         .filter((q) => ['ACCEPTED', 'APPROVED'].includes(q.status))
@@ -135,7 +149,8 @@ export default function Dashboard() {
           customer_id: q.customer_id,
           total: q.total,
           itemsCount: Array.isArray(q.items) ? q.items.reduce((s, it) => s + (it.qty || 1), 0) : 0,
-          time: q.updated_date || q.created_date
+          time: q.updated_date || q.created_date,
+          paymentStatus: paymentStatusByQuote[q.id] || 'unpaid'
         }));
 
       // Busca os nomes dos clientes que aparecem nas coletas/vendas de hoje.

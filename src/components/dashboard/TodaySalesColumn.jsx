@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import CustomerStatusBadge from '@/components/dashboard/CustomerStatusBadge';
+import PaymentStatusBadge from '@/components/payments/PaymentStatusBadge';
 
 export default function TodaySalesColumn({ sales, customerMap, timesByCustomer = {}, onReorder }) {
   const handleNativeDragStart = (e, customerName, customerId, saleId) => {
@@ -70,6 +71,9 @@ export default function TodaySalesColumn({ sales, customerMap, timesByCustomer =
                           </div>
                           <div className="mt-1 text-xs text-white/60">
                             {sale.itemsCount} item(ns)
+                          </div>
+                          <div className="mt-2">
+                            <PaymentStatusBadge status={sale.paymentStatus} />
                           </div>
                         </div>
                         <div className="text-right">
