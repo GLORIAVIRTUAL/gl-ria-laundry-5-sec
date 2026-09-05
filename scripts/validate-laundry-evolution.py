@@ -35,7 +35,7 @@ NEW_FUNCTIONS = {
     "manage_machine", "manage_production_batch", "manage_labor_entry", "manage_production_cost_profile",
     "manage_operational_alerts", "manage_access_control", "query_audit_log", "manage_pricing_rules",
     "manage_operational_catalog", "manage_loyalty_crm", "generate_specialized_report", "manage_fleet",
-    "manage_delivery_route",
+    "manage_delivery_route", "manage_order_benefits",
 }
 
 
@@ -84,7 +84,7 @@ def main() -> int:
             fail(f"Função ausente: {function_name}", failures)
             continue
         source = entry.read_text(encoding="utf-8")
-        if "base44.auth.me()" not in source:
+        if "base44.auth.me()" not in source and "authorizeUserOrInternal" not in source:
             fail(f"Função sem autenticação explícita: {function_name}", failures)
         if "requestId" not in source:
             fail(f"Função sem request_id: {function_name}", failures)
@@ -100,12 +100,47 @@ def main() -> int:
             key, value = line.split("=", 1)
             if value and value not in {"false", "true"}:
                 fail(f"Valor potencialmente sensível em .env.example:{line_number} ({key})", failures)
+        env_text = env_example.read_text(encoding="utf-8")
+        for key in [
+            "INTERNAL_FUNCTION_TOKEN", "ZAPI_SECURITY_TOKEN", "ZAPI_MOINHOS_SECURITY_TOKEN",
+            "WHATSAPP_MOINHOS_APP_SECRET", "WHATSAPP_MOINHOS_VERIFY_TOKEN", "MEDIA_DOWNLOAD_HOST_ALLOWLIST",
+        ]:
+            if f"{key}=" not in env_text:
+                fail(f"Variável de segurança ausente em .env.example: {key}", failures)
+
+    for function_name, marker in {
+        "aiReplyTrigger": "requireInternalRequest",
+        "orchestrator": "requireInternalRequest",
+        "scheduled_automations": "requireInternalRequest",
+        "checkInactiveNewCustomers": "requireInternalRequest",
+        "zapi_webhook_receiver": "requireProviderToken",
+        "zapi_moinhos_webhook": "requireProviderToken",
+        "whatsapp_moinhos_webhook": "requireMetaSignature",
+        "zapi_media_downloader": "requireInternalRequest",
+        "openai_vision": "authorizeUserOrInternal",
+    }.items():
+        source = (FUNCTIONS / function_name / "entry.ts").read_text(encoding="utf-8")
+        if marker not in source:
+            fail(f"Hardening ausente em {function_name}: {marker}", failures)
+
+    for function_name in ["manage_unit", "check_access_session"]:
+        entry = FUNCTIONS / function_name / "entry.ts"
+        if not entry.exists() or "authorizeUserOrInternal" not in entry.read_text(encoding="utf-8"):
+            fail(f"Função de governança ausente ou sem guard: {function_name}", failures)
+
+    function_security = (ROOT / "base44" / "shared" / "functionSecurity.js").read_text(encoding="utf-8")
+    for marker in ["constantTimeEqual", "requireInternalRequest", "requireProviderToken", "requireMetaSignature", "session_revoked_after"]:
+        if marker not in function_security:
+            fail(f"Guard central sem garantia obrigatória: {marker}", failures)
 
     orchestrator = (FUNCTIONS / "orchestrator" / "entry.ts").read_text(encoding="utf-8")
     if "receipt_processed_auto" in orchestrator:
         fail("Orquestrador ainda confirma comprovante automaticamente", failures)
     if re.search(r"status:\s*['\"]succeeded['\"]", orchestrator):
         fail("Orquestrador ainda cria pagamento succeeded por imagem", failures)
+    for marker in ["requireInternalRequest", "_internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')"]:
+        if marker not in orchestrator:
+            fail(f"Orquestrador sem proteção interna obrigatória: {marker}", failures)
 
     vision = (FUNCTIONS / "openai_vision" / "entry.ts").read_text(encoding="utf-8")
     if "mock: true" in vision:
@@ -161,8 +196,13 @@ def main() -> int:
         if marker not in secure_files:
             fail(f"Upload seguro sem marcador obrigatório: {marker}", failures)
 
+    order_benefits = (FUNCTIONS / "manage_order_benefits" / "entry.ts").read_text(encoding="utf-8")
+    for marker in ["apply_voucher", "apply_package", "restore", "ProcessedEvent", "voucherValue", "consumePackageBalance", "benefit_requires_unpaid_order"]:
+        if marker not in order_benefits:
+            fail(f"Benefícios comerciais sem integração obrigatória: {marker}", failures)
+
     payment_receipt = (FUNCTIONS / "manage_payment_receipt" / "entry.ts").read_text(encoding="utf-8")
-    for marker in ["calculateReceiptPlan", "PaymentReceipt", "CustomerCreditLedger", "cash_session_required", "async function reverse"]:
+    for marker in ["calculateReceiptPlan", "PaymentReceipt", "CustomerCreditLedger", "cash_session_required", "async function reverse", "postPaymentLoyaltyEarn", "reversePaymentLoyalty"]:
         if marker not in payment_receipt:
             fail(f"Recebimento misto sem garantia obrigatória: {marker}", failures)
 
@@ -177,7 +217,7 @@ def main() -> int:
             fail(f"Fechamento de faturados sem garantia obrigatória: {marker}", failures)
 
     quote_lifecycle = (FUNCTIONS / "manage_quote_lifecycle" / "entry.ts").read_text(encoding="utf-8")
-    for marker in ["loadLaundryPricingCatalog", "QuoteVersion", "adjustment_reason_required", "quote_with_active_order_cannot_be_cancelled"]:
+    for marker in ["loadLaundryPricingCatalog", "QuoteVersion", "adjustment_reason_required", "quote_with_active_order_cannot_be_cancelled", "CommercialApprovalPolicy", "selectCommercialApprovalPolicy", "evaluateCommercialAdjustment", "approval_policy_id"]:
         if marker not in quote_lifecycle:
             fail(f"Ciclo do orçamento sem garantia obrigatória: {marker}", failures)
 
@@ -204,6 +244,11 @@ def main() -> int:
     for marker in ["BillingAgreementsPanel", "QuoteLifecyclePanel", "FiscalReadinessPanel", "command-payments"]:
         if marker not in command_center:
             fail(f"Centro de comando sem módulo da Onda 2: {marker}", failures)
+
+    payment_dialog = (ROOT / "src" / "components" / "management" / "PaymentReceiptDialog.jsx").read_text(encoding="utf-8")
+    for marker in ["manage_order_benefits", "apply_voucher", "apply_package", "voucherCode", "packageChoice"]:
+        if marker not in payment_dialog:
+            fail(f"Recebimento sem etapa prévia de benefícios: {marker}", failures)
 
     financial_panel = (ROOT / "src" / "components" / "management" / "FinancialOperationsPanel.jsx").read_text(encoding="utf-8")
     for marker in ["PaymentReceiptDialog", "CustomerCreditDialog", "confirm_payment_tender", "pendingPayments"]:
@@ -278,6 +323,13 @@ def main() -> int:
     for marker in ["LoyaltyLedger", "CustomerPackageLedger", "Voucher", "idempotency_key", "forbidden_unit"]:
         if marker not in loyalty:
             fail(f"CRM e fidelidade sem garantia da Onda 4: {marker}", failures)
+    loyalty_settlement = (ROOT / "base44" / "shared" / "loyaltySettlement.js").read_text(encoding="utf-8")
+    for marker in ["loyalty-earn", "loyalty-reverse", "payment_settlement", "payment_reversal"]:
+        if marker not in loyalty_settlement:
+            fail(f"Fidelidade não integrada ao assentamento: {marker}", failures)
+    for function_name in ["confirm_payment_tender", "record_counter_payment", "reconcile_payment", "stripe_webhook"]:
+        if "postPaymentLoyaltyEarn" not in (FUNCTIONS / function_name / "entry.ts").read_text(encoding="utf-8"):
+            fail(f"Fluxo de pagamento sem fidelidade confirmada: {function_name}", failures)
 
     specialized_reports = (FUNCTIONS / "generate_specialized_report" / "entry.ts").read_text(encoding="utf-8")
     for marker in ["REPORT_TYPES", "reportEnvelope", "forbidden_unit", "unit_profitability", "employee_productivity"]:
@@ -295,7 +347,7 @@ def main() -> int:
             fail(f"Jornada logística sem garantia da Onda 4: {marker}", failures)
 
     layout = (ROOT / "src" / "Layout.jsx").read_text(encoding="utf-8")
-    for marker in ["/reports", "reports.view", "logistics.view"]:
+    for marker in ["/reports", "reports.view", "field_route.execute", "fleet.manage"]:
         if marker not in layout:
             fail(f"Navegação sem módulo da Onda 4: {marker}", failures)
 
@@ -303,6 +355,24 @@ def main() -> int:
     for marker in ["PricingRulesManager", "OperationalCatalogManager", "LoyaltyProgramManager", "Governança & Acessos"]:
         if marker not in settings:
             fail(f"Configurações sem módulo da Onda 4: {marker}", failures)
+
+    legacy_report = (FUNCTIONS / "generateReport" / "entry.ts").read_text(encoding="utf-8")
+    if "legacy_report_retired" not in legacy_report or "status: 410" not in legacy_report:
+        fail("Relatório DOCX estático não foi aposentado de forma explícita", failures)
+    for forbidden in ["Cristiano", "Marla", "17/04/2026"]:
+        if forbidden in legacy_report:
+            fail(f"Relatório legado ainda contém dado histórico fixo: {forbidden}", failures)
+
+    app = (ROOT / "src" / "App.jsx").read_text(encoding="utf-8")
+    auth_context = (ROOT / "src" / "lib" / "AuthContext.jsx").read_text(encoding="utf-8")
+    if "PageAccessGuard" not in app or "check_access_session" not in auth_context or "logout(true)" not in layout:
+        fail("Enforcement global de rota, sessão ou logout está incompleto", failures)
+
+    quote_schema = load_json(ENTITIES / "Quote.jsonc")
+    adjustment_fields = quote_schema.get("properties", {}).get("price_adjustments", {}).get("items", {}).get("properties", {})
+    for field in ["approval_policy_id", "approval_policy_version"]:
+        if field not in adjustment_fields:
+            fail(f"Ajuste de preço sem referência de alçada: {field}", failures)
 
     customers_page = (ROOT / "src" / "pages" / "Customers.jsx").read_text(encoding="utf-8")
     if "Customer360Dialog" not in customers_page:

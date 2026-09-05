@@ -10,7 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import ProductIcon from "@/components/ui/ProductIcon";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Loader2, 
   Package, 
@@ -94,11 +93,17 @@ export default function OrderDetailsModal({ isOpen, onClose, card, customer }) {
 
           await base44.functions.invoke('zapi_sender', {
               phone: customer.phones[0],
-              message: message
+              message,
+              customer_id: customer.id,
+              unit_id: order.unit_id || customer.unit_id,
           });
           alert("Notificação enviada!");
       } catch (err) {
           console.error("Error notifying:", err);
+          const code = err.response?.data?.code;
+          alert(['ZAPI_NOT_CONFIGURED', 'INTERNAL_TOKEN_NOT_CONFIGURED'].includes(code)
+              ? 'WhatsApp indisponível até a configuração da integração. O pedido não foi alterado.'
+              : 'Não foi possível enviar a notificação. O pedido não foi alterado.');
       } finally {
           setNotifying(false);
       }

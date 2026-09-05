@@ -1,4 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
+import { postPaymentLoyaltyEarn } from '../../shared/loyaltySettlement.js';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 const ALLOWED_ROLES = new Set(['super_admin', 'admin', 'manager', 'cashier', 'attendant']);
 const ALLOWED_METHODS = new Set(['cash', 'pix', 'credit', 'debit']);
@@ -15,13 +17,16 @@ Deno.serve(async (req) => {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
 
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
+    const body = await req.json();
+    const principal = await authorizeUserOrInternal(base44, req, body, {
+      allowInternal: false,
+      source: 'record_counter_payment',
+    });
+    const user = principal.user;
     if (!ALLOWED_ROLES.has(user.role || 'attendant') && !(user.permissions || []).includes('payments.counter')) {
       return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     }
 
-    const body = await req.json();
     if (!body.order_id || !ALLOWED_METHODS.has(body.payment_method) || body.confirmed_received !== true) {
       return Response.json({ error: 'order_method_and_confirmation_required', request_id: requestId }, { status: 422 });
     }
@@ -39,10 +44,24 @@ Deno.serve(async (req) => {
 
     const idempotencyKey = body.idempotency_key || `${order.id}:${body.payment_method}:${amount}`;
     const eventKey = `counter_payment:${idempotencyKey}`;
+    const payloadHash = `${order.id}:${body.payment_method}:${amount}`;
     const events = await base44.asServiceRole.entities.ProcessedEvent.filter({ event_key: eventKey });
+    if (events[0] && events[0].payload_hash !== payloadHash) return Response.json({ error: 'idempotency_conflict', request_id: requestId }, { status: 409 });
+    const existingPayments = await base44.asServiceRole.entities.Payment.filter({ idempotency_key: idempotencyKey }, '-created_date', 2);
     if (events.some((event: any) => event.status === 'completed')) {
-      const existingPayments = await base44.asServiceRole.entities.Payment.filter({ idempotency_key: idempotencyKey });
       return Response.json({ payment: existingPayments[0] || null, duplicate: true, request_id: requestId });
+    }
+    if (existingPayments.length > 0) return Response.json({ error: 'counter_payment_processing_repair_required', request_id: requestId }, { status: 409 });
+
+    let cashSessionId = body.cash_session_id;
+    if (body.payment_method === 'cash') {
+      if (!cashSessionId) {
+        const sessions = await base44.asServiceRole.entities.CashSession.filter({ unit_id: order.unit_id, status: 'open' }, '-opened_at', 2);
+        cashSessionId = sessions[0]?.id;
+      }
+      if (!cashSessionId) return Response.json({ error: 'cash_session_required', request_id: requestId }, { status: 422 });
+      const session = await base44.asServiceRole.entities.CashSession.get(cashSessionId);
+      if (!session || session.unit_id !== order.unit_id || session.status !== 'open') return Response.json({ error: 'cash_session_not_open', request_id: requestId }, { status: 422 });
     }
 
     const event = events[0] || await base44.asServiceRole.entities.ProcessedEvent.create({
@@ -50,7 +69,7 @@ Deno.serve(async (req) => {
       event_type: 'counter_payment',
       source: 'user_command',
       status: 'processing',
-      payload_hash: `${order.id}:${body.payment_method}:${amount}`,
+      payload_hash: payloadHash,
       attempts: 1,
       started_at: new Date().toISOString(),
       unit_id: order.unit_id,
@@ -90,9 +109,9 @@ Deno.serve(async (req) => {
         paid_amount: paidAmount,
         payment_status: paidAmount + 0.01 >= Number(order.total_amount || 0) ? 'paid' : 'partial',
       });
-      if (body.payment_method === 'cash' && body.cash_session_id) {
+      if (body.payment_method === 'cash') {
         await base44.asServiceRole.entities.CashMovement.create({
-          cash_session_id: body.cash_session_id,
+          cash_session_id: cashSessionId,
           unit_id: order.unit_id,
           movement_type: 'sale',
           amount,
@@ -107,7 +126,34 @@ Deno.serve(async (req) => {
         });
       }
     } else {
-      updatedOrder = await base44.asServiceRole.entities.Order.update(order.id, { payment_status: 'pending' });
+      updatedOrder = await base44.asServiceRole.entities.Order.update(order.id, { payment_status: 'pending_confirmation' });
+    }
+
+    let loyaltyResult: any = { status: 'skipped', reason: 'payment_pending_confirmation' };
+    let finalPayment = payment;
+    if (confirmedImmediately) {
+      try {
+        loyaltyResult = await postPaymentLoyaltyEarn(base44, {
+          customerId: order.customer_id,
+          unitId: order.unit_id,
+          orderIds: [order.id],
+          paymentId: payment.id,
+          amount,
+          serviceCount: Number(order.piece_count || 0),
+          receiptSettled: updatedOrder.payment_status === 'paid',
+          user,
+          requestId,
+        });
+      } catch (error) {
+        console.error(`[loyalty_sync:${requestId}]`, error);
+        loyaltyResult = { status: 'failed', error: error instanceof Error ? error.message : 'loyalty_sync_failed' };
+      }
+      finalPayment = await base44.asServiceRole.entities.Payment.update(payment.id, {
+        metadata: {
+          ...(payment.metadata || {}),
+          loyalty_sync: { ...loyaltyResult, synchronized_at: now },
+        },
+      });
     }
 
     await base44.asServiceRole.entities.AuditLog.create({
@@ -122,7 +168,7 @@ Deno.serve(async (req) => {
       user_role: user.role,
       unit_id: order.unit_id,
       request_id: requestId,
-      after_data: { status, payment_method: body.payment_method, order_payment_status: updatedOrder.payment_status },
+      after_data: { status, payment_method: body.payment_method, order_payment_status: updatedOrder.payment_status, loyalty_sync_status: loyaltyResult.status },
       success: true,
     });
 
@@ -134,8 +180,9 @@ Deno.serve(async (req) => {
       completed_at: now,
     });
 
-    return Response.json({ payment, order: updatedOrder, requires_reconciliation: !confirmedImmediately, request_id: requestId });
+    return Response.json({ payment: finalPayment, order: updatedOrder, requires_reconciliation: !confirmedImmediately, loyalty: loyaltyResult, request_id: requestId });
   } catch (error) {
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
     console.error(`[record_counter_payment:${requestId}]`, error);
     return Response.json({ error: 'counter_payment_failed', request_id: requestId }, { status: 500 });
   }

@@ -1,5 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import { allocateCents, toCents, fromCents } from '../../shared/paymentMath.js';
+import { postPaymentLoyaltyEarn } from '../../shared/loyaltySettlement.js';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 const ROLES = new Set(['super_admin', 'admin', 'manager', 'finance', 'cashier']);
 
@@ -13,30 +15,41 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
+    const body = await req.json();
+    const principal = await authorizeUserOrInternal(base44, req, body, {
+      allowInternal: false,
+      source: 'confirm_payment_tender',
+    });
+    const user = principal.user;
     if (!ROLES.has(user.role) && !(user.permissions || []).includes('payments.confirm')) {
       return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     }
 
-    const body = await req.json();
     const idempotencyKey = String(body.idempotency_key || '').trim();
     if (!body.payment_id || !body.confirmation_reference || !idempotencyKey) {
       return Response.json({ error: 'payment_confirmation_and_idempotency_required', request_id: requestId }, { status: 422 });
     }
     const payment = await base44.asServiceRole.entities.Payment.get(body.payment_id);
     if (!payment || !canAccessUnit(user, payment.unit_id)) return Response.json({ error: 'payment_not_found', request_id: requestId }, { status: 404 });
-    if (payment.status === 'succeeded') return Response.json({ payment, duplicate: true, request_id: requestId });
-    if (payment.status !== 'pending_confirmation') return Response.json({ error: 'payment_not_pending', request_id: requestId }, { status: 409 });
     const receipt = await base44.asServiceRole.entities.PaymentReceipt.get(payment.payment_receipt_id);
     if (!receipt) return Response.json({ error: 'payment_receipt_not_found', request_id: requestId }, { status: 404 });
 
     const eventKey = `payment_confirmation:${idempotencyKey}`;
+    const payloadHash = `${payment.id}:${body.confirmation_reference}`;
     const events = await base44.asServiceRole.entities.ProcessedEvent.filter({ event_key: eventKey });
+    if (events[0] && events[0].payload_hash !== payloadHash) return Response.json({ error: 'idempotency_conflict', request_id: requestId }, { status: 409 });
     if (events.some((event: any) => event.status === 'completed')) return Response.json({ payment, payment_receipt: receipt, duplicate: true, request_id: requestId });
+    if (events[0]) {
+      const priorAllocations = await base44.asServiceRole.entities.PaymentAllocation.filter({ payment_id: payment.id }, '-allocated_at', 2);
+      if (payment.status === 'succeeded' || priorAllocations.length > 0) {
+        return Response.json({ error: 'confirmation_processing_repair_required', request_id: requestId }, { status: 409 });
+      }
+    }
+    if (payment.status === 'succeeded') return Response.json({ payment, payment_receipt: receipt, duplicate: true, request_id: requestId });
+    if (payment.status !== 'pending_confirmation') return Response.json({ error: 'payment_not_pending', request_id: requestId }, { status: 409 });
     const event = events[0] || await base44.asServiceRole.entities.ProcessedEvent.create({
       event_key: eventKey, event_type: 'payment_confirmation', source: body.source || 'user_command', status: 'processing',
-      payload_hash: `${payment.id}:${body.confirmation_reference}`, attempts: 1, started_at: new Date().toISOString(), unit_id: payment.unit_id,
+      payload_hash: payloadHash, attempts: 1, started_at: new Date().toISOString(), unit_id: payment.unit_id,
     });
 
     const targets: any[] = [];
@@ -100,12 +113,35 @@ Deno.serve(async (req) => {
     const updatedTenders = (receipt.tenders || []).map((tender: any) => tender.payment_id === payment.id
       ? { ...tender, status: 'succeeded', applied_amount: appliedAmount, external_reference: body.confirmation_reference }
       : tender);
+    let loyaltyResult: any;
+    try {
+      loyaltyResult = await postPaymentLoyaltyEarn(base44, {
+        customerId: receipt.customer_id,
+        unitId: receipt.unit_id,
+        orderIds: receipt.order_ids || [],
+        receiptId: receipt.id,
+        receiptNumber: receipt.receipt_number,
+        paymentId: payment.id,
+        amount: appliedAmount,
+        serviceCount: targets.filter((target) => target.type === 'order').reduce((sum, target) => sum + Number(target.record?.piece_count || 0), 0),
+        receiptSettled: nextPending <= 0.01,
+        user,
+        requestId,
+      });
+    } catch (error) {
+      console.error(`[loyalty_sync:${requestId}]`, error);
+      loyaltyResult = { status: 'failed', error: error instanceof Error ? error.message : 'loyalty_sync_failed' };
+    }
     const updatedReceipt = await base44.asServiceRole.entities.PaymentReceipt.update(receipt.id, {
       amount_applied: nextApplied, pending_amount: nextPending,
       status: nextPending <= 0.01 ? 'settled' : 'partially_settled',
       settled_at: nextPending <= 0.01 ? now : undefined,
       allocation_ids: [...new Set([...(receipt.allocation_ids || []), ...allocationIds])],
       tenders: updatedTenders,
+      metadata: {
+        ...(receipt.metadata || {}),
+        loyalty_sync: { status: loyaltyResult.status === 'failed' ? 'attention_required' : 'completed', results: [loyaltyResult], synchronized_at: now },
+      },
     });
 
     await base44.asServiceRole.entities.AuditLog.create({
@@ -120,7 +156,9 @@ Deno.serve(async (req) => {
     });
     return Response.json({ payment: updatedPayment, payment_receipt: updatedReceipt, request_id: requestId });
   } catch (error) {
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
     console.error(`[confirm_payment_tender:${requestId}]`, error);
-    return Response.json({ error: error instanceof Error ? error.message : 'payment_confirmation_failed', request_id: requestId }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'payment_confirmation_failed';
+    return Response.json({ error: message, request_id: requestId }, { status: ['idempotency_conflict', 'confirmation_processing_repair_required'].includes(message) ? 409 : 500 });
   }
 });

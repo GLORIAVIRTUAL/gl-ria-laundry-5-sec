@@ -1,3 +1,4 @@
+import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import { buildFiscalDraft, getFiscalReadiness, validateFiscalProfile } from '../../shared/fiscalProviderContract.js';
 
@@ -34,6 +35,7 @@ Deno.serve(async (req) => {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
+    await enforceExistingUserSecurity(base44, req, user, { source: 'manage_fiscal_document' });
     if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
     const body = await req.json();
     const action = String(body.action || '');

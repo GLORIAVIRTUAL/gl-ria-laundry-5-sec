@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 function snapshot(quote: any) {
   return {
@@ -23,12 +24,11 @@ Deno.serve(async (req) => {
   try {
     if (!['GET', 'POST'].includes(req.method)) return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me().catch(() => null);
-    const expectedSecret = Deno.env.get('INTERNAL_AUTOMATION_SECRET');
-    const suppliedSecret = req.headers.get('x-internal-automation-secret');
-    const internalAuthorized = Boolean(expectedSecret && suppliedSecret && expectedSecret === suppliedSecret);
+    const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
+    const principal = await authorizeUserOrInternal(base44, req, body, { source: 'checkExpiredQuotes' });
+    const user = principal.user;
     const userAuthorized = Boolean(user && (['super_admin', 'admin', 'manager'].includes(user.role) || (user.permissions || []).includes('quotes.expire')));
-    if (!internalAuthorized && !userAuthorized) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
+    if (principal.kind === 'user' && !userAuthorized) return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
 
     const quotes = await base44.asServiceRole.entities.Quote.filter({ status: 'SENT' });
     const now = new Date();
@@ -83,6 +83,7 @@ Deno.serve(async (req) => {
 
     return Response.json({ success: true, expired_count: expiredIds.length, expired_ids: expiredIds, request_id: requestId });
   } catch (error) {
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
     console.error(`[checkExpiredQuotes:${requestId}]`, error);
     return Response.json({ error: 'quote_expiration_failed', request_id: requestId }, { status: 500 });
   }

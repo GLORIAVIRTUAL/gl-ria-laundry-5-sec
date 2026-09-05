@@ -1,3 +1,4 @@
+import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 
 const ALLOWED_ROLES = new Set(['super_admin', 'admin', 'manager', 'inventory', 'finance']);
@@ -17,6 +18,7 @@ Deno.serve(async (req) => {
 
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
+    await enforceExistingUserSecurity(base44, req, user, { source: 'approve_purchase_document' });
     if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
     if (!ALLOWED_ROLES.has(user.role || 'inventory') && !(user.permissions || []).includes('inventory.manage')) {
       return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });

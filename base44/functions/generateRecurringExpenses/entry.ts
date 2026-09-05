@@ -1,21 +1,5 @@
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
-
-async function authenticateExecution(base44: any, req: Request) {
-  try {
-    const user = await base44.auth.me();
-    if (!user || !['super_admin', 'admin', 'manager', 'finance'].includes(user.role)) {
-      return { allowed: false, scheduled: false, user: null };
-    }
-    return { allowed: true, scheduled: false, user };
-  } catch (_) {
-    const configuredToken = Deno.env.get('AUTOMATION_INTERNAL_TOKEN');
-    const suppliedToken = req.headers.get('x-automation-token');
-    if (!configuredToken || !suppliedToken || suppliedToken !== configuredToken) {
-      return { allowed: false, scheduled: true, user: null };
-    }
-    return { allowed: true, scheduled: true, user: null };
-  }
-}
 
 Deno.serve(async (req) => {
   const requestId = crypto.randomUUID();
@@ -26,10 +10,12 @@ Deno.serve(async (req) => {
     }
 
     const base44 = createClientFromRequest(req);
-    const execution = await authenticateExecution(base44, req);
-    if (!execution.allowed) {
-      return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
+    const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
+    const principal = await authorizeUserOrInternal(base44, req, body, { source: 'generateRecurringExpenses' });
+    if (principal.kind === 'user' && !['super_admin', 'admin', 'manager', 'finance'].includes(principal.role)) {
+      return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     }
+    const execution = { scheduled: principal.kind === 'internal', user: principal.user };
 
     const now = new Date();
     const sp = new Date(now.getTime() - 3 * 60 * 60 * 1000);
@@ -120,6 +106,7 @@ Deno.serve(async (req) => {
 
     return Response.json({ ok: true, scheduled: execution.scheduled, month_key: monthKey, created_count: created.length, created, request_id: requestId });
   } catch (error) {
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
     console.error(`[generateRecurringExpenses:${requestId}]`, error);
     return Response.json({ error: 'recurring_expense_generation_failed', request_id: requestId }, { status: 500 });
   }

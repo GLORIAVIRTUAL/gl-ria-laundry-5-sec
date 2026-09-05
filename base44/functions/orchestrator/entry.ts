@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 import { createGeminiClient, transcribeAudioWithGemini, bytesToBase64 } from '../../shared/geminiChat.js';
+import { requireInternalRequest, securityErrorResponse } from '../../shared/functionSecurity.js';
 import { getPickupDateRange, getPickupLocalHour, getPickupScheduleForDate, getPickupSlotIso } from '../../shared/pickupSchedule.js';
 import { buildPickupAvailabilityResponse, resolvePickupAvailabilityRequest } from '../../shared/pickupAvailability.js';
 import { detectUncheckedAvailabilityClaim, UNCHECKED_CLAIM_INSTRUCTION } from '../../shared/availabilityClaim.js';
@@ -104,14 +105,22 @@ const findRelatedCatalogProducts = (products, text = '') => {
 };
 
 Deno.serve(async (req) => {
+    const requestId = crypto.randomUUID();
     let base44 = null;
     let conversation = null;
     let customer = null;
     let senderFn = 'zapi_sender';
+    let invokeSender = null;
 
     try {
+        if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
         base44 = createClientFromRequest(req);
         const inputBody = await req.json();
+        requireInternalRequest(req, inputBody);
+        invokeSender = (payload) => base44.asServiceRole.functions.invoke(senderFn, {
+            ...payload,
+            _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
+        });
         
         const updateNewCustomerStage = async (customerId, newStage) => {
             const cards = await base44.asServiceRole.entities.CrmCard.filter({ 
@@ -163,7 +172,11 @@ Deno.serve(async (req) => {
             const pp = state?.pending_pickup;
             if (!pp?.date || !pp?.period) return '';
             try {
-                const r = await base44.asServiceRole.functions.invoke('schedulePickupTool', { ...pp, customer_id: customer.id });
+                const r = await base44.asServiceRole.functions.invoke('schedulePickupTool', {
+                    ...pp,
+                    customer_id: customer.id,
+                    _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
+                });
                 if (r.data?.success) {
                     const shiftInfo = pp.period === 'morning' ? 'Manhã (das 8h às 12h)' : 'Tarde (das 13h às 16h)';
                     const [, mo, d] = pp.date.split('-');
@@ -208,7 +221,7 @@ Deno.serve(async (req) => {
                     }
                 } catch (e) {
                     console.error("Transcription error:", e);
-                    await base44.asServiceRole.functions.invoke(senderFn, {
+                    await invokeSender({
                         phone: customer.phones[0],
                         message: "Desculpe, não consegui entender o áudio. Poderia digitar, por favor?",
                         conversation_id: conversation.id
@@ -319,7 +332,7 @@ Deno.serve(async (req) => {
                 metadata: { ...currentState, flow: 'HANDOFF' }
             });
             
-            await base44.asServiceRole.functions.invoke(senderFn, {
+            await invokeSender({
                 phone: customer.phones[0],
                 message: "Entendido. Estou transferindo você para um de nossos atendentes humanos. Aguarde um momento.",
                 conversation_id: conversation.id
@@ -416,7 +429,7 @@ Deno.serve(async (req) => {
                         metadata: { ...currentState, flow: 'HANDOFF_PAYMENT_REVIEW' }
                     });
 
-                    await base44.asServiceRole.functions.invoke(senderFn, {
+                    await invokeSender({
                         phone: customer.phones[0],
                         message: `✅ Recebi o seu comprovante. Ele foi encaminhado para conferência e o pagamento será confirmado assim que validarmos a liquidação.`,
                         conversation_id: conversation.id
@@ -539,8 +552,9 @@ Deno.serve(async (req) => {
 
                     try {
                         const visionResult = await base44.asServiceRole.functions.invoke('openai_vision', {
-                            image_url: imgUrl, 
-                            quote_id: null 
+                            image_url: imgUrl,
+                            quote_id: null,
+                            _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                         }).then(res => res.data);
                         
                         return {
@@ -561,7 +575,7 @@ Deno.serve(async (req) => {
                 const visionResults = (await Promise.all(visionPromises)).filter(Boolean);
 
                 if (visionResults.length === 0) {
-                     await base44.asServiceRole.functions.invoke(senderFn, {
+                     await invokeSender({
                         phone: customer.phones[0],
                         message: "Não consegui processar as imagens. Tente enviar novamente.",
                         conversation_id: conversation.id
@@ -654,7 +668,7 @@ Deno.serve(async (req) => {
                         },
                         sent_at: new Date().toISOString()
                     });
-                    await base44.asServiceRole.functions.invoke(senderFn, {
+                    await invokeSender({
                         phone: customer.phones[0],
                         message: `✅ Recebi o seu comprovante e encaminhei para conferência. Assim que a liquidação for validada, confirmaremos o pagamento e daremos continuidade ao pedido.`,
                         conversation_id: conversation.id
@@ -691,7 +705,7 @@ Deno.serve(async (req) => {
                         metadata: { ...currentState, flow: 'STAIN_INQUIRY', temp_items: [] }
                     });
 
-                    await base44.asServiceRole.functions.invoke(senderFn, {
+                    await invokeSender({
                         phone: customer.phones[0],
                         message: buildStainReply(garmentHint),
                         conversation_id: conversation.id
@@ -703,7 +717,7 @@ Deno.serve(async (req) => {
                 // Nunca listar peças "desconhecido" como orçamento: se nenhuma foto foi
                 // reconhecida como peça (etiqueta, close, detalhe), perguntar antes.
                 if (onlyDetailPhotos && !visionResults.some(r => (r.garment_type || '').toLowerCase() !== 'desconhecido' && (r.garment_type || '').toLowerCase() !== 'peça desconhecida' && (r.confidence || 0) >= 0.6)) {
-                    await base44.asServiceRole.functions.invoke(senderFn, {
+                    await invokeSender({
                         phone: customer.phones[0],
                         message: `Recebi as suas fotos! 📸 Só não consegui identificar a peça pelas imagens (parecem ser detalhes ou etiqueta).\n\nMe diz por texto qual é a peça (ex: macacão, vestido, casaco) e o que você precisa — limpeza, passadoria ou remoção de mancha — que eu te passo o valor certinho.`,
                         conversation_id: conversation.id
@@ -799,14 +813,14 @@ Deno.serve(async (req) => {
 
                 const shouldShowQuoteButtons = allRecognized;
 
-                await base44.asServiceRole.functions.invoke(senderFn, {
+                await invokeSender({
                     phone: customer.phones[0],
                     message: msg,
                     conversation_id: conversation.id
                 });
 
                 if (shouldShowQuoteButtons) {
-                    await base44.asServiceRole.functions.invoke(senderFn, {
+                    await invokeSender({
                         phone: customer.phones[0],
                         type: 'OPTION_LIST',
                         message: 'Escolha uma opção abaixo:',
@@ -861,13 +875,13 @@ Deno.serve(async (req) => {
                 finalMessage += `*Planos Pré-pagos:*\n${plansText}\n\n`;
                 finalMessage += `Você prefere seguir com este orçamento ou tem interesse em adquirir um de nossos planos${!hasForbiddenBagItems ? ' ou bags' : ''}?`;
 
-                await base44.asServiceRole.functions.invoke(senderFn, {
+                await invokeSender({
                     phone: customer.phones[0],
                     message: finalMessage,
                     conversation_id: conversation.id
                 });
 
-                await base44.asServiceRole.functions.invoke(senderFn, {
+                await invokeSender({
                     phone: customer.phones[0],
                     type: 'OPTION_LIST',
                     message: 'Escolha uma opção abaixo:',
@@ -960,7 +974,7 @@ Deno.serve(async (req) => {
                     currentState.pending_pickup = { ...(currentState.pending_pickup || {}), date: pickupAvailabilityRequest.date, period: availability.period };
                     await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
                 }
-                await base44.asServiceRole.functions.invoke(senderFn, {
+                await invokeSender({
                     phone: customer.phones[0],
                     message: availability.message,
                     conversation_id: conversation.id
@@ -1066,7 +1080,7 @@ Deno.serve(async (req) => {
             // e nunca desviam para coleta/agendamento antes de informar o valor.
             if (message.type === 'TEXT' && isDeliveryPriceQuestion(message.text || '')) {
                 const knownTotal = resolveKnownDeliveryTotal({ pendingQuotes, state: currentState, history });
-                await base44.asServiceRole.functions.invoke(senderFn, {
+                await invokeSender({
                     phone: customer.phones[0],
                     message: buildDeliveryPriceResponse(knownTotal),
                     conversation_id: conversation.id
@@ -1792,7 +1806,10 @@ Deno.serve(async (req) => {
                     if (toolCall.function.name === 'calculate_area_quote') {
                         try {
                             const args = JSON.parse(toolCall.function.arguments);
-                            const r = await base44.asServiceRole.functions.invoke('calculateSquareMeterQuote', args);
+                            const r = await base44.asServiceRole.functions.invoke('calculateSquareMeterQuote', {
+                                ...args,
+                                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
+                            });
                             if (r.data?.success) {
                                 chatMessages.push({
                                     role: "tool",
@@ -2075,7 +2092,8 @@ Deno.serve(async (req) => {
                     try {
                         const r = await base44.asServiceRole.functions.invoke('schedulePickupTool', {
                             ...JSON.parse(scheduleCall.function.arguments),
-                            customer_id: customer.id
+                            customer_id: customer.id,
+                            _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                         });
                         if (r.data?.success) pickupScheduledOk = true;
                         chatMessages.push({ role: "tool", tool_call_id: scheduleCall.id, content: JSON.stringify(r.data || { error: 'Falha ao agendar' }) });
@@ -2267,7 +2285,7 @@ Deno.serve(async (req) => {
             const shouldShowDeliveryButtons = aiResponseText && aiResponseText.toLowerCase().includes('coleta/entrega por r$ 15');
             const shouldShowHandoffButton = aiResponseText && aiResponseText.toLowerCase().includes('palavra "atendente"');
 
-            await base44.asServiceRole.functions.invoke(senderFn, {
+            await invokeSender({
                 phone: customer.phones[0],
                 message: aiResponseText,
                 conversation_id: conversation.id
@@ -2320,7 +2338,7 @@ Deno.serve(async (req) => {
                         : null;
 
             if (interactivePayload) {
-                await base44.asServiceRole.functions.invoke(senderFn, interactivePayload);
+                await invokeSender(interactivePayload);
             }
 
             return Response.json({ action: "chatgpt_replied" });
@@ -2329,15 +2347,16 @@ Deno.serve(async (req) => {
         return Response.json({ status: "processed" });
 
     } catch (error) {
+        if (error?.name === 'SecurityError') return securityErrorResponse(error, requestId);
         console.error("Error in orchestrator:", error);
         if (error.isAxiosError && error.response) {
             console.error("Axios response data:", error.response.data);
             console.error("Axios response status:", error.response.status);
         }
 
-        if (base44 && customer?.phones?.[0] && conversation?.id) {
+        if (invokeSender && base44 && customer?.phones?.[0] && conversation?.id) {
             try {
-                await base44.asServiceRole.functions.invoke(senderFn, {
+                await invokeSender({
                     phone: customer.phones[0],
                     message: 'Desculpe, não entendi sua pergunta. Pode reformular, por favor?',
                     conversation_id: conversation.id

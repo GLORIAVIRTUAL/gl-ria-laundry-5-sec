@@ -1,69 +1,26 @@
-export const ROLE_PERMISSIONS = {
-  super_admin: ['*'],
-  admin: ['*'],
-  manager: [
-    'management.view',
-    'quotes.manage',
-    'orders.manage',
-    'production.manage',
-    'production.operate',
-    'production.machines',
-    'production.costs',
-    'production.override_capacity',
-    'inventory.manage',
-    'inventory.override_negative',
-    'operations.alerts',
-    'operations.alerts.resolve',
-    'finance.view',
-    'finance.approve',
-    'payments.manage',
-    'billing.manage',
-    'billing.close',
-    'billing.issue',
-    'quotes.reopen',
-    'quotes.discount_override',
-    'cash.manage',
-    'cash.approve',
-    'cash.reopen',
-    'fiscal.manage',
-    'fiscal.configure',
-    'fiscal.cancel',
-    'quality.manage',
-    'third_party.manage',
-    'documents.review',
-    'audit.view',
-    'audit.export',
-    'reports.view',
-    'prices.manage',
-    'catalogs.manage',
-    'crm.manage',
-    'loyalty.manage',
-    'fleet.manage',
-    'logistics.view',
-    'logistics.manage',
-  ],
-  attendant: ['management.view', 'customers.manage', 'quotes.manage', 'orders.view', 'documents.upload', 'crm.view', 'loyalty.redeem'],
-  cashier: ['management.view', 'orders.view', 'payments.manage', 'billing.close', 'cash.manage', 'fiscal.manage'],
-  production: ['management.view', 'orders.view', 'production.manage', 'production.operate', 'production.machines', 'operations.alerts', 'quality.create'],
-  driver: ['pickups.manage', 'orders.view', 'delivery.manage', 'logistics.view', 'logistics.execute'],
-  inventory: ['management.view', 'inventory.manage', 'operations.alerts', 'suppliers.view', 'documents.upload', 'documents.review'],
-  finance: ['management.view', 'finance.view', 'finance.approve', 'payments.manage', 'billing.manage', 'billing.close', 'billing.issue', 'cash.view', 'fiscal.manage', 'documents.review', 'reports.view'],
-  auditor: ['management.view', 'finance.view', 'cash.view', 'audit.view', 'audit.export', 'documents.view', 'reports.view_all'],
-};
+import { ROLE_DEFINITIONS, normalizeLegacyRole } from '../../base44/shared/accessGovernance.js';
+
+export const ROLE_PERMISSIONS = Object.fromEntries(
+  Object.entries(ROLE_DEFINITIONS).map(([role, definition]) => [role, [...definition.permissions]]),
+);
 
 export function hasPermission(user, permission) {
   if (!user) return false;
+  const role = normalizeLegacyRole(user.role);
   const explicitPermissions = Array.isArray(user.permissions) ? user.permissions : [];
-  const rolePermissions = ROLE_PERMISSIONS[user.role] || ROLE_PERMISSIONS.attendant;
-  return rolePermissions.includes('*') || rolePermissions.includes(permission) || explicitPermissions.includes(permission);
+  const effectivePermissions = Array.isArray(user.effective_permissions) ? user.effective_permissions : [];
+  const rolePermissions = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.attendant;
+  return rolePermissions.includes('*') || rolePermissions.includes(permission) || explicitPermissions.includes(permission) || effectivePermissions.includes(permission);
 }
 
 export function getAllowedUnitIds(user) {
   if (!user) return [];
-  if (['super_admin', 'admin'].includes(user.role) || hasPermission(user, 'units.view_all')) return ['*'];
+  const role = normalizeLegacyRole(user.role);
+  if (role === 'super_admin' || hasPermission(user, 'units.view_all')) return ['*'];
   return [...new Set([
     user.primary_unit_id,
     ...(Array.isArray(user.allowed_unit_ids) ? user.allowed_unit_ids : []),
+    ...(Array.isArray(user.effective_unit_ids) ? user.effective_unit_ids : []),
   ].filter(Boolean))];
 }
 

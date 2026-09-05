@@ -1,3 +1,4 @@
+import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 
 Deno.serve(async (req) => {
@@ -10,6 +11,7 @@ Deno.serve(async (req) => {
 
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
+    await enforceExistingUserSecurity(base44, req, user, { source: 'list_files' });
     if (!user || !['super_admin', 'admin'].includes(user.role)) {
       return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     }

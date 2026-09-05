@@ -1,3 +1,4 @@
+import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 
 // Restaura o nome real de clientes salvos como "Novo Cliente" / "Cliente" / vazio,
@@ -7,6 +8,7 @@ Deno.serve(async (req) => {
     try {
         const base44 = createClientFromRequest(req);
         const user = await base44.auth.me();
+        await enforceExistingUserSecurity(base44, req, user, { source: 'restoreCustomerNames' });
         if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
         if (user.role !== 'admin') return Response.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
 

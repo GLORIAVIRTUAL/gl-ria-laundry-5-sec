@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 import { hasRecentHumanReply } from '../../shared/humanActivity.js';
+import { requireInternalRequest, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 // ============================================================================
 // GATILHO DA IA (automação de entidade em Message).
@@ -13,8 +14,12 @@ import { hasRecentHumanReply } from '../../shared/humanActivity.js';
 // poucos segundos.
 // ============================================================================
 Deno.serve(async (req) => {
+    const requestId = crypto.randomUUID();
+    try {
+    if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
     const body = await req.json();
+    requireInternalRequest(req, body);
     const messageId = body?.event?.entity_id || body?.data?.id;
     if (!messageId) return Response.json({ status: 'no_message_id' });
 
@@ -54,7 +59,8 @@ Deno.serve(async (req) => {
         customer_id: conversation.customer_id,
         source,
         payload: source ? { ...(message.raw_payload || {}), source } : (message.raw_payload || { text: { message: message.text || '' } }),
-        downloaded_file_url: null
+        downloaded_file_url: null,
+        _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
     };
 
     // Se a chamada da IA falhar (erro transitório de rede/LLM), tenta de novo NA HORA.
@@ -68,5 +74,8 @@ Deno.serve(async (req) => {
         result = await base44.asServiceRole.functions.invoke('orchestrator', args);
     }
 
-    return Response.json({ status: 'orchestrated', orchestrator: result.data });
+        return Response.json({ status: 'orchestrated', orchestrator: result.data, request_id: requestId });
+    } catch (error) {
+        return securityErrorResponse(error, requestId);
+    }
 });

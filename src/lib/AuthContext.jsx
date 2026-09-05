@@ -3,7 +3,7 @@ import { base44 } from '@/api/base44Client';
 import { appParams } from '@/lib/app-params';
 import { createAxiosClient } from '@base44/sdk/dist/utils/axios-client';
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -92,7 +92,15 @@ export const AuthProvider = ({ children }) => {
       // Now check if the user is authenticated
       setIsLoadingAuth(true);
       const currentUser = await base44.auth.me();
-      setUser(currentUser);
+      const accessResponse = await base44.functions.invoke('check_access_session', {});
+      const access = accessResponse?.data || {};
+      setUser({
+        ...currentUser,
+        effective_permissions: access.permissions || currentUser.permissions || [],
+        effective_unit_ids: access.unit_ids || [],
+        access_revision: access.access_revision || currentUser.access_revision || 1,
+      });
+      setAuthError(null);
       setIsAuthenticated(true);
       setIsLoadingAuth(false);
     } catch (error) {
@@ -102,15 +110,27 @@ export const AuthProvider = ({ children }) => {
       // Transient errors (rate limit, network, server errors) must NOT log the user out.
       // Only real auth errors (401/403) should clear the session.
       const status = error?.status || error?.response?.status;
+      const accessCode = error?.response?.data?.code || error?.data?.code;
+      if (['ACCOUNT_BLOCKED', 'MFA_REQUIRED', 'SESSION_REVOKED'].includes(accessCode)) {
+        setUser(null);
+        setIsAuthenticated(false);
+        setAuthError({
+          type: 'access_blocked',
+          code: accessCode,
+          message: error?.response?.data?.error || 'Acesso bloqueado pela política de segurança.',
+        });
+        return;
+      }
       const isTransient = status === 429 || status === 0 || status >= 500 || !status;
 
       if (isTransient) {
-        // Keep the user logged in with whatever token they have; just retry silently in 3s.
-        console.warn('Transient auth error — keeping session and retrying soon.', status);
-        // If we had no user yet, assume authenticated to avoid forcing a login redirect on first 429.
-        if (appParams.token) {
-          setIsAuthenticated(true);
-        }
+        console.warn('Transient access-policy error — blocking protected routes and retrying soon.', status);
+        setUser(null);
+        setIsAuthenticated(false);
+        setAuthError({
+          type: 'access_unavailable',
+          message: 'Não foi possível validar sua política de acesso neste momento. Tentaremos novamente automaticamente.',
+        });
         setTimeout(() => { checkUserAuth(); }, 3000);
         return;
       }

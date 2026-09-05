@@ -1,16 +1,15 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Check, Loader2, ArrowLeft, Building2 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 
 export default function RegisterUnit() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
@@ -25,23 +24,20 @@ export default function RegisterUnit() {
     setLoading(true);
 
     try {
-        // Create the unit
-        const full_domain = `www.${formData.subdomain}.chat5asec.com.br`;
-        
-        await base44.entities.Unit.create({
+        await base44.functions.invoke('manage_unit', {
+            action: 'create',
             name: formData.name,
-            subdomain: formData.subdomain.toLowerCase(),
+            subdomain: formData.subdomain,
             owner_email: formData.owner_email,
-            status: "active", // Auto-activate for demo
             plan_price: 489,
-            created_at: new Date().toISOString()
+            reason: 'Cadastro administrativo pelo painel',
         });
 
         toast.success("Unidade criada com sucesso!");
         setStep(2);
     } catch (error) {
         console.error("Error creating unit:", error);
-        toast.error("Erro ao criar unidade. Tente novamente.");
+        toast.error(error?.response?.data?.error || error?.message || "Erro ao criar unidade. Verifique sua permissão e o MFA.");
     } finally {
         setLoading(false);
     }
@@ -149,7 +145,7 @@ export default function RegisterUnit() {
                         </div>
 
                         <p className="text-sm text-gray-500">
-                            Credenciais enviadas para <strong>{formData.owner_email}</strong>.
+                            Unidade criada como pendente para revisão. O convite do proprietário deve ser realizado pela Governança.
                         </p>
 
                         <div className="pt-6 flex gap-3 justify-center">

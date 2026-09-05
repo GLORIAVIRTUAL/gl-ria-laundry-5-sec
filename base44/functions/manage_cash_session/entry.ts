@@ -1,3 +1,4 @@
+import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import { toCents, fromCents } from '../../shared/paymentMath.js';
 
@@ -66,6 +67,7 @@ Deno.serve(async (req) => {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
+    await enforceExistingUserSecurity(base44, req, user, { source: 'manage_cash_session' });
     if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
     if (!CASH_ROLES.has(user.role || 'cashier') && !(user.permissions || []).includes('cash.manage')) {
       return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });

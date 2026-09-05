@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import { money, number, dateValue, inPeriod, inUnits, groupSum, groupCount, dailySeries, average, percent, openStatus, reportEnvelope } from '../../shared/reportAnalytics.js';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 const REPORT_TYPES = new Set(['production', 'delays', 'rework', 'third_parties', 'stock', 'consumption', 'service_margin', 'employee_productivity', 'cash', 'billing', 'fiscal', 'logistics', 'unit_profitability']);
 const ALL_UNITS_ROLES = new Set(['super_admin', 'admin', 'auditor']);
@@ -9,7 +10,9 @@ function scopeUnits(user: any, requested: string[]) {
   const allowed = [...new Set([user.primary_unit_id, ...(user.allowed_unit_ids || [])].filter(Boolean))];
   if (ALL_UNITS_ROLES.has(user.role) || (user.permissions || []).includes('reports.view_all')) return requested;
   if (requested.some((id) => !allowed.includes(id))) throw new Error('forbidden_unit');
-  return requested.length ? requested : allowed;
+  const scoped = requested.length ? requested : allowed;
+  if (!scoped.length) throw new Error('unit_scope_required');
+  return scoped;
 }
 function rowDate(row: any, fields: string[]) { const timestamp = dateValue(row, fields); return timestamp ? new Date(timestamp).toISOString() : null; }
 function boundedRows(rows: any[], limit: number) { return rows.slice(0, Math.max(1, Math.min(2000, limit))); }
@@ -20,10 +23,13 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
-    if (!REPORT_ROLES.has(user.role) && !(user.permissions || []).includes('reports.view') && !(user.permissions || []).includes('reports.view_all')) return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     const body = await req.json();
+    const principal = await authorizeUserOrInternal(base44, req, body, {
+      allowInternal: false,
+      source: 'generate_specialized_report',
+    });
+    const user = principal.user;
+    if (!REPORT_ROLES.has(user.role) && !(user.permissions || []).includes('reports.view') && !(user.permissions || []).includes('reports.view_all')) return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     const type = String(body.report_type || '');
     if (!REPORT_TYPES.has(type)) return Response.json({ error: 'invalid_report_type', request_id: requestId }, { status: 422 });
     const start = body.start_date ? new Date(body.start_date).getTime() : Date.now() - 30 * 86400000;
@@ -183,7 +189,8 @@ Deno.serve(async (req) => {
     await base44.asServiceRole.entities.AuditLog.create({ action: 'view', entity_type: 'specialized_report', entity_id: requestId, item_label: type, reason: 'specialized_report_generated', user_email: user.email, user_name: user.full_name || user.display_name, user_role: user.role, unit_id: unitIds.length === 1 ? unitIds[0] : user.primary_unit_id, request_id: requestId, domain: 'analytics', severity: 'info', result: 'success', occurred_at: new Date().toISOString(), metadata: { report_type: type, start_date: new Date(start).toISOString(), end_date: new Date(end).toISOString(), unit_ids: unitIds, row_count: report.rows.length }, success: true });
     return Response.json({ report, request_id: requestId });
   } catch (error: any) {
-    const status = ['forbidden_unit', 'invalid_period'].includes(error?.message) ? 422 : 500;
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
+    const status = ['forbidden_unit', 'invalid_period', 'unit_scope_required'].includes(error?.message) ? 422 : 500;
     return Response.json({ error: error?.message || 'specialized_report_failed', request_id: requestId }, { status });
   }
 });

@@ -1,4 +1,5 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 // ============================================================================
 // REDE DE SEGURANÇA: recupera mensagens de clientes que ficaram SEM resposta.
@@ -14,19 +15,14 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 // ============================================================================
 Deno.serve(async (req) => {
     try {
+        if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed' }, { status: 405 });
         const base44 = createClientFromRequest(req);
-
-        // Segurança: só admin OU chamada de serviço (automação) pode rodar.
-        // Automações internas chegam com token de serviço; usuários normais não.
-        // Não bloqueamos automação — validamos só quando há sessão de usuário.
-        try {
-            const user = await base44.auth.me();
-            if (user && user.role !== 'admin') {
-                return Response.json({ error: 'Forbidden' }, { status: 403 });
-            }
-        } catch {
-            // Sem sessão de usuário = chamada de automação/serviço. Segue.
-        }
+        let body = {};
+        try { body = await req.json(); } catch { body = {}; }
+        await authorizeUserOrInternal(base44, req, body, {
+            roles: ['super_admin', 'admin'],
+            source: 'recover_unanswered_messages',
+        });
 
         const now = Date.now();
         // Só considera mensagens que já "descansaram" o suficiente para a rajada
@@ -75,7 +71,8 @@ Deno.serve(async (req) => {
                     message_id: last.id,
                     customer_id: customer.id,
                     payload: last.raw_payload || { text: { message: last.text || '' } },
-                    downloaded_file_url: null
+                    downloaded_file_url: null,
+                    _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 });
                 recovered.push({ conversation_id: conv.id, message_id: last.id });
                 console.log(`Recovered unanswered message ${last.id} in conversation ${conv.id}`);
@@ -87,7 +84,7 @@ Deno.serve(async (req) => {
         return Response.json({ status: 'success', recovered_count: recovered.length, recovered });
 
     } catch (error) {
-        console.error('Error in recoverUnansweredMessages:', error);
-        return Response.json({ error: error.message }, { status: 500 });
+        console.error('Error in recoverUnansweredMessages:', error?.code || error?.message || error);
+        return securityErrorResponse(error);
     }
 });

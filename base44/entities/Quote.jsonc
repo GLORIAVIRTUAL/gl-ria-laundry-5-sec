@@ -92,6 +92,8 @@
           "percent": { "type": "number" },
           "reason": { "type": "string" },
           "approved_by_user_id": { "type": "string" },
+          "approval_policy_id": { "type": "string" },
+          "approval_policy_version": { "type": "number" },
           "applied_at": { "type": "string", "format": "date-time" }
         }
       },
