@@ -145,10 +145,17 @@ export const AuthProvider = ({ children }) => {
       }
 
       setIsAuthenticated(false);
+      setUser(null);
       if (status === 401 || status === 403) {
         setAuthError({
           type: 'auth_required',
           message: 'Authentication required'
+        });
+      } else {
+        // Qualquer outra falha precisa ser visível em vez de renderizar o app sem usuário.
+        setAuthError({
+          type: 'access_unavailable',
+          message: `Não foi possível carregar seu perfil (${status || 'sem status'}): ${error?.message || 'erro desconhecido'}`,
         });
       }
     }
