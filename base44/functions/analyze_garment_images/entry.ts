@@ -1,3 +1,4 @@
+import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 
 const ALLOWED_ROLES = new Set(['super_admin', 'admin', 'manager', 'attendant']);
@@ -18,6 +19,7 @@ Deno.serve(async (req) => {
 
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
+    await enforceExistingUserSecurity(base44, req, user, { source: 'analyze_garment_images' });
     if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
     if (!ALLOWED_ROLES.has(user.role || 'attendant') && !(user.permissions || []).includes('quotes.manage')) {
       return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
@@ -61,6 +63,7 @@ Deno.serve(async (req) => {
       try {
         const response = await base44.asServiceRole.functions.invoke('openai_vision', {
           image_url: asset.storage_key,
+          _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN'),
         });
         const result = response?.data || response;
         const confidence = Number(result?.confidence || 0);

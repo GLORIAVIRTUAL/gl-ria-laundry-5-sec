@@ -1,9 +1,11 @@
+import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
+    await enforceExistingUserSecurity(base44, req, user, { source: 'listChatCustomers' });
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     const fetchAll = async (entityName, sortField = '-created_date') => {

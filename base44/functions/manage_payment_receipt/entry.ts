@@ -1,5 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import { calculateReceiptPlan, toCents, fromCents } from '../../shared/paymentMath.js';
+import { postPaymentLoyaltyEarn, reversePaymentLoyalty } from '../../shared/loyaltySettlement.js';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 const RECEIPT_ROLES = new Set(['super_admin', 'admin', 'manager', 'finance', 'cashier', 'attendant']);
 const REVERSAL_ROLES = new Set(['super_admin', 'admin', 'manager', 'finance']);
@@ -64,15 +66,33 @@ async function loadTargets(base44: any, user: any, body: any) {
 }
 
 async function createCreditEntry(base44: any, params: any) {
+  const deltaCents = toCents(params.signedAmount);
+  const existingRows = await base44.asServiceRole.entities.CustomerCreditLedger.filter({ idempotency_key: params.idempotencyKey }, '-occurred_at', 1);
+  const existing = existingRows[0];
+  if (existing) {
+    if (existing.customer_id !== params.customerId || toCents(existing.signed_amount) !== deltaCents) throw new Error('idempotency_conflict');
+    if (existing.metadata?.customer_balance_applied !== false) {
+      return { customer: await base44.asServiceRole.entities.Customer.get(params.customerId), entry: existing, duplicate: true };
+    }
+    const customer = await base44.asServiceRole.entities.Customer.get(params.customerId);
+    const currentCents = toCents(customer?.credit_balance || 0);
+    const beforeCents = toCents(existing.metadata?.balance_before);
+    const afterCents = toCents(existing.balance_after);
+    if (currentCents === beforeCents) {
+      await base44.asServiceRole.entities.Customer.update(params.customerId, { credit_balance: fromCents(afterCents) });
+    } else if (currentCents !== afterCents) {
+      throw new Error('customer_credit_repair_conflict');
+    }
+    const repairedEntry = await base44.asServiceRole.entities.CustomerCreditLedger.update(existing.id, {
+      metadata: { ...(existing.metadata || {}), customer_balance_applied: true, repaired_at: new Date().toISOString() },
+    });
+    return { customer: await base44.asServiceRole.entities.Customer.get(params.customerId), entry: repairedEntry, duplicate: true };
+  }
+
   const customer = await base44.asServiceRole.entities.Customer.get(params.customerId);
   const currentCents = toCents(customer?.credit_balance || 0);
-  const deltaCents = toCents(params.signedAmount);
   const nextCents = currentCents + deltaCents;
   if (nextCents < 0) throw new Error('insufficient_customer_balance');
-
-  const updatedCustomer = await base44.asServiceRole.entities.Customer.update(params.customerId, {
-    credit_balance: fromCents(nextCents),
-  });
   const entry = await base44.asServiceRole.entities.CustomerCreditLedger.create({
     unit_id: params.unitId,
     customer_id: params.customerId,
@@ -91,8 +111,33 @@ async function createCreditEntry(base44: any, params: any) {
     reason: params.reason,
     idempotency_key: params.idempotencyKey,
     request_id: params.requestId,
+    metadata: { balance_before: fromCents(currentCents), customer_balance_applied: false },
   });
-  return { customer: updatedCustomer, entry };
+  const updatedCustomer = await base44.asServiceRole.entities.Customer.update(params.customerId, {
+    credit_balance: fromCents(nextCents),
+  });
+  const completedEntry = await base44.asServiceRole.entities.CustomerCreditLedger.update(entry.id, {
+    metadata: { ...(entry.metadata || {}), customer_balance_applied: true },
+  });
+  return { customer: updatedCustomer, entry: completedEntry };
+}
+
+async function syncLoyaltySafely(base44: any, params: any) {
+  try {
+    return await postPaymentLoyaltyEarn(base44, params);
+  } catch (error) {
+    console.error(`[loyalty_sync:${params.requestId}]`, error);
+    return { status: 'failed', error: error instanceof Error ? error.message : 'loyalty_sync_failed' };
+  }
+}
+
+async function reverseLoyaltySafely(base44: any, params: any) {
+  try {
+    return await reversePaymentLoyalty(base44, params);
+  } catch (error) {
+    console.error(`[loyalty_reversal:${params.requestId}]`, error);
+    return { status: 'failed', error: error instanceof Error ? error.message : 'loyalty_reversal_failed' };
+  }
 }
 
 async function receive(base44: any, user: any, body: any, requestId: string) {
@@ -122,18 +167,21 @@ async function receive(base44: any, user: any, body: any, requestId: string) {
   const idempotencyKey = String(body.idempotency_key || '').trim();
   if (!idempotencyKey) throw new Error('idempotency_key_required');
   const eventKey = `payment_receipt:${idempotencyKey}`;
+  const payloadHash = `${unitId}:${customerId}:${JSON.stringify(body.order_ids || [])}:${JSON.stringify(body.accounts_receivable_ids || [])}:${JSON.stringify(tenders.map((tender: any) => ({ method: tender.method, amount: Number(tender.amount || 0), confirmed: tender.confirmed, external_reference: tender.external_reference || '' })))}`;
   const existingEvents = await base44.asServiceRole.entities.ProcessedEvent.filter({ event_key: eventKey });
+  if (existingEvents[0] && existingEvents[0].payload_hash !== payloadHash) throw new Error('idempotency_conflict');
+  const existingReceipts = await base44.asServiceRole.entities.PaymentReceipt.filter({ idempotency_key: idempotencyKey }, '-created_date', 2);
   if (existingEvents.some((event: any) => event.status === 'completed')) {
-    const receipts = await base44.asServiceRole.entities.PaymentReceipt.filter({ idempotency_key: idempotencyKey });
-    return { payment_receipt: receipts[0] || null, duplicate: true, request_id: requestId };
+    return { payment_receipt: existingReceipts[0] || null, duplicate: true, request_id: requestId };
   }
+  if (existingReceipts.length > 0) throw new Error('receipt_processing_repair_required');
 
   const event = existingEvents[0] || await base44.asServiceRole.entities.ProcessedEvent.create({
     event_key: eventKey,
     event_type: 'payment_receipt',
     source: 'user_command',
     status: 'processing',
-    payload_hash: `${unitId}:${customerId}:${JSON.stringify(body.order_ids || [])}:${JSON.stringify(body.accounts_receivable_ids || [])}:${plan.amount_tendered}`,
+    payload_hash: payloadHash,
     attempts: 1,
     started_at: new Date().toISOString(),
     unit_id: unitId,
@@ -170,6 +218,10 @@ async function receive(base44: any, user: any, body: any, requestId: string) {
   const paymentIds: string[] = [];
   const allocationIds: string[] = [];
   const receiptTenders: any[] = [];
+  const loyaltyResults: any[] = [];
+  const serviceCount = targets
+    .filter((target) => target.type === 'order')
+    .reduce((sum, target) => sum + Number(target.record?.piece_count || 0), 0);
 
   for (const tender of plan.tenders) {
     const paymentStatus = tender.confirmed ? 'succeeded' : 'pending_confirmation';
@@ -284,6 +336,22 @@ async function receive(base44: any, user: any, body: any, requestId: string) {
       });
     }
 
+    if (tender.confirmed && tender.applied_amount > 0) {
+      loyaltyResults.push(await syncLoyaltySafely(base44, {
+        customerId,
+        unitId,
+        orderIds: receipt.order_ids,
+        receiptId: receipt.id,
+        receiptNumber,
+        paymentId: payment.id,
+        amount: tender.applied_amount,
+        serviceCount,
+        receiptSettled: plan.pending_amount <= 0.01,
+        user,
+        requestId,
+      }));
+    }
+
     receiptTenders.push({
       payment_id: payment.id,
       method: tender.method,
@@ -300,6 +368,14 @@ async function receive(base44: any, user: any, body: any, requestId: string) {
     payment_ids: paymentIds,
     allocation_ids: allocationIds,
     tenders: receiptTenders,
+    metadata: {
+      ...(receipt.metadata || {}),
+      loyalty_sync: {
+        status: loyaltyResults.some((result) => result.status === 'failed') ? 'attention_required' : 'completed',
+        results: loyaltyResults,
+        synchronized_at: now,
+      },
+    },
   });
 
   await base44.asServiceRole.entities.AuditLog.create({
@@ -336,20 +412,22 @@ async function reverse(base44: any, user: any, body: any, requestId: string) {
   const idempotencyKey = String(body.idempotency_key || `reverse:${receipt.id}`).trim();
   const eventKey = `payment_receipt_reversal:${idempotencyKey}`;
   const events = await base44.asServiceRole.entities.ProcessedEvent.filter({ event_key: eventKey });
+  const payloadHash = `${receipt.id}:${reason}`;
+  if (events[0] && events[0].payload_hash !== payloadHash) throw new Error('idempotency_conflict');
   if (events.some((event: any) => event.status === 'completed')) return { payment_receipt: receipt, duplicate: true, request_id: requestId };
   const event = events[0] || await base44.asServiceRole.entities.ProcessedEvent.create({
     event_key: eventKey, event_type: 'payment_receipt_reversal', source: 'user_command', status: 'processing',
-    payload_hash: `${receipt.id}:${reason}`, attempts: 1, started_at: new Date().toISOString(), unit_id: receipt.unit_id,
+    payload_hash: payloadHash, attempts: 1, started_at: new Date().toISOString(), unit_id: receipt.unit_id,
   });
 
   const allocations = await base44.asServiceRole.entities.PaymentAllocation.filter({ payment_receipt_id: receipt.id });
   const payments = await base44.asServiceRole.entities.Payment.filter({ payment_receipt_id: receipt.id });
   const now = new Date().toISOString();
-  let reversedCents = 0;
+  const receiptAllocations = allocations.filter((item: any) => item.allocation_type === 'receipt' && ['posted', 'reversed'].includes(item.status));
+  const reversedCents = receiptAllocations.reduce((sum: number, allocation: any) => sum + toCents(allocation.amount || 0), 0);
 
-  for (const allocation of allocations.filter((item: any) => item.status === 'posted' && item.allocation_type === 'receipt')) {
+  for (const allocation of receiptAllocations.filter((item: any) => item.status === 'posted')) {
     const amountCents = toCents(allocation.amount || 0);
-    reversedCents += amountCents;
     const reversalAllocation = await base44.asServiceRole.entities.PaymentAllocation.create({
       unit_id: receipt.unit_id,
       payment_id: allocation.payment_id,
@@ -385,46 +463,56 @@ async function reverse(base44: any, user: any, body: any, requestId: string) {
     }
   }
 
-  for (const payment of payments.filter((item: any) => item.status === 'succeeded')) {
+  const reversiblePayments = payments.filter((item: any) => ['succeeded', 'refunded'].includes(item.status) && Number(item.applied_amount ?? item.amount ?? 0) > 0);
+  for (const payment of reversiblePayments) {
     const appliedAmount = Number(payment.applied_amount ?? payment.amount ?? 0);
-    const reversalPayment = await base44.asServiceRole.entities.Payment.create({
-      customer_id: receipt.customer_id,
-      order_id: payment.order_id,
-      accounts_receivable_id: payment.accounts_receivable_id,
-      unit_id: receipt.unit_id,
-      provider: payment.provider,
-      status: 'succeeded',
-      amount: -Math.abs(appliedAmount),
-      tendered_amount: -Math.abs(appliedAmount),
-      applied_amount: -Math.abs(appliedAmount),
-      paid_at: now,
-      payment_method: payment.payment_method,
-      idempotency_key: `${idempotencyKey}:${payment.id}`,
-      payment_receipt_id: receipt.id,
-      settlement_status: 'settled',
-      settled_at: now,
-      reversal_payment_id: payment.id,
-      reversal_reason: reason,
-      notes: `Estorno do pagamento ${payment.id}`,
-    });
-    await base44.asServiceRole.entities.Payment.update(payment.id, {
-      status: 'refunded', refunded_amount: appliedAmount, reversed_at: now,
-      reversed_by_user_id: user.id, reversal_payment_id: reversalPayment.id, reversal_reason: reason, settlement_status: 'reversed',
-    });
+    const reversalKey = `${idempotencyKey}:${payment.id}`;
+    const priorReversals = await base44.asServiceRole.entities.Payment.filter({ idempotency_key: reversalKey }, '-created_date', 1);
+    let reversalPayment = priorReversals[0];
+    if (!reversalPayment) {
+      if (payment.status === 'refunded') throw new Error('payment_reversal_repair_conflict');
+      reversalPayment = await base44.asServiceRole.entities.Payment.create({
+        customer_id: receipt.customer_id,
+        order_id: payment.order_id,
+        accounts_receivable_id: payment.accounts_receivable_id,
+        unit_id: receipt.unit_id,
+        provider: payment.provider,
+        status: 'succeeded',
+        amount: -Math.abs(appliedAmount),
+        tendered_amount: -Math.abs(appliedAmount),
+        applied_amount: -Math.abs(appliedAmount),
+        paid_at: now,
+        payment_method: payment.payment_method,
+        idempotency_key: reversalKey,
+        payment_receipt_id: receipt.id,
+        settlement_status: 'settled',
+        settled_at: now,
+        reversal_payment_id: payment.id,
+        reversal_reason: reason,
+        notes: `Estorno do pagamento ${payment.id}`,
+      });
+    }
+    if (payment.status !== 'refunded') {
+      await base44.asServiceRole.entities.Payment.update(payment.id, {
+        status: 'refunded', refunded_amount: appliedAmount, reversed_at: now,
+        reversed_by_user_id: user.id, reversal_payment_id: reversalPayment.id, reversal_reason: reason, settlement_status: 'reversed',
+      });
+    }
 
-    if (payment.payment_method === 'customer_balance' && appliedAmount > 0) {
+    if (payment.payment_method === 'customer_balance') {
       await createCreditEntry(base44, {
         unitId: receipt.unit_id, customerId: receipt.customer_id, signedAmount: appliedAmount,
         entryType: 'refund', receiptId: receipt.id, paymentId: reversalPayment.id, sourceEntryId: payment.id,
         user, reason, idempotencyKey: `${idempotencyKey}:credit:${payment.id}`, requestId,
       });
     }
-    if (payment.payment_method === 'cash' && appliedAmount > 0) {
+    if (payment.payment_method === 'cash') {
       const cashSessionId = body.cash_session_id || receipt.cash_session_id;
       if (!cashSessionId) throw new Error('cash_session_required_for_refund');
       const session = await base44.asServiceRole.entities.CashSession.get(cashSessionId);
       if (!session || session.unit_id !== receipt.unit_id || session.status !== 'open') throw new Error('cash_session_not_open');
-      await base44.asServiceRole.entities.CashMovement.create({
+      const existingMovements = await base44.asServiceRole.entities.CashMovement.filter({ payment_id: reversalPayment.id, movement_type: 'refund' }, '-occurred_at', 1);
+      if (!existingMovements[0]) await base44.asServiceRole.entities.CashMovement.create({
         cash_session_id: session.id, unit_id: receipt.unit_id, movement_type: 'refund', amount: appliedAmount,
         payment_method: 'cash', payment_id: reversalPayment.id, payment_receipt_id: receipt.id,
         customer_id: receipt.customer_id, reason, operator_user_id: user.id, approved_by_user_id: user.id,
@@ -433,9 +521,42 @@ async function reverse(base44: any, user: any, body: any, requestId: string) {
     }
   }
 
+  const loyaltyReversal = await reverseLoyaltySafely(base44, {
+    customerId: receipt.customer_id,
+    receiptId: receipt.id,
+    reason,
+    user,
+    requestId,
+  });
+  const benefitRestorations: any[] = [];
+  for (const orderId of receipt.order_ids || []) {
+    try {
+      const response = await base44.asServiceRole.functions.invoke('manage_order_benefits', {
+        action: 'restore',
+        order_id: orderId,
+        reason,
+        idempotency_key: `${idempotencyKey}:benefits:${orderId}`,
+        actor_user_id: user.id,
+        actor_email: user.email,
+        actor_name: user.full_name || user.display_name,
+        actor_role: user.role,
+        actor_permissions: user.permissions || [],
+        _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN'),
+      });
+      benefitRestorations.push({ order_id: orderId, status: 'completed', restored_value: response?.data?.restored_value || 0 });
+    } catch (error) {
+      console.error(`[benefit_reversal:${requestId}]`, error);
+      benefitRestorations.push({ order_id: orderId, status: 'attention_required', error: error instanceof Error ? error.message : 'benefit_restore_failed' });
+    }
+  }
   const updatedReceipt = await base44.asServiceRole.entities.PaymentReceipt.update(receipt.id, {
     status: 'reversed', reversed_amount: fromCents(reversedCents), reversed_at: now,
     reversed_by_user_id: user.id, reversal_reason: reason,
+    metadata: {
+      ...(receipt.metadata || {}),
+      loyalty_reversal: { ...loyaltyReversal, synchronized_at: now },
+      benefit_restorations: benefitRestorations,
+    },
   });
   await base44.asServiceRole.entities.AuditLog.create({
     action: 'payment', entity_type: 'payment_receipt', entity_id: receipt.id, item_label: receipt.receipt_number,
@@ -445,7 +566,7 @@ async function reverse(base44: any, user: any, body: any, requestId: string) {
   });
   await base44.asServiceRole.entities.ProcessedEvent.update(event.id, {
     status: 'completed', entity_type: 'payment_receipt', entity_id: receipt.id,
-    result: { receipt_id: receipt.id, reversed_amount: fromCents(reversedCents) }, completed_at: now,
+    result: { receipt_id: receipt.id, reversed_amount: fromCents(reversedCents), benefit_restorations: benefitRestorations }, completed_at: now,
   });
   return { payment_receipt: updatedReceipt, reversed_amount: fromCents(reversedCents), request_id: requestId };
 }
@@ -455,16 +576,20 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
+    const body = await req.json();
+    const principal = await authorizeUserOrInternal(base44, req, body, {
+      allowInternal: false,
+      source: 'manage_payment_receipt',
+    });
+    const user = principal.user;
     if (!RECEIPT_ROLES.has(user.role || 'attendant') && !(user.permissions || []).includes('payments.receive')) {
       return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     }
-    const body = await req.json();
     if (body.action === 'receive') return Response.json(await receive(base44, user, body, requestId));
     if (body.action === 'reverse') return Response.json(await reverse(base44, user, body, requestId));
     return Response.json({ error: 'unsupported_action', request_id: requestId }, { status: 400 });
   } catch (error) {
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
     console.error(`[manage_payment_receipt:${requestId}]`, error);
     const message = error instanceof Error ? error.message : 'payment_receipt_failed';
     const clientErrors = new Set([
@@ -472,10 +597,10 @@ Deno.serve(async (req) => {
       'receivable_targets_required', 'cross_unit_receipt_not_allowed', 'cross_customer_receipt_not_allowed',
       'order_and_receivable_cannot_be_paid_together', 'customer_not_found', 'insufficient_customer_balance',
       'invalid_receipt_amount', 'idempotency_key_required', 'non_cash_overpayment_not_allowed', 'change_requires_cash',
-      'cash_session_required', 'cash_session_not_open', 'manager_approval_required', 'reversal_reason_required',
-      'payment_receipt_not_found', 'cash_session_required_for_refund', 'nothing_to_receive',
+      'cash_session_required', 'cash_session_not_open', 'manager_approval_required', 'reversal_reason_required', 'idempotency_conflict', 'customer_credit_repair_conflict',
+      'payment_receipt_not_found', 'cash_session_required_for_refund', 'payment_reversal_repair_conflict', 'receipt_processing_repair_required', 'nothing_to_receive',
     ]);
-    const status = message.startsWith('invalid_tender_amount') || clientErrors.has(message) ? 422 : 500;
+    const status = message === 'receipt_processing_repair_required' ? 409 : message.startsWith('invalid_tender_amount') || clientErrors.has(message) ? 422 : 500;
     return Response.json({ error: message, request_id: requestId }, { status });
   }
 });

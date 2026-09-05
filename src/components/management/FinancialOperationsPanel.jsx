@@ -78,7 +78,13 @@ export default function FinancialOperationsPanel({ payables = [], receivables = 
       onRefresh?.();
     } catch (error) {
       console.error(error);
-      toast.error(error.response?.data?.error === 'confirmation_exceeds_current_balance' ? 'O saldo atual é menor que o pagamento. Revise antes de confirmar.' : 'Não foi possível confirmar o pagamento.');
+      const code = error.response?.data?.error;
+      const message = code === 'confirmation_exceeds_current_balance'
+        ? 'O saldo atual é menor que o pagamento. Revise antes de confirmar.'
+        : code === 'confirmation_processing_repair_required'
+          ? 'A confirmação anterior ficou incompleta. Não tente novamente: encaminhe o pagamento para conciliação administrativa.'
+          : 'Não foi possível confirmar o pagamento.';
+      toast.error(message);
     } finally { setBusyId(null); }
   };
 

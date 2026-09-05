@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import { calculateEarnedPoints, pointsMonetaryValue, validateRedemption, voucherValue, consumePackageBalance, roundPoints } from '../../shared/loyaltyMath.js';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 const VIEW_ROLES = new Set(['super_admin', 'admin', 'manager', 'attendant', 'cashier', 'finance', 'auditor']);
 const MANAGE_ROLES = new Set(['super_admin', 'admin', 'manager']);
@@ -15,10 +16,13 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
-    if (!VIEW_ROLES.has(user.role) && !(user.permissions || []).includes('loyalty.view')) return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     const body = await req.json();
+    const principal = await authorizeUserOrInternal(base44, req, body, {
+      allowInternal: false,
+      source: 'manage_loyalty_crm',
+    });
+    const user = principal.user;
+    if (!VIEW_ROLES.has(user.role) && !(user.permissions || []).includes('loyalty.view')) return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     const action = String(body.action || 'snapshot');
     const now = new Date().toISOString();
 
@@ -141,6 +145,7 @@ Deno.serve(async (req) => {
 
     return Response.json({ error: 'unsupported_action', request_id: requestId }, { status: 422 });
   } catch (error: any) {
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
     const validation = new Set(['invalid_points', 'insufficient_points', 'minimum_redeem_not_reached', 'maximum_redeem_exceeded', 'voucher_not_active', 'voucher_not_started', 'voucher_expired', 'voucher_usage_limit', 'voucher_minimum_order', 'voucher_service_not_found', 'invalid_package_quantity', 'insufficient_package_balance']);
     return Response.json({ error: error?.message || 'loyalty_crm_failed', request_id: requestId }, { status: validation.has(error?.message) ? 422 : 500 });
   }

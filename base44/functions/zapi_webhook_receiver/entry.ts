@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
+import { requireProviderToken, securityErrorResponse } from '../../shared/functionSecurity.js';
 import { classifyConsentResponse, hasActiveConsentRequest } from '../../shared/whatsappConsent.js';
 import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../../shared/dispatchReplyPolicy.js';
 import { hasRecentHumanReply } from '../../shared/humanActivity.js';
@@ -17,41 +18,16 @@ Deno.serve(async (req) => {
     try {
         const base44 = createClientFromRequest(req);
         
-        // Security check (Client-Token)
-        // Note: Secrets will be configured later as requested
-        const clientToken = req.headers.get("Client-Token");
-        const configuredToken = Deno.env.get("ZAPI_SECURITY_TOKEN");
-        
-        // Security logic optimization to prevent 401 logs on valid webhooks
-        const isTokenValid = !configuredToken || clientToken === configuredToken;
-
-        if (!isTokenValid) {
-            let isAdmin = false;
-            // Only attempt auth check if token validation failed
-            if (req.headers.get("cookie") || req.headers.get("authorization")) {
-                try {
-                    const user = await base44.auth.me();
-                    isAdmin = user?.role === 'admin';
-                } catch {
-                    // ignore auth errors
-                }
-            }
-
-            if (!isAdmin) {
-                console.warn("Webhook Security Warning: Invalid Client-Token. Expected:", configuredToken, "Got:", clientToken);
-                // Proceeding anyway to ensure messages arrive. Please configure Z-API Client-Token header to fix this warning.
-                // return Response.json({ error: "Unauthorized" }, { status: 401 });
-            }
-        }
-
+        // O webhook só processa eventos assinados pelo Client-Token configurado na Z-API.
+        requireProviderToken(req, 'ZAPI_SECURITY_TOKEN', ['client-token']);
         const payload = await req.json();
         
         console.log("Webhook received payload keys:", JSON.stringify(Object.keys(payload)));
-        console.log("Webhook phone:", payload.phone, "messageId:", payload.messageId, "fromMe:", payload.fromMe);
+        console.log('Webhook message received.', { has_message_id: Boolean(payload.messageId), from_me: Boolean(payload.fromMe) });
         
         // Basic validation of Z-API payload
         if (!payload.phone || !payload.messageId) {
-            console.log("Ignored: missing phone or messageId. Full payload:", JSON.stringify(payload).substring(0, 500));
+            console.log('Ignored webhook with missing required identifiers.');
             return Response.json({ status: "ignored" });
         }
 
@@ -71,7 +47,7 @@ Deno.serve(async (req) => {
             (typeof payload.phone === 'string' &&
                 (payload.phone.includes('@g.us') || payload.phone.includes('-group') || payload.phone.includes('-')));
         if (isGroupMessage) {
-            console.log("Ignored: group message (assistant is 1-on-1 only). phone:", payload.phone, "messageId:", payload.messageId);
+            console.log('Ignored group message.', { has_message_id: Boolean(payload.messageId) });
             return Response.json({ status: "ignored_group" });
         }
 
@@ -88,7 +64,7 @@ Deno.serve(async (req) => {
         // These webhooks arrive with no real content and should not create messages.
         const phoneDigits = (payload.phone || '').replace(/\D/g, '');
         if (phoneDigits.length > 13 && !hasRealContent) {
-            console.log("Ignored: LID technical webhook with no content. phone:", payload.phone, "messageId:", payload.messageId);
+            console.log('Ignored provider LID webhook without content.', { has_message_id: Boolean(payload.messageId) });
             return Response.json({ status: "ignored_lid_no_content" });
         }
 
@@ -96,7 +72,7 @@ Deno.serve(async (req) => {
         // bouncing back as RECEIVEDCALLBACK. They are NOT customer replies, just delivery confirmations.
         const isTemplateEcho = !!(payload.hydratedButtons || payload.templateId || payload.hydratedTemplate || payload.buttonsMessage);
         if (isTemplateEcho) {
-            console.log("Ignored: template/campaign echo (our own outgoing template). messageId:", payload.messageId, "phone:", payload.phone);
+            console.log('Ignored template/campaign echo.', { has_message_id: Boolean(payload.messageId) });
             return Response.json({ status: "ignored_template_echo" });
         }
 
@@ -157,10 +133,10 @@ Deno.serve(async (req) => {
                 if (real) { recovered = real; break; }
             }
             if (recovered) {
-                console.log(`Recovered real phone ${recovered} from LID payload (original phone: ${payload.phone})`);
+                console.log('Recovered customer phone from provider LID metadata.');
                 phone = recovered;
             } else {
-                console.log(`Could not recover real phone from LID payload: ${payload.phone}. Will match by name to avoid duplicates.`);
+                console.log('Could not recover phone from provider LID metadata; attempting non-phone matching.');
             }
         }
 
@@ -226,11 +202,11 @@ Deno.serve(async (req) => {
                         ).toString().trim();
                         if (fetchedName && !checkInvalidName(fetchedName)) {
                             rawName = fetchedName;
-                            console.log("Recovered contact name from Z-API:", fetchedName, "via", url);
+                            console.log('Recovered contact name from provider metadata.');
                             break;
                         }
                     } catch (err) {
-                        console.warn("Failed to fetch contact name from Z-API:", url, err);
+                        console.warn('Failed to fetch contact name from provider.', err?.message || 'provider_lookup_failed');
                     }
                 }
             }
@@ -283,7 +259,7 @@ Deno.serve(async (req) => {
             const nameLower = senderName.toLowerCase();
             customer = recentCustomers.find(c => (c.full_name || '').trim().toLowerCase() === nameLower);
             if (customer) {
-                console.log(`Matched existing customer by name "${senderName}" to avoid LID duplicate.`);
+                console.log('Matched existing customer by normalized name to avoid LID duplicate.');
             }
         }
 
@@ -305,7 +281,7 @@ Deno.serve(async (req) => {
                     if (priorConv?.customer_id) {
                         customer = await base44.asServiceRole.entities.Customer.get(priorConv.customer_id);
                         if (customer) {
-                            console.log(`Strategy F: reconnected LID ${lidId} to existing customer "${customer.full_name}" via prior conversation.`);
+                            console.log('Reconnected provider LID to an existing customer via prior conversation.');
                         }
                     }
                 }
@@ -317,7 +293,7 @@ Deno.serve(async (req) => {
         // certa pelo zapi_sender. Criar um cliente/conversa novos só geraria o "Novo Cliente"
         // duplicado que estamos corrigindo. Apenas ignoramos o eco.
         if (!customer && phoneIsLid && payload.fromMe) {
-            console.log(`Ignored: 'fromMe' LID echo with no matching customer (already logged by sender). phone: ${payload.phone}`);
+            console.log("Ignored unmatched 'fromMe' LID echo already handled by sender.");
             return Response.json({ status: 'ignored_fromme_lid_echo' });
         }
 
@@ -454,7 +430,7 @@ Deno.serve(async (req) => {
              text = payload.text?.message || payload.text || '';
         }
 
-        console.log(`Determined Type: ${type}, MediaURL: ${mediaUrl ? 'Yes' : 'No'}, Text: ${text?.substring(0, 20)}...`);
+        console.log('Inbound message classified.', { type, has_media: Boolean(mediaUrl), has_text: Boolean(text) });
 
         const normalizedText = (text || '').trim().toLowerCase();
         const cleanText = normalizedText.replace(/[^a-z0-9]/g, '');
@@ -519,7 +495,8 @@ Deno.serve(async (req) => {
                     message: accepted
                         ? 'Consentimento registrado. Você poderá receber promoções e novidades da 5àsec pelo WhatsApp. Para cancelar, responda SAIR.'
                         : 'Tudo certo. Seu consentimento não foi ativado e você não receberá campanhas promocionais.',
-                    conversation_id: conversation.id
+                    conversation_id: conversation.id,
+                    _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 });
             } catch (err) {
                 console.error('Failed to send consent confirmation:', err);
@@ -541,7 +518,8 @@ Deno.serve(async (req) => {
                 await base44.asServiceRole.functions.invoke('zapi_sender', {
                     phone,
                     message: 'Pronto! Você foi removido da nossa base de disparos e não receberá mais mensagens automáticas.',
-                    conversation_id: conversation.id
+                    conversation_id: conversation.id,
+                    _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 });
             } catch (err) {
                 console.error('Failed to send opt-out confirmation:', err);
@@ -551,7 +529,7 @@ Deno.serve(async (req) => {
         }
 
         if (!payload.fromMe && type === 'TEXT' && (shouldIgnoreSoloMessage || isEmojiOnly)) {
-            console.log(`Skipping orchestrator at webhook level for ignored solo text: ${text}`);
+            console.log('Skipping orchestrator for ignored standalone control text.');
             return Response.json({ status: 'ignored_solo_text', messageId: message.id });
         }
 
@@ -571,7 +549,8 @@ Deno.serve(async (req) => {
                 base44.asServiceRole.functions.invoke('zapi_media_downloader', {
                     message_id: message.id,
                     media_url: mediaUrl,
-                    media_type: type
+                    media_type: type,
+                    _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 }).catch((err) => {
                     console.error("Media download failed (background):", err);
                 })
@@ -621,7 +600,8 @@ Deno.serve(async (req) => {
                 message_id: message.id,
                 customer_id: customer.id,
                 payload: payload,
-                downloaded_file_url: downloadedFileUrl
+                downloaded_file_url: downloadedFileUrl,
+                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
             }).catch((orchError) => {
                 console.error("Orchestrator failed (background):", orchError);
             })
@@ -630,7 +610,7 @@ Deno.serve(async (req) => {
         return Response.json({ status: "success", messageId: message.id });
 
     } catch (error) {
-        console.error("Error in zapi_webhook_receiver:", error);
-        return Response.json({ error: error.message }, { status: 500 });
+        console.error("Error in zapi_webhook_receiver:", error?.code || error?.message || error);
+        return securityErrorResponse(error);
     }
 });

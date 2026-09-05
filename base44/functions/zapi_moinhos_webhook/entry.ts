@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.38';
+import { requireProviderToken, securityErrorResponse } from '../../shared/functionSecurity.js';
 import { classifyConsentResponse, hasActiveConsentRequest } from '../../shared/whatsappConsent.js';
 import { buildPromotionsOfferMessage, getActivePromotions } from '../../shared/promotionFlow.js';
 import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../../shared/dispatchReplyPolicy.js';
@@ -24,16 +25,10 @@ export default async function(req) {
     try {
         const base44 = createClientFromRequest(req);
 
-        const clientToken = req.headers.get("Client-Token");
-        const configuredToken = Deno.env.get("ZAPI_MOINHOS_SECURITY_TOKEN");
-        const isTokenValid = !configuredToken || clientToken === configuredToken;
-        if (!isTokenValid) {
-            console.warn("Webhook Moinhos: Client-Token inválido. Prosseguindo para não perder mensagens.");
-        }
-
+        requireProviderToken(req, 'ZAPI_MOINHOS_SECURITY_TOKEN', ['client-token']);
         const payload = await req.json();
         console.log("Webhook Moinhos payload keys:", JSON.stringify(Object.keys(payload)));
-        console.log("Webhook Moinhos phone:", payload.phone, "messageId:", payload.messageId, "fromMe:", payload.fromMe);
+        console.log('Webhook Moinhos message received.', { has_message_id: Boolean(payload.messageId), from_me: Boolean(payload.fromMe) });
 
         if (!payload.phone || !payload.messageId) {
             return Response.json({ status: "ignored" });
@@ -132,7 +127,7 @@ export default async function(req) {
                             break;
                         }
                     } catch (err) {
-                        console.warn("Failed to fetch contact name (Moinhos):", url, err);
+                        console.warn('Failed to fetch contact name from provider (Moinhos).', err?.message || 'provider_lookup_failed');
                     }
                 }
             }
@@ -375,7 +370,8 @@ export default async function(req) {
             await base44.asServiceRole.functions.invoke('zapi_moinhos_sender', {
                 phone,
                 message: 'Claro! Vamos fazer um orçamento normal 😊 Você prefere enviar fotos das peças ou listar por texto quais são as peças e as quantidades?',
-                conversation_id: conversation.id
+                conversation_id: conversation.id,
+                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
             });
             return Response.json({ status: 'regular_quote_started', messageId: message.id });
         }
@@ -435,7 +431,8 @@ export default async function(req) {
                 await base44.asServiceRole.functions.invoke('zapi_moinhos_sender', {
                     phone,
                     message: responseText,
-                    conversation_id: conversation.id
+                    conversation_id: conversation.id,
+                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 });
             } catch (err) {
                 console.error('Failed to send consent confirmation and promotions (Moinhos):', err);
@@ -456,7 +453,8 @@ export default async function(req) {
                 await base44.asServiceRole.functions.invoke('zapi_moinhos_sender', {
                     phone,
                     message: 'Pronto! Você foi removido da nossa base de disparos e não receberá mais mensagens automáticas.',
-                    conversation_id: conversation.id
+                    conversation_id: conversation.id,
+                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 });
             } catch (err) {
                 console.error('Failed to send opt-out confirmation (Moinhos):', err);
@@ -477,7 +475,8 @@ export default async function(req) {
                 base44.asServiceRole.functions.invoke('zapi_media_downloader', {
                     message_id: message.id,
                     media_url: mediaUrl,
-                    media_type: type
+                    media_type: type,
+                    _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 }).catch((err) => console.error("Media download failed (Moinhos, background):", err))
             );
         }
@@ -519,7 +518,7 @@ export default async function(req) {
         return Response.json({ status: "success", messageId: message.id });
 
     } catch (error) {
-        console.error("Erro no zapi_moinhos_webhook:", error);
-        return Response.json({ error: error.message }, { status: 500 });
+        console.error("Erro no zapi_moinhos_webhook:", error?.code || error?.message || error);
+        return securityErrorResponse(error);
     }
 }

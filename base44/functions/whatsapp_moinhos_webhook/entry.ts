@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { requireMetaSignature, securityErrorResponse, SecurityError } from '../../shared/functionSecurity.js';
 import { classifyConsentResponse, hasActiveConsentRequest } from '../../shared/whatsappConsent.js';
 import { buildPromotionsOfferMessage, getActivePromotions } from '../../shared/promotionFlow.js';
 
@@ -21,19 +22,22 @@ Deno.serve(async (req) => {
             const token = url.searchParams.get('hub.verify_token');
             const challenge = url.searchParams.get('hub.challenge');
 
+            if (!VERIFY_TOKEN) throw new SecurityError('Token de verificação Meta não configurado.', 503, 'META_VERIFY_TOKEN_NOT_CONFIGURED');
             if (mode === 'subscribe' && token === VERIFY_TOKEN) {
                 console.log("Webhook Moinhos verificado com sucesso.");
                 return new Response(challenge, { status: 200 });
             }
-            console.warn("Falha na verificação do webhook Moinhos. token recebido:", token);
+            console.warn('Falha na verificação do webhook Moinhos.');
             return new Response("Forbidden", { status: 403 });
         }
 
         // ====================================================================
         // 2. RECEBIMENTO DE MENSAGENS (POST)
         // ====================================================================
-        const payload = await req.json();
-        console.log("Webhook Moinhos payload:", JSON.stringify(payload).substring(0, 800));
+        const rawBody = await req.text();
+        await requireMetaSignature(req, rawBody, 'WHATSAPP_MOINHOS_APP_SECRET');
+        const payload = JSON.parse(rawBody);
+        console.log('Webhook Moinhos payload recebido.', { entries: payload.entry?.length || 0 });
 
         const entry = payload.entry?.[0];
         const change = entry?.changes?.[0];
@@ -260,7 +264,8 @@ Deno.serve(async (req) => {
             await base44.asServiceRole.functions.invoke('whatsapp_moinhos_sender', {
                 phone,
                 message: responseText,
-                conversation_id: conversation.id
+                conversation_id: conversation.id,
+                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
             });
             return Response.json({ status: accepted ? 'consent_accepted_promotions_sent' : 'consent_declined', messageId: message.id });
         }
@@ -278,7 +283,8 @@ Deno.serve(async (req) => {
             await base44.asServiceRole.functions.invoke('whatsapp_moinhos_sender', {
                 phone,
                 message: 'Pronto! Você foi removido da nossa base de disparos e não receberá mais mensagens automáticas.',
-                conversation_id: conversation.id
+                conversation_id: conversation.id,
+                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
             });
             return Response.json({ status: 'opt_out_success', messageId: message.id });
         }
@@ -311,7 +317,8 @@ Deno.serve(async (req) => {
                         conversation_id: conversation.id,
                         message_id: message.id,
                         customer_id: customer.id,
-                        payload: { ...payload, source: 'whatsapp_moinhos', phone }
+                        payload: { ...payload, source: 'whatsapp_moinhos', phone },
+                        _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                     });
                 } catch (orchError) {
                     console.error("Orchestrator falhou (Moinhos, background):", orchError);
@@ -322,7 +329,7 @@ Deno.serve(async (req) => {
         return Response.json({ status: "success", messageId: message.id });
 
     } catch (error) {
-        console.error("Erro no whatsapp_moinhos_webhook:", error);
-        return Response.json({ error: error.message }, { status: 500 });
+        console.error("Erro no whatsapp_moinhos_webhook:", error?.code || error?.message || error);
+        return securityErrorResponse(error);
     }
 });

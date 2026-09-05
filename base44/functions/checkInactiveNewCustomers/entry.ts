@@ -1,9 +1,13 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { requireInternalRequest, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 Deno.serve(async (req) => {
     try {
         const base44 = createClientFromRequest(req);
-        
+        let payload = {};
+        try { payload = await req.json(); } catch { payload = {}; }
+        requireInternalRequest(req, payload);
+
         // Get all NEW_CUSTOMER cards
         const cards = await base44.asServiceRole.entities.CrmCard.filter({ 
             pipeline_type: 'NEW_CUSTOMER' 
@@ -44,6 +48,7 @@ Deno.serve(async (req) => {
         });
 
     } catch (error) {
-        return Response.json({ error: error.message }, { status: 500 });
+        console.error('Error in checkInactiveNewCustomers:', error?.code || error?.message || error);
+        return securityErrorResponse(error);
     }
 });

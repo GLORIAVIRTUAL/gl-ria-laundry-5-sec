@@ -1,3 +1,4 @@
+import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 
 const APPROVER_ROLES = new Set(['super_admin', 'admin', 'manager', 'finance']);
@@ -16,6 +17,7 @@ Deno.serve(async (req) => {
 
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
+    await enforceExistingUserSecurity(base44, req, user, { source: 'manage_accounts_payable' });
     if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
 
     const body = await req.json();

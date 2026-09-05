@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Banknote, CheckCircle2, CreditCard, Landmark, Loader2, Plus, RotateCcw, Trash2, WalletCards } from 'lucide-react';
+import { Banknote, CheckCircle2, CreditCard, Landmark, Loader2, PackageCheck, Plus, RotateCcw, TicketPercent, Trash2, WalletCards } from 'lucide-react';
 import { toast } from 'sonner';
 import { base44 } from '@/api/base44Client';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -36,14 +36,21 @@ const newTender = (method, amount = '') => ({
 export default function PaymentReceiptDialog({ open, onOpenChange, order, receivable, customer, cashSessions = [], onProcessed }) {
   const [tenders, setTenders] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [benefitBusy, setBenefitBusy] = useState(false);
   const [notes, setNotes] = useState('');
+  const [benefitOrder, setBenefitOrder] = useState(null);
+  const [benefits, setBenefits] = useState({ vouchers: [], packages: [], service_quantities: {}, applied: { vouchers: [], packages: [] } });
+  const [voucherCode, setVoucherCode] = useState('');
+  const [packageChoice, setPackageChoice] = useState('');
+  const [packageQuantity, setPackageQuantity] = useState('1');
+  const effectiveOrder = benefitOrder || order;
   const amountDue = useMemo(() => {
     if (receivable) return Math.max(0, Number(receivable.open_amount || 0));
-    if (order) return Math.max(0, Number(order.total_amount || 0) - Number(order.paid_amount || 0));
+    if (effectiveOrder) return Math.max(0, Number(effectiveOrder.total_amount || 0) - Number(effectiveOrder.paid_amount || 0));
     return 0;
-  }, [order, receivable]);
-  const unitId = receivable?.unit_id || order?.unit_id || customer?.unit_id;
-  const customerId = receivable?.customer_id || order?.customer_id || customer?.id;
+  }, [effectiveOrder, receivable]);
+  const unitId = receivable?.unit_id || effectiveOrder?.unit_id || customer?.unit_id;
+  const customerId = receivable?.customer_id || effectiveOrder?.customer_id || customer?.id;
   const activeCashSession = cashSessions.find((session) => session.unit_id === unitId && session.status === 'open');
 
   useEffect(() => {
@@ -53,11 +60,78 @@ export default function PaymentReceiptDialog({ open, onOpenChange, order, receiv
     }
   }, [open, amountDue]);
 
+  useEffect(() => {
+    if (!open) return;
+    setBenefitOrder(order || null);
+    setVoucherCode('');
+    setPackageChoice('');
+    setPackageQuantity('1');
+    if (!order?.id || Number(order.paid_amount || 0) > 0) {
+      setBenefits({ vouchers: [], packages: [], service_quantities: {}, applied: { vouchers: [], packages: [] } });
+      return;
+    }
+    base44.functions.invoke('manage_order_benefits', { action: 'preview', order_id: order.id })
+      .then((response) => setBenefits(response.data || response))
+      .catch((error) => {
+        console.error(error);
+        toast.error('Não foi possível carregar vouchers e pacotes deste pedido.');
+      });
+  }, [open, order]);
+
   const tenderedTotal = round(tenders.reduce((sum, tender) => sum + Number(tender.amount || 0), 0));
   const changeAmount = Math.max(0, round(tenderedTotal - amountDue));
   const pendingTotal = round(tenders.filter((tender) => !tender.confirmed && !['cash', 'customer_balance'].includes(tender.method)).reduce((sum, tender) => sum + Number(tender.amount || 0), 0));
   const immediateApplied = Math.max(0, round(Math.min(amountDue, tenderedTotal - pendingTotal)));
   const remainingAfterConfirmed = Math.max(0, round(amountDue - immediateApplied));
+
+  const packageOptions = useMemo(() => benefits.packages.flatMap((pkg) => (pkg.service_balances || [])
+    .filter((item) => Number(item.remaining_quantity || 0) > 0 && Number(benefits.service_quantities?.[item.service_id] || 0) > 0)
+    .map((item) => ({ value: `${pkg.id}:${item.service_id}`, packageId: pkg.id, serviceId: item.service_id, label: `${pkg.name} · ${item.service_name || item.service_id} (${item.remaining_quantity} disponível)` }))), [benefits]);
+
+  const refreshBenefits = async (currentOrder) => {
+    const response = await base44.functions.invoke('manage_order_benefits', { action: 'preview', order_id: currentOrder.id });
+    setBenefits(response.data || response);
+  };
+
+  const applyVoucher = async () => {
+    if (!effectiveOrder?.id || !voucherCode.trim()) return toast.error('Informe o código do voucher.');
+    setBenefitBusy(true);
+    try {
+      const response = await base44.functions.invoke('manage_order_benefits', { action: 'apply_voucher', order_id: effectiveOrder.id, code: voucherCode.trim(), idempotency_key: crypto.randomUUID() });
+      const updatedOrder = response.data?.order;
+      setBenefitOrder(updatedOrder);
+      setVoucherCode('');
+      if (updatedOrder) await refreshBenefits(updatedOrder);
+      toast.success(`Voucher aplicado: ${money(response.data?.value || 0)}.`);
+    } catch (error) {
+      console.error(error);
+      const code = error.response?.data?.error;
+      const messages = { voucher_not_found: 'Voucher não encontrado para este cliente/unidade.', voucher_expired: 'Voucher expirado.', voucher_usage_limit: 'Voucher já utilizado.', voucher_minimum_order: 'O pedido não atingiu o valor mínimo do voucher.', benefit_requires_unpaid_order: 'Benefícios só podem ser aplicados antes do primeiro pagamento.' };
+      toast.error(messages[code] || 'Não foi possível aplicar o voucher.');
+    } finally {
+      setBenefitBusy(false);
+    }
+  };
+
+  const applyPackage = async () => {
+    const selected = packageOptions.find((item) => item.value === packageChoice);
+    if (!effectiveOrder?.id || !selected) return toast.error('Selecione um serviço de pacote.');
+    setBenefitBusy(true);
+    try {
+      const response = await base44.functions.invoke('manage_order_benefits', { action: 'apply_package', order_id: effectiveOrder.id, customer_package_id: selected.packageId, service_id: selected.serviceId, quantity: Number(packageQuantity || 0), idempotency_key: crypto.randomUUID() });
+      const updatedOrder = response.data?.order;
+      setBenefitOrder(updatedOrder);
+      if (updatedOrder) await refreshBenefits(updatedOrder);
+      toast.success(`Pacote aplicado: ${money(response.data?.value || 0)}.`);
+    } catch (error) {
+      console.error(error);
+      const code = error.response?.data?.error;
+      const messages = { package_quantity_exceeds_order_service: 'A quantidade excede os serviços deste pedido.', package_value_exceeds_order_balance: 'O valor selecionado do pacote excede o saldo do pedido. Reduza a quantidade ou remova outro benefício.', insufficient_package_balance: 'Saldo insuficiente no pacote.', package_not_active: 'O pacote não está ativo.', benefit_requires_unpaid_order: 'Benefícios só podem ser aplicados antes do primeiro pagamento.' };
+      toast.error(messages[code] || 'Não foi possível aplicar o pacote.');
+    } finally {
+      setBenefitBusy(false);
+    }
+  };
 
   const updateTender = (id, patch) => setTenders((current) => current.map((tender) => tender.id === id ? { ...tender, ...patch } : tender));
   const removeTender = (id) => setTenders((current) => current.filter((tender) => tender.id !== id));
@@ -83,7 +157,7 @@ export default function PaymentReceiptDialog({ open, onOpenChange, order, receiv
         action: 'receive',
         unit_id: unitId,
         customer_id: customerId,
-        order_ids: order ? [order.id] : [],
+        order_ids: effectiveOrder ? [effectiveOrder.id] : [],
         accounts_receivable_ids: receivable ? [receivable.id] : [],
         cash_session_id: activeCashSession?.id,
         idempotency_key: crypto.randomUUID(),
@@ -113,6 +187,7 @@ export default function PaymentReceiptDialog({ open, onOpenChange, order, receiv
         non_cash_overpayment_not_allowed: 'Meios eletrônicos não podem exceder o saldo devido.',
         change_requires_cash: 'Troco somente é permitido em dinheiro.',
         order_and_receivable_cannot_be_paid_together: 'Não selecione o pedido e seu título ao mesmo tempo.',
+        receipt_processing_repair_required: 'O recebimento anterior ficou incompleto. Não tente novamente: revise o recibo existente ou solicite conciliação administrativa.',
       };
       toast.error(messages[code] || 'Não foi possível registrar o recebimento.');
     } finally {
@@ -126,6 +201,21 @@ export default function PaymentReceiptDialog({ open, onOpenChange, order, receiv
         <DialogHeader>
           <div className="flex items-center gap-3"><div className="rounded-2xl bg-emerald-500/15 p-2.5 text-emerald-300"><WalletCards className="h-5 w-5" /></div><div><DialogTitle>Receber pagamento</DialogTitle><DialogDescription className="text-white/50">Combine meios, receba parcialmente e mantenha cada aplicação auditável.</DialogDescription></div></div>
         </DialogHeader>
+
+        {effectiveOrder && Number(effectiveOrder.paid_amount || 0) <= 0 && (
+          <div className="grid gap-4 rounded-3xl border border-violet-400/15 bg-violet-500/[0.06] p-4 lg:grid-cols-2">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-violet-200"><TicketPercent className="h-4 w-4" />Aplicar voucher antes do pagamento</div>
+              <div className="flex gap-2"><Input value={voucherCode} onChange={(event) => setVoucherCode(event.target.value.toUpperCase())} placeholder="Código do voucher" className="border-white/10 bg-black/20" /><Button type="button" variant="outline" onClick={applyVoucher} disabled={benefitBusy || !voucherCode.trim()} className="border-violet-400/25 text-violet-100">Aplicar</Button></div>
+              {benefits.applied?.vouchers?.filter((item) => item.status === 'applied').map((item) => <p key={item.idempotency_key} className="text-xs text-emerald-300">{item.code}: -{money(item.value)}</p>)}
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-cyan-200"><PackageCheck className="h-4 w-4" />Consumir pacote vinculado</div>
+              <div className="grid gap-2 sm:grid-cols-[1fr_88px_auto]"><select value={packageChoice} onChange={(event) => setPackageChoice(event.target.value)} className="h-10 rounded-md border border-white/10 bg-black/25 px-3 text-sm text-white"><option value="">Selecione o serviço</option>{packageOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><Input type="number" min="1" step="1" value={packageQuantity} onChange={(event) => setPackageQuantity(event.target.value)} className="border-white/10 bg-black/20" /><Button type="button" variant="outline" onClick={applyPackage} disabled={benefitBusy || !packageChoice} className="border-cyan-400/25 text-cyan-100">Aplicar</Button></div>
+              {benefits.applied?.packages?.filter((item) => item.status === 'applied').map((item) => <p key={item.idempotency_key} className="text-xs text-emerald-300">Pacote aplicado: -{money(item.value)} ({item.quantity} serviço)</p>)}
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-4">
           <Summary label="Saldo devido" value={money(amountDue)} tone="text-white" />

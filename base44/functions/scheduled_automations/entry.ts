@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
+import { requireInternalRequest, securityErrorResponse, SecurityError } from '../../shared/functionSecurity.js';
 
 Deno.serve(async (req) => {
     try {
@@ -14,7 +15,11 @@ Deno.serve(async (req) => {
             // No body provided
         }
 
-        const type = payload.type || 'SLA_CHECK'; 
+        requireInternalRequest(req, payload);
+        const type = payload.type || 'SLA_CHECK';
+        if (!['SLA_CHECK', 'DAILY_JOBS', 'CSAT'].includes(type)) {
+            throw new SecurityError('Tipo de automação inválido.', 400, 'INVALID_AUTOMATION_TYPE');
+        }
 
         console.log(`Running automation: ${type}`);
 
@@ -70,7 +75,8 @@ Deno.serve(async (req) => {
                                 await base44.asServiceRole.functions.invoke('zapi_sender', {
                                     phone: customer.phones[0],
                                     message: `Parabéns ${customer.full_name}! 🎂\nA 5àsec deseja um feliz aniversário! Ganhe 10% de desconto hoje!`,
-                                    conversation_id: null // System message, maybe no convo id or create one?
+                                    conversation_id: null,
+                                    _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                                 });
                                 console.log(`Birthday message sent to ${customer.email}`);
                             }
@@ -89,7 +95,8 @@ Deno.serve(async (req) => {
                              await base44.asServiceRole.functions.invoke('zapi_sender', {
                                 phone: customer.phones[0],
                                 message: `Olá ${customer.full_name}, faz tempo que não te vemos! Que tal renovar suas roupas com a gente?`,
-                                conversation_id: null
+                                conversation_id: null,
+                                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                             });
                             
                             // Create Re-engagement CRM Card if needed
@@ -136,7 +143,8 @@ Deno.serve(async (req) => {
                          await base44.asServiceRole.functions.invoke('zapi_sender', {
                             phone: customer.phones[0],
                             message: `Olá! Como foi sua experiência com o pedido #${order.ticket_number || order.id}? Responda de 0 a 10.`,
-                            conversation_id: null
+                            conversation_id: null,
+                            _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                         });
                         console.log(`CSAT sent for order ${order.id}`);
                      }
@@ -147,7 +155,7 @@ Deno.serve(async (req) => {
         return Response.json({ status: "success", type_ran: type });
 
     } catch (error) {
-        console.error("Error in scheduled_automations:", error);
-        return Response.json({ error: error.message }, { status: 500 });
+        console.error("Error in scheduled_automations:", error?.code || error?.message || error);
+        return securityErrorResponse(error);
     }
 });

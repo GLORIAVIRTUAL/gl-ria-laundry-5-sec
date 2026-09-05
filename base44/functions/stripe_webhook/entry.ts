@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 import Stripe from 'npm:stripe@^14.0.0';
+import { postPaymentLoyaltyEarn } from '../../shared/loyaltySettlement.js';
 
 function orderTicket(referenceId: string) {
   return `ORD-${referenceId.slice(-8).toUpperCase()}`;
@@ -230,11 +231,35 @@ Deno.serve(async (req) => {
       success: true,
     });
 
+    let loyaltyResult: any = { status: 'skipped', reason: 'payment_record_not_found' };
+    if (payment && customerId) {
+      try {
+        loyaltyResult = await postPaymentLoyaltyEarn(base44, {
+          customerId,
+          unitId,
+          orderIds: order?.id ? [order.id] : [],
+          receiptId: payment.payment_receipt_id,
+          paymentId: payment.id,
+          amount: Number(payment.amount || object.amount_total || object.amount_received || 0) / (payment.amount ? 1 : 100),
+          serviceCount: Number(order?.piece_count || 0),
+          receiptSettled: true,
+          user: { id: 'stripe_webhook', role: 'system' },
+          requestId,
+        });
+      } catch (loyaltyError) {
+        console.error(`[stripe_webhook:${requestId}] loyalty_sync_failed`, loyaltyError);
+        loyaltyResult = { status: 'failed', error: loyaltyError instanceof Error ? loyaltyError.message : 'loyalty_sync_failed' };
+      }
+      await base44.asServiceRole.entities.Payment.update(payment.id, {
+        metadata: { ...(payment.metadata || {}), loyalty_sync: { ...loyaltyResult, synchronized_at: new Date().toISOString() } },
+      });
+    }
+
     await markEvent(base44, processedEvent, 'completed', {
       entity_type: order ? 'order' : 'payment',
       entity_id: order?.id || payment?.id,
       unit_id: unitId,
-      result: { payment_id: payment?.id, order_id: order?.id, quote_id: quote?.id },
+      result: { payment_id: payment?.id, order_id: order?.id, quote_id: quote?.id, loyalty_sync_status: loyaltyResult.status },
     });
 
     try {
@@ -244,6 +269,7 @@ Deno.serve(async (req) => {
           await base44.asServiceRole.functions.invoke('zapi_sender', {
             phone: customer.phones[0],
             message: `✅ *Pagamento confirmado*\n\nOlá ${String(customer.full_name || 'cliente').split(' ')[0]}, o pagamento do pedido #${order.ticket_number || order.id.slice(0, 8)} foi confirmado.`,
+            _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN'),
           });
         }
       }

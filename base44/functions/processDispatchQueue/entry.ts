@@ -1,11 +1,15 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.40';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 Deno.serve(async (req) => {
   try {
+    if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed' }, { status: 405 });
     const base44 = createClientFromRequest(req);
-    // Permite chamada interna (service role, ex: disparo instantâneo) e admins.
-    const user = await base44.auth.me().catch(() => null);
-    if (user && user.role !== 'admin') return Response.json({ error: 'Forbidden' }, { status: 403 });
+    const body = await req.json().catch(() => ({}));
+    const principal = await authorizeUserOrInternal(base44, req, body, { source: 'processDispatchQueue' });
+    if (principal.kind === 'user' && !['super_admin', 'admin'].includes(principal.role)) {
+      return Response.json({ error: 'forbidden' }, { status: 403 });
+    }
 
     const now = new Date();
     const queued = await base44.asServiceRole.entities.DispatchQueue.filter({ status: 'queued' }, 'scheduled_at', 200);
@@ -28,10 +32,11 @@ Deno.serve(async (req) => {
         const response = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'client-token': clientToken },
-          body: JSON.stringify(item.image_url ? { phone: item.phone, image: item.image_url, caption: finalMessage } : { phone: item.phone, message: finalMessage })
+          body: JSON.stringify(item.image_url ? { phone: item.phone, image: item.image_url, caption: finalMessage } : { phone: item.phone, message: finalMessage }),
+          signal: AbortSignal.timeout(15000)
         });
         const providerResult = await response.json();
-        if (!response.ok) throw new Error(providerResult?.message || `Falha Z-API ${response.status}`);
+        if (!response.ok) throw new Error(`Falha Z-API (${response.status})`);
 
         const source = item.sender === 'moinhos' ? 'zapi_moinhos' : 'zapi_main';
         const conversations = await base44.asServiceRole.entities.Conversation.filter({ customer_id: item.customer_id, channel: 'WHATSAPP' }, '-created_date', 20);
@@ -100,7 +105,8 @@ Deno.serve(async (req) => {
 
     return Response.json({ status: 'success', results });
   } catch (error) {
-    console.error('Error in processDispatchQueue:', error);
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
+    console.error('Error in processDispatchQueue:', error?.message || error);
     return Response.json({ error: error.message }, { status: 500 });
   }
 });

@@ -1,6 +1,8 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import { loadLaundryPricingCatalog, priceGarmentItems } from '../../shared/laundryPricing.js';
 import { toCents, fromCents } from '../../shared/paymentMath.js';
+import { evaluateCommercialAdjustment, selectCommercialApprovalPolicy } from '../../shared/commercialApproval.js';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 const ROLES = new Set(['super_admin', 'admin', 'manager', 'cashier', 'attendant']);
 const MANAGER_ROLES = new Set(['super_admin', 'admin', 'manager']);
@@ -60,13 +62,20 @@ async function createVersion(base44: any, quote: any, user: any, changeType: str
   return version;
 }
 
-function validateAdjustment(user: any, subtotalCents: number, discountCents: number, additionCents: number, reason: string) {
-  if (discountCents < 0 || additionCents < 0 || discountCents > subtotalCents) throw new Error('invalid_adjustment');
-  if ((discountCents > 0 || additionCents > 0) && reason.trim().length < 8) throw new Error('adjustment_reason_required');
-  const discountPercent = subtotalCents > 0 ? discountCents / subtotalCents * 100 : 0;
-  if (discountPercent > 10 && !MANAGER_ROLES.has(user.role) && !(user.permissions || []).includes('quotes.discount_override')) {
-    throw new Error('manager_approval_required');
-  }
+async function validateAdjustment(base44: any, user: any, unitId: string, subtotalCents: number, discountCents: number, additionCents: number, reason: string) {
+  const policies = await base44.asServiceRole.entities.CommercialApprovalPolicy.filter({ role: user.role, active: true }, '-version', 100);
+  const policy = selectCommercialApprovalPolicy(policies, unitId);
+  evaluateCommercialAdjustment({
+    role: user.role,
+    permissions: user.permissions || [],
+    mfaStatus: user.mfa_status,
+    subtotalCents,
+    discountCents,
+    additionCents,
+    reason,
+    policy,
+  });
+  return policy;
 }
 
 Deno.serve(async (req) => {
@@ -74,12 +83,15 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    if (!user) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
+    const body = await req.json();
+    const principal = await authorizeUserOrInternal(base44, req, body, {
+      allowInternal: false,
+      source: 'manage_quote_lifecycle',
+    });
+    const user = principal.user;
     if (!ROLES.has(user.role || 'attendant') && !(user.permissions || []).includes('quotes.manage')) {
       return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
     }
-    const body = await req.json();
     const action = String(body.action || '');
     const now = new Date().toISOString();
 
@@ -122,12 +134,12 @@ Deno.serve(async (req) => {
       const discountCents = toCents(body.discount ?? quote.discount ?? 0);
       const additionCents = toCents(body.addition ?? quote.addition ?? 0);
       const reason = String(body.reason || '').trim();
-      validateAdjustment(user, subtotalCents, discountCents, additionCents, reason);
+      const approvalPolicy = await validateAdjustment(base44, user, quote.unit_id, subtotalCents, discountCents, additionCents, reason);
       const totalCents = Math.max(0, subtotalCents - discountCents + additionCents);
       const nextVersion = Number(quote.version_number || 1) + 1;
       const priceAdjustments = [];
-      if (discountCents > 0) priceAdjustments.push({ type: 'discount', scope: 'quote', amount: fromCents(discountCents), reason, approved_by_user_id: user.id, applied_at: now });
-      if (additionCents > 0) priceAdjustments.push({ type: 'addition', scope: 'quote', amount: fromCents(additionCents), reason, approved_by_user_id: user.id, applied_at: now });
+      if (discountCents > 0) priceAdjustments.push({ type: 'discount', scope: 'quote', amount: fromCents(discountCents), reason, approved_by_user_id: user.id, applied_at: now, approval_policy_id: approvalPolicy?.id, approval_policy_version: approvalPolicy?.version });
+      if (additionCents > 0) priceAdjustments.push({ type: 'addition', scope: 'quote', amount: fromCents(additionCents), reason, approved_by_user_id: user.id, applied_at: now, approval_policy_id: approvalPolicy?.id, approval_policy_version: approvalPolicy?.version });
       const updated = await base44.asServiceRole.entities.Quote.update(quote.id, {
         status: 'DRAFT',
         items: priced.items,
@@ -205,6 +217,7 @@ Deno.serve(async (req) => {
 
     return Response.json({ error: 'unsupported_action', request_id: requestId }, { status: 400 });
   } catch (error) {
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
     console.error(`[manage_quote_lifecycle:${requestId}]`, error);
     const message = error instanceof Error ? error.message : 'quote_lifecycle_failed';
     const validation = new Set(['invalid_adjustment', 'adjustment_reason_required', 'invalid_money_value', 'product_not_found', 'service_not_found', 'service_not_compatible']);

@@ -1,15 +1,16 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 import { getPickupDateRange, getPickupLocalHour, getPickupScheduleForDate, getPickupSlotIso } from '../../shared/pickupSchedule.js';
+import { requireInternalRequest, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 // Cria de fato uma coleta (Pickup) no calendário. Reutilizada pela proteção anti-alucinação
 // do orchestrator para garantir que toda confirmação de coleta gere um registro real.
 Deno.serve(async (req) => {
     try {
+        if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed' }, { status: 405 });
         const base44 = createClientFromRequest(req);
-        const user = await base44.auth.me().catch(() => null);
-        // Permite chamada via service role (orchestrator) — não exige user aqui.
-
-        const { date, period, address, notes, customer_id, weekday } = await req.json();
+        const body = await req.json();
+        requireInternalRequest(req, body);
+        const { date, period, address, notes, customer_id, weekday } = body;
         if (!date || !period || !customer_id) {
             return Response.json({ error: 'Faltam dados (date, period, customer_id).' }, { status: 400 });
         }
@@ -109,6 +110,7 @@ Deno.serve(async (req) => {
         const finalDate = getPickupSlotIso(date, selectedSlot);
         await base44.asServiceRole.entities.Pickup.create({
             customer_id,
+            unit_id: customer?.unit_id,
             scheduled_at: finalDate,
             status: 'scheduled',
             address: address || '',
@@ -126,7 +128,8 @@ Deno.serve(async (req) => {
             message: `Coleta agendada com sucesso para ${actualWeekday}, ${dd}/${mm}/${yy}, ${shiftInfo}. Confirme ao cliente EXATAMENTE esta data e este dia da semana.`
         });
     } catch (error) {
-        console.error('schedulePickupTool error:', error);
+        if (error?.name === 'SecurityError') return securityErrorResponse(error);
+        console.error('schedulePickupTool error:', error?.message || error);
         return Response.json({ error: error.message }, { status: 500 });
     }
 });

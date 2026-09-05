@@ -12,13 +12,11 @@ import ProductIcon from "@/components/ui/ProductIcon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Loader2, 
   Plus, 
   Trash2, 
   Send, 
-  ImageIcon, 
   AlertCircle,
   Calculator
 } from 'lucide-react';
@@ -32,6 +30,7 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
   const [discount, setDiscount] = useState(0);
   const [addition, setAddition] = useState(0);
   const [customMessage, setCustomMessage] = useState("");
+  const [adjustmentReason, setAdjustmentReason] = useState("");
 
   useEffect(() => {
     if (isOpen && card?.linked_quote_id) {
@@ -53,6 +52,7 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
       setProducts(productsData);
       setDiscount(quoteData.discount || 0);
       setAddition(quoteData.addition || 0);
+      setAdjustmentReason(quoteData.human_adjustments || '');
     } catch (err) {
       console.error("Error loading quote data:", err);
     } finally {
@@ -93,65 +93,86 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
 
   const handleSendQuote = async () => {
     if (!quote) return;
+    const discountValue = Number(discount || 0);
+    const additionValue = Number(addition || 0);
+    if ((discountValue > 0 || additionValue > 0) && adjustmentReason.trim().length < 8) {
+      alert('Informe uma justificativa com pelo menos 8 caracteres para o ajuste comercial.');
+      return;
+    }
     setSending(true);
     try {
-      const total = calculateTotal();
-      const updatedQuote = {
-        ...quote,
+      const revisedResponse = await base44.functions.invoke('manage_quote_lifecycle', {
+        action: 'revise',
+        quote_id: quote.id,
         items,
-        subtotal: items.reduce((sum, item) => sum + ((item.qty ?? 1) * (item.unit_price || 0)), 0),
-        discount: parseFloat(discount) || 0,
-        addition: parseFloat(addition) || 0,
-        total,
-        status: 'SENT',
-        review_deadline_at: null // SLA met
-      };
-
-      // 1. Update Quote
-      await base44.entities.Quote.update(quote.id, updatedQuote);
-
-      // 2. Update CRM Card
+        discount: discountValue,
+        addition: additionValue,
+        reason: adjustmentReason.trim(),
+      });
+      const revisedQuote = revisedResponse.data?.quote;
+      const sentResponse = await base44.functions.invoke('manage_quote_lifecycle', {
+        action: 'send',
+        quote_id: revisedQuote?.id || quote.id,
+      });
+      const updatedQuote = sentResponse.data?.quote || revisedQuote;
       await base44.entities.CrmCard.update(card.id, {
         stage: 'Enviado ao cliente',
-        priority: 'MEDIUM' // Lower priority now
+        priority: 'MEDIUM',
       });
 
-      // 3. Send Message via Z-API
-      const itemsList = items.map(i => `• ${i.qty ?? 1}x ${i.garment_type}: R$ ${(i.unit_price || 0).toFixed(2)}`).join('\n');
-      
-      let breakdown = `Subtotal: R$ ${updatedQuote.subtotal.toFixed(2)}`;
-      if (updatedQuote.discount > 0) breakdown += `\nDesconto: R$ ${updatedQuote.discount.toFixed(2)}`;
-      if (updatedQuote.addition > 0) breakdown += `\nAcréscimo: R$ ${updatedQuote.addition.toFixed(2)}`;
+      const pricedItems = updatedQuote?.items || items;
+      const itemsList = pricedItems.map(i => `• ${i.qty ?? 1}x ${i.garment_type}: R$ ${Number(i.unit_price || 0).toFixed(2)}`).join('\n');
+      let breakdown = `Subtotal: R$ ${Number(updatedQuote?.subtotal || 0).toFixed(2)}`;
+      if (Number(updatedQuote?.discount || 0) > 0) breakdown += `\nDesconto: R$ ${Number(updatedQuote.discount).toFixed(2)}`;
+      if (Number(updatedQuote?.addition || 0) > 0) breakdown += `\nAcréscimo: R$ ${Number(updatedQuote.addition).toFixed(2)}`;
 
       const message = `Olá ${customer.full_name}! Seu orçamento está pronto:
 
 ${itemsList}
 
 ${breakdown}
-*Total: R$ ${total.toFixed(2)}*
+*Total: R$ ${Number(updatedQuote?.total || 0).toFixed(2)}*
 
 ${customMessage ? `${customMessage}\n\n` : ''}Para aprovar, responda "Aprovar".`;
 
+      let notificationWarning = '';
       if (customer.phones?.[0]) {
+        try {
           await base44.functions.invoke('zapi_sender', {
-              phone: customer.phones[0],
-              type: 'OPTION_LIST',
-              message,
-              optionList: {
-                title: 'Aprovação do orçamento',
-                buttonLabel: 'Abrir opções',
-                options: [
-                  { id: 'approve_quote', title: 'Aprovar', description: 'Seguir com o orçamento' },
-                  { id: 'ask_human', title: 'Atendente', description: 'Falar com uma pessoa' }
-                ]
-              }
+            phone: customer.phones[0],
+            type: 'OPTION_LIST',
+            message,
+            customer_id: customer.id,
+            unit_id: updatedQuote?.unit_id || quote.unit_id || customer.unit_id,
+            optionList: {
+              title: 'Aprovação do orçamento',
+              buttonLabel: 'Abrir opções',
+              options: [
+                { id: 'approve_quote', title: 'Aprovar', description: 'Seguir com o orçamento' },
+                { id: 'ask_human', title: 'Atendente', description: 'Falar com uma pessoa' },
+              ],
+            },
           });
+        } catch (sendError) {
+          console.error('Quote persisted but WhatsApp notification failed:', sendError);
+          const sendCode = sendError.response?.data?.code;
+          notificationWarning = ['ZAPI_NOT_CONFIGURED', 'INTERNAL_TOKEN_NOT_CONFIGURED'].includes(sendCode)
+            ? 'Orçamento salvo e marcado como enviado, mas o WhatsApp está indisponível até a configuração da integração.'
+            : 'Orçamento salvo e marcado como enviado, mas a notificação por WhatsApp falhou.';
+        }
       }
 
+      if (notificationWarning) alert(notificationWarning);
       onClose();
     } catch (err) {
       console.error("Error sending quote:", err);
-      alert("Erro ao enviar orçamento.");
+      const code = err.response?.data?.error;
+      const messages = {
+        adjustment_reason_required: 'Informe uma justificativa válida para o ajuste.',
+        commercial_approval_required: 'O ajuste excede sua alçada comercial.',
+        mfa_required_for_adjustment: 'Este ajuste exige MFA verificado.',
+      };
+      alert(messages[code] || 'Não foi possível revisar e enviar o orçamento.');
     } finally {
       setSending(false);
     }
@@ -282,6 +303,18 @@ ${customMessage ? `${customMessage}\n\n` : ''}Para aprovar, responda "Aprovar".`
                       />
                    </div>
                 </div>
+
+                {(Number(discount || 0) > 0 || Number(addition || 0) > 0) && (
+                  <div className="pt-2">
+                    <Label className="text-xs text-gray-400">Justificativa do ajuste comercial:</Label>
+                    <Input
+                      value={adjustmentReason}
+                      onChange={(e) => setAdjustmentReason(e.target.value)}
+                      placeholder="Motivo do desconto ou acréscimo"
+                      className="mt-1 bg-white/5 border-white/10 text-sm"
+                    />
+                  </div>
+                )}
 
                 <div className="pt-2">
                     <Label className="text-xs text-gray-400">Mensagem adicional (opcional):</Label>

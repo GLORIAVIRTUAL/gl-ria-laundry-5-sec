@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
 import { ROLE_DEFINITIONS, PERMISSION_CATALOG, VALID_ROLES, VALID_PERMISSIONS, normalizeLegacyRole, effectivePermissions } from '../../shared/accessGovernance.js';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 const ADMIN_ROLES = new Set(['super_admin', 'admin']);
 const POLICY_ROLES = new Set(['super_admin']);
@@ -55,11 +56,14 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
     const base44 = createClientFromRequest(req);
-    const actor = await base44.auth.me();
-    if (!actor) return Response.json({ error: 'authentication_required', request_id: requestId }, { status: 401 });
+    const body = await req.json();
+    const principal = await authorizeUserOrInternal(base44, req, body, {
+      allowInternal: false,
+      source: 'manage_access_control',
+    });
+    const actor = principal.user;
     if (!canManageUsers(actor)) return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
 
-    const body = await req.json();
     const action = String(body.action || 'catalog');
     const now = new Date().toISOString();
 
@@ -269,6 +273,7 @@ Deno.serve(async (req) => {
 
     return Response.json({ error: 'unsupported_action', request_id: requestId }, { status: 422 });
   } catch (error: any) {
+    if (error?.name === 'SecurityError') return securityErrorResponse(error);
     const validation = new Set(['invalid_unit_scope']);
     const status = validation.has(error?.message) ? 422 : 500;
     return Response.json({ error: error?.message || 'access_control_failed', request_id: requestId }, { status });

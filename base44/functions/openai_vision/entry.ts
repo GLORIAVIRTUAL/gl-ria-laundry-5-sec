@@ -1,6 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 import { bytesToBase64, geminiVisionJson } from '../../shared/geminiChat.js';
 import { getAiSettings } from '../../shared/aiSettings.js';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -87,7 +88,12 @@ Deno.serve(async (req) => {
     }
 
     const base44 = createClientFromRequest(req);
-    const { image_url: imageUrl, quote_id: quoteId } = await req.json();
+    const body = await req.json();
+    await authorizeUserOrInternal(base44, req, body, {
+      roles: ['super_admin', 'admin', 'manager', 'attendant'],
+      permission: 'quotes.manage',
+    });
+    const { image_url: imageUrl, quote_id: quoteId } = body;
 
     if (!Deno.env.get('GEMINI_API_KEY')) {
       return Response.json({
@@ -164,6 +170,7 @@ Nunca estime preço. Se houver dúvida entre itens, use catalog_product_id null 
 
     return Response.json(result);
   } catch (error) {
+    if (error?.name === 'SecurityError') return securityErrorResponse(error, requestId);
     const code = error?.message || 'vision_processing_failed';
     const clientErrors = new Set([
       'invalid_image_url',

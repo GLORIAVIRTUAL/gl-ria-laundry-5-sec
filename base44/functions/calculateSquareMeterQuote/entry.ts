@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 
 // Regras de cálculo por metro quadrado (fonte única de verdade — usada pelo painel e pelo chatbot Glória).
 // product_type: 'cortina' | 'tapete_quad' | 'tapete_circular'
@@ -58,14 +59,10 @@ function compute({ product_type, width, length, diameter, cortina_tipo }, prices
 
 Deno.serve(async (req) => {
     try {
+        if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed' }, { status: 405 });
         const base44 = createClientFromRequest(req);
-        const user = await base44.auth.me().catch(() => null);
-        // Permite uso autenticado (painel) ou via service role (chamada interna do orchestrator).
-        if (!user) {
-            return Response.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-
         const body = await req.json();
+        await authorizeUserOrInternal(base44, req, body, { source: 'calculateSquareMeterQuote' });
 
         // Lê os preços por m² do banco (fonte única — editável nas Configurações).
         const records = await base44.asServiceRole.entities.SquareMeterPricing.list('', 1);
@@ -74,6 +71,7 @@ Deno.serve(async (req) => {
         const result = compute(body, prices);
         return Response.json({ success: true, ...result });
     } catch (error) {
+        if (error?.name === 'SecurityError') return securityErrorResponse(error);
         return Response.json({ success: false, error: error.message }, { status: 400 });
     }
 });

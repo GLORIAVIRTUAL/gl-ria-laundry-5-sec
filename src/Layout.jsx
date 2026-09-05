@@ -27,23 +27,14 @@ import {
 } from 'lucide-react';
 import NotificationsMenu from '@/components/layout/NotificationsMenu';
 import { hasPermission } from '@/lib/accessControl';
+import { useAuth } from '@/lib/AuthContext';
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 
 export default function Layout({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem('cachedLayoutUser') ? true : null;
-  });
-  const [user, setUser] = useState(() => {
-    try {
-      const cached = sessionStorage.getItem('cachedLayoutUser');
-      return cached ? JSON.parse(cached) : null;
-    } catch {
-      return null;
-    }
-  });
+  const { logout, user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(() => {
     const saved = localStorage.getItem('soundEnabled');
@@ -241,66 +232,18 @@ export default function Layout({ children }) {
   }, [location.pathname]);
 
   useEffect(() => {
-    checkAuth();
-    // Only re-run when pathname changes — `navigate` is stable, no need to re-auth on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
-
-  const checkAuth = async () => {
-    // Avoid redundant auth calls — if we already have a user, just apply route logic.
-    let currentUser = user;
-    let isAuth = isAuthenticated === true;
-
-    try {
-      if (!currentUser) {
-        isAuth = await base44.auth.isAuthenticated();
-        setIsAuthenticated(isAuth);
-        if (isAuth) {
-          currentUser = await base44.auth.me();
-          setUser(currentUser);
-          try { sessionStorage.setItem('cachedLayoutUser', JSON.stringify(currentUser)); } catch (e) { /* ignore */ }
-        }
-      }
-    } catch (error) {
-      // Network errors / rate limits (429) / transient SDK failures — DO NOT logout the user.
-      // Only treat real auth errors (401/403) as unauthenticated.
-      const status = error?.status || error?.response?.status;
-      console.error("Auth check failed", status, error);
-      if (status !== 401 && status !== 403) {
-        return; // keep current state, don't redirect
-      }
-      isAuth = false;
-      setIsAuthenticated(false);
-      try { sessionStorage.removeItem('cachedUser'); sessionStorage.removeItem('cachedLayoutUser'); } catch (e) { /* ignore */ }
-    }
-
-    // Domain & Route Logic
     const hostname = window.location.hostname;
     const isMainDomain = hostname === 'chat5asec.com.br' || hostname === 'www.chat5asec.com.br';
-
-    if (isMainDomain && location.pathname === '/') {
-      navigate('/landing');
+    if (location.pathname === '/') {
+      navigate(isMainDomain ? '/landing' : ['entregador', 'coletas', 'driver'].includes(user?.role) ? '/pickups' : '/dashboard');
       return;
     }
-
-    if (!isMainDomain && location.pathname === '/') {
-      if (['entregador', 'coletas', 'driver'].includes(currentUser?.role)) {
-        navigate('/pickups');
-      } else {
-        navigate('/dashboard');
-      }
-      return;
-    }
-
     const publicRoutes = ['/landing', '/landing-page', '/login', '/register-unit', '/PaymentSuccess'];
-    const isPublic = publicRoutes.some(route => location.pathname.startsWith(route));
-
-    if (!isPublic && !isAuth) {
-      await base44.auth.redirectToLogin(location.pathname);
-    } else if (!isPublic && isAuth && ['entregador', 'coletas', 'driver'].includes(currentUser?.role) && location.pathname !== '/pickups' && location.pathname !== '/customers') {
+    const isPublic = publicRoutes.some((route) => location.pathname.startsWith(route));
+    if (!isPublic && ['entregador', 'coletas', 'driver'].includes(user?.role) && location.pathname !== '/pickups' && location.pathname !== '/customers') {
       navigate('/pickups');
     }
-  };
+  }, [location.pathname, navigate, user?.role]);
 
   // Check for Public Pages (Landing, Register) and Admin Pages (Full Screen)
   // Added /login to this list
@@ -312,14 +255,16 @@ export default function Layout({ children }) {
 
   const menuItems = [
     { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'cashier', 'production', 'inventory', 'finance', 'auditor'] },
-    { icon: MessageSquare, label: 'Chat IA & Humano', path: '/chat', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant'] },
-    { icon: ShoppingBag, label: 'Pedidos (CRM)', path: '/orders', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'cashier', 'production', 'driver', 'inventory', 'finance', 'auditor'] },
-    { icon: Users, label: 'Clientes', path: '/customers', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'driver', 'entregador', 'coletas'], permissions: ['crm.view', 'crm.manage', 'customers.manage'] },
-    { icon: Truck, label: 'Coletas', path: '/pickups', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'driver', 'entregador', 'coletas'], permissions: ['pickups.manage', 'logistics.view', 'logistics.manage'] },
-    { icon: Banknote, label: 'Gestão', path: '/Management', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'cashier', 'production', 'inventory', 'finance', 'auditor'], permissions: ['management.view'] },
-    { icon: PieChart, label: 'Relatórios', path: '/reports', roles: ['admin', 'super_admin', 'manager', 'finance', 'auditor'], permissions: ['reports.view', 'reports.view_all'] },
+    { icon: MessageSquare, label: 'Chat IA & Humano', path: '/chat', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant'], permissions: ['crm.manage', 'customers.manage', 'quotes.manage'] },
+    { icon: ShoppingBag, label: 'Pedidos (CRM)', path: '/orders', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'cashier', 'production', 'driver', 'inventory', 'finance', 'auditor'], permissions: ['orders.view', 'quotes.manage'] },
+    { icon: Users, label: 'Clientes', path: '/customers', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant'], permissions: ['crm.manage', 'customers.manage'] },
+    { icon: Truck, label: 'Coletas', path: '/pickups', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'driver', 'entregador', 'coletas'], permissions: ['pickups.manage', 'delivery.manage', 'field_route.execute', 'fleet.manage'] },
+    { icon: Banknote, label: 'Gestão', path: '/Management', roles: ['admin', 'user', 'super_admin', 'manager', 'attendant', 'cashier', 'production', 'inventory', 'finance', 'auditor'], permissions: ['orders.view', 'quotes.manage', 'payments.receive', 'payments.confirm', 'cash.manage', 'production.manage', 'inventory.manage', 'finance.approve', 'billing.manage', 'fiscal.manage'] },
+    { icon: PieChart, label: 'Relatórios', path: '/reports', roles: ['admin', 'super_admin', 'manager', 'finance', 'auditor', 'inventory'], permissions: ['reports.view', 'reports.view_all', 'reports.finance', 'reports.stock'] },
     { icon: Settings, label: 'Configurações', path: '/settings', roles: ['admin', 'user', 'super_admin', 'manager'], permissions: ['settings.manage', 'users.manage', 'prices.manage', 'catalogs.manage', 'loyalty.manage'] },
-  ].filter(item => !user || item.roles.includes(user?.role || 'user') || item.permissions?.some(permission => hasPermission(user, permission)));
+  ].filter((item) => item.permissions?.length
+    ? item.permissions.some((permission) => hasPermission(user, permission))
+    : item.roles.includes(user?.role || ''));
 
   const marketingItems = [
     { icon: Sparkles, label: 'Campanhas', path: '/campanhas' },
@@ -327,7 +272,7 @@ export default function Layout({ children }) {
     { icon: Megaphone, label: 'Tráfego Meta', path: '/trafego' },
     { icon: Megaphone, label: 'Tráfego Google', path: '/trafegogoogle' },
   ];
-  const showMarketing = !user || ['admin', 'user'].includes(user?.role || 'user');
+  const showMarketing = ['super_admin', 'admin'].includes(user?.role || '');
 
   const publicLinks = [
      { icon: Globe, label: 'Ver Site Público', path: '/landing' },
@@ -466,7 +411,18 @@ export default function Layout({ children }) {
               <span className="hidden lg:block">Suporte</span>
             </a>
             
-            <button className="flex items-center gap-3 w-full p-3 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white transition-all">
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  sessionStorage.removeItem('cachedUser');
+                } catch {
+                  // O SDK ainda encerra a sessão mesmo se o storage estiver indisponível.
+                }
+                logout(true);
+              }}
+              className="flex items-center gap-3 w-full p-3 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white transition-all"
+            >
               <LogOut className="w-5 h-5" />
               <span className="hidden lg:block">Sair</span>
             </button>

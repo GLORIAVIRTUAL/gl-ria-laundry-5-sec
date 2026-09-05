@@ -1,18 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Search, 
   Filter, 
-  MoreHorizontal, 
   Send, 
   Paperclip, 
   User, 
   Check, 
   CheckCheck,
   Phone,
-  Clock,
   Bot,
   TestTube,
   Mic,
@@ -756,14 +753,19 @@ export default function Chat() {
               phone: targetCustomer.phones[0],
               message: forwardText,
               type: forwardImageUrl ? 'IMAGE' : 'TEXT',
-              mediaUrl: forwardImageUrl || null
+              mediaUrl: forwardImageUrl || null,
+              customer_id: targetCustomer.id,
+              unit_id: targetCustomer.unit_id,
           });
           toast.success("Encaminhamento enviado!");
           setIsForwardModalOpen(false);
           resetForwardModal();
       } catch (err) {
           console.error("Error forwarding message:", err);
-          toast.error("Erro ao encaminhar mensagem.");
+          const code = err.response?.data?.code;
+          toast.error(['ZAPI_NOT_CONFIGURED', 'INTERNAL_TOKEN_NOT_CONFIGURED'].includes(code)
+              ? 'WhatsApp indisponível até a configuração da integração.'
+              : 'Erro ao encaminhar mensagem.');
       } finally {
           setForwardingMessage(false);
       }
