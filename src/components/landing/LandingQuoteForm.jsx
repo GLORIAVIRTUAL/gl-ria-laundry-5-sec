@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Minus, Trash2, Shirt, Loader2, Send, CheckCircle2, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Plus, Minus, Trash2, Shirt, Loader2, Send, CheckCircle2, ChevronDown, AlertTriangle, Search } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 
 const SUGGESTIONS = {
@@ -20,7 +20,8 @@ export default function LandingQuoteForm({ unitId }) {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
-  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [search, setSearch] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
 
   useEffect(() => {
     base44.entities.Product.list()
@@ -41,8 +42,13 @@ export default function LandingQuoteForm({ unitId }) {
       notes: '',
     }]);
     setExpandedId(id);
-    setShowProductPicker(false);
+    setSearch('');
+    setSearchFocused(false);
   };
+
+  const filteredProducts = products.filter((p) =>
+    !search || p.name?.toLowerCase().includes(search.toLowerCase())
+  );
 
   const updatePiece = (id, patch) => {
     setPieces((prev) => prev.map((p) => p.line_id === id ? { ...p, ...patch } : p));
@@ -114,6 +120,37 @@ export default function LandingQuoteForm({ unitId }) {
         <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Telefone / WhatsApp" className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm placeholder-white/30 focus:border-[#FF6600] focus:outline-none" />
       </div>
 
+      {/* Search bar to locate garment types */}
+      <div className="relative">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setSearchFocused(true); }}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
+            placeholder="Buscar tipo de peça (ex: camisa, vestido, manta...)"
+            className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2.5 text-sm placeholder-white/30 focus:border-[#FF6600] focus:outline-none"
+          />
+        </div>
+        {searchFocused && search && (
+          <div className="absolute z-20 left-0 right-0 mt-1 rounded-xl border border-white/10 bg-[#1a0b36] shadow-2xl max-h-56 overflow-y-auto">
+            {filteredProducts.length === 0 ? (
+              <p className="px-3 py-4 text-center text-xs text-white/40">Nenhuma peça encontrada para "{search}".</p>
+            ) : (
+              filteredProducts.slice(0, 20).map((prod) => (
+                <button key={prod.id} type="button" onMouseDown={(e) => { e.preventDefault(); addPiece(prod); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-white/5 transition border-b border-white/5 last:border-0">
+                  <Shirt className="w-4 h-4 text-[#FF6600] shrink-0" />
+                  <span className="text-xs font-medium text-white truncate flex-1">{prod.name}</span>
+                  {prod.base_price ? <span className="text-[10px] text-white/40">R$ {Number(prod.base_price).toFixed(2)}</span> : null}
+                  <Plus className="w-3.5 h-3.5 text-white/30" />
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Pieces list */}
       <div className="space-y-2">
         <AnimatePresence>
@@ -163,26 +200,9 @@ export default function LandingQuoteForm({ unitId }) {
         </AnimatePresence>
       </div>
 
-      {/* Add piece */}
-      {showProductPicker ? (
-        <div className="rounded-xl border border-white/10 bg-black/20 p-3 max-h-48 overflow-y-auto">
-          <div className="grid grid-cols-2 gap-2">
-            {products.map((prod) => (
-              <button key={prod.id} type="button" onClick={() => addPiece(prod)} className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-2.5 text-left hover:border-[#FF6600]/40 transition">
-                <Shirt className="w-4 h-4 text-[#FF6600] shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs font-medium text-white truncate">{prod.name}</p>
-                  {prod.base_price ? <p className="text-[10px] text-white/40">R$ {Number(prod.base_price).toFixed(2)}</p> : null}
-                </div>
-              </button>
-            ))}
-          </div>
-          <button type="button" onClick={() => setShowProductPicker(false)} className="mt-2 w-full text-xs text-white/50 hover:text-white py-1">Cancelar</button>
-        </div>
-      ) : (
-        <button type="button" onClick={() => setShowProductPicker(true)} className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 hover:border-[#FF6600]/50 hover:bg-white/5 py-3 text-sm text-white/70 transition">
-          <Plus className="w-4 h-4" /> Adicionar peça
-        </button>
+      {/* Hint to add via search */}
+      {pieces.length === 0 && (
+        <p className="text-xs text-white/40 text-center">Use a busca acima para encontrar e adicionar suas peças.</p>
       )}
 
       {error && <p className="text-red-400 text-xs flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{error}</p>}
