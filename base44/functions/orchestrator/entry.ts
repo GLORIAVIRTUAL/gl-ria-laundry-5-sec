@@ -988,7 +988,14 @@ Deno.serve(async (req) => {
 
             // ENCAIXE DETERMINÍSTICO: pagamento antecipado confirmado + cliente quer agendar coleta.
             // Não depende da IA — cria a coleta direto no próximo turno disponível.
-            console.log('[ENCAIXE DEBUG] payment_confirmed=', currentState.payment_confirmed, 'text=', message.text, 'regexMatch=', /\b(coleta|agendar|pegar|buscar|retirar)\b/i.test(message.text || ''));
+            currentState._debug_encaixe = {
+                payment_confirmed: currentState.payment_confirmed,
+                payment_confirmed_type: typeof currentState.payment_confirmed,
+                text: (message.text || '').slice(0, 100),
+                regexMatch: /\b(coleta|agendar|pegar|buscar|retirar)\b/i.test(message.text || ''),
+                flow: currentState.flow
+            };
+            await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
             if (currentState.payment_confirmed && /\b(coleta|agendar|pegar|buscar|retirar)\b/i.test(message.text || '')) {
                 const customerRecord = await base44.asServiceRole.entities.Customer.get(customer.id).catch(() => null);
                 const hasSavedAddress = customerRecord?.address && customerRecord?.address_number;
