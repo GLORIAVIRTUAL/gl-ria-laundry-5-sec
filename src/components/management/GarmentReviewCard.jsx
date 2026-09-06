@@ -9,6 +9,9 @@ export const FALLBACK_CATALOG_OPTIONS = {
   size: ['PP', 'P', 'M', 'G', 'GG', 'XG', 'Único'],
   damage: ['Mancha', 'Rasgo', 'Furo', 'Desgaste', 'Desbotado', 'Costura solta', 'Botão ausente', 'Zíper danificado'],
   brand: [],
+  color: ['Branco', 'Preto', 'Cinza', 'Azul', 'Vermelho', 'Verde', 'Amarelo', 'Rosa', 'Marrom', 'Bege', 'Estampado', 'Colorido'],
+  pattern: ['Liso', 'Estampado', 'Listrado', 'Xadrez', 'Floral', 'Poá'],
+  material: ['Algodão', 'Poliéster', 'Linho', 'Seda', 'Lã', 'Jeans', 'Couro', 'Viscose', 'Elastano', 'Misto'],
 };
 
 const EMPTY_ATTRIBUTES = { color: '', brand: '', pattern: '', size: '', material: '' };
@@ -24,7 +27,8 @@ function confidenceTone(confidence) {
 }
 
 export default function GarmentReviewCard({ item, index, products, onChange, catalogOptions, onImageClick }) {
-  const selectedProduct = products.find((product) => product.id === item.product_id);
+  const selectedProduct = products.find((product) => product.id === item.product_id)
+    || products.find((product) => product.name && product.name === (item.product_name || item.garment_type));
   const confidence = Number(item.confidence || 0);
   const needsAttention = item.recognition_status !== 'confirmed';
 
@@ -78,7 +82,7 @@ export default function GarmentReviewCard({ item, index, products, onChange, cat
           <div className="grid gap-3 md:grid-cols-[1fr_110px_140px]">
             <div className="space-y-1.5">
               <Label>Item do catálogo</Label>
-              <Select value={item.product_id || ''} onValueChange={updateProduct}>
+              <Select value={selectedProduct?.id || ''} onValueChange={updateProduct}>
                 <SelectTrigger className="border-white/10 bg-black/20"><SelectValue placeholder="Selecione a peça" /></SelectTrigger>
                 <SelectContent>{products.map((product) => <SelectItem key={product.id} value={product.id}>{product.name} · {currency(product.price)}</SelectItem>)}</SelectContent>
               </Select>
@@ -95,10 +99,13 @@ export default function GarmentReviewCard({ item, index, products, onChange, cat
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {[['color', 'Cor'], ['pattern', 'Estampa'], ['material', 'Material']].map(([field, label]) => (
-              <div key={field} className="space-y-1.5">
-                <Label>{label}</Label>
-                <Input value={item.attributes?.[field] || ''} onChange={(event) => updateAttribute(field, event.target.value)} className="border-white/10 bg-black/20" />
-              </div>
+              <CatalogSelectField
+                key={field}
+                label={label}
+                value={item.attributes?.[field]}
+                options={catalogOptions[field]?.length ? catalogOptions[field] : FALLBACK_CATALOG_OPTIONS[field]}
+                onChange={(value) => updateAttribute(field, value)}
+              />
             ))}
             <CatalogSelectField label="Marca" value={item.attributes?.brand} options={catalogOptions.brand} onChange={(value) => updateAttribute('brand', value)} />
             <CatalogSelectField label="Tamanho" value={item.attributes?.size} options={catalogOptions.size} onChange={(value) => updateAttribute('size', value)} />

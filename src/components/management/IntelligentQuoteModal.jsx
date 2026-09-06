@@ -60,7 +60,7 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
         .filter(Boolean);
       return values.length ? [...new Set(values)] : FALLBACK_OPTIONS[type];
     };
-    return { brand: byType('brand'), size: byType('size'), damage: byType('damage') };
+    return { brand: byType('brand'), size: byType('size'), damage: byType('damage'), color: byType('color'), pattern: byType('pattern'), material: byType('material') };
   }, [catalogEntries, defaultUnitId]);
 
   useEffect(() => () => files.forEach((entry) => URL.revokeObjectURL(entry.preview)), [files]);

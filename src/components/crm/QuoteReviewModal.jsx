@@ -41,7 +41,7 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
       const values = catalogEntries.filter((entry) => entry.catalog_type === type).map((entry) => entry.label).filter(Boolean);
       return values.length ? [...new Set(values)] : FALLBACK_CATALOG_OPTIONS[type];
     };
-    return { brand: byType('brand'), size: byType('size'), damage: byType('damage') };
+    return { brand: byType('brand'), size: byType('size'), damage: byType('damage'), color: byType('color'), pattern: byType('pattern'), material: byType('material') };
   }, [catalogEntries]);
 
   useEffect(() => {
