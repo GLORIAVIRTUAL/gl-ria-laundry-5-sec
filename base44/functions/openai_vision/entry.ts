@@ -30,10 +30,11 @@ function validateImageUrl(value: unknown) {
     throw new Error('blocked_image_url');
   }
 
-  const configuredHosts = (Deno.env.get('AI_IMAGE_ALLOWED_HOSTS') || '')
-    .split(',')
-    .map((host) => host.trim().toLowerCase())
-    .filter(Boolean);
+  const configuredHosts = [
+    'base44.app',
+    'base44.com',
+    ...(Deno.env.get('AI_IMAGE_ALLOWED_HOSTS') || '').split(',').map((host) => host.trim().toLowerCase()),
+  ].filter(Boolean);
 
   if (configuredHosts.length > 0) {
     const allowed = configuredHosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));

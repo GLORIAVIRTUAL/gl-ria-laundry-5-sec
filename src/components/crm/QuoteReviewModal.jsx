@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import ImageLightbox from "@/components/crm/ImageLightbox";
+import GarmentReviewCard, { FALLBACK_CATALOG_OPTIONS } from "@/components/management/GarmentReviewCard";
 import { 
   Loader2, 
   Plus, 
@@ -33,6 +34,15 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
   const [customMessage, setCustomMessage] = useState("");
   const [adjustmentReason, setAdjustmentReason] = useState("");
   const [zoomImage, setZoomImage] = useState(null);
+  const [catalogEntries, setCatalogEntries] = useState([]);
+
+  const catalogOptions = React.useMemo(() => {
+    const byType = (type) => {
+      const values = catalogEntries.filter((entry) => entry.catalog_type === type).map((entry) => entry.label).filter(Boolean);
+      return values.length ? [...new Set(values)] : FALLBACK_CATALOG_OPTIONS[type];
+    };
+    return { brand: byType('brand'), size: byType('size'), damage: byType('damage') };
+  }, [catalogEntries]);
 
   useEffect(() => {
     if (isOpen && card?.linked_quote_id) {
@@ -45,13 +55,15 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [quoteData, productsData] = await Promise.all([
+      const [quoteData, productsData, catalogData] = await Promise.all([
         base44.entities.Quote.get(card.linked_quote_id),
-        base44.entities.Product.list('name')
+        base44.entities.Product.filter({ active: true }, 'name', 500),
+        base44.entities.OperationalCatalogEntry.filter({ active: true }, 'sort_order', 2000).catch(() => [])
       ]);
       setQuote(quoteData);
       setItems(quoteData.items || []);
       setProducts(productsData);
+      setCatalogEntries(catalogData);
       setDiscount(quoteData.discount || 0);
       setAddition(quoteData.addition || 0);
       setAdjustmentReason(quoteData.human_adjustments || '');
@@ -184,7 +196,7 @@ ${customMessage ? `${customMessage}\n\n` : ''}Para aprovar, responda "Aprovar".`
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-[#1a0b36] border border-white/10 text-white max-w-2xl max-h-[90vh] flex flex-col">
+      <DialogContent className="bg-[#1a0b36] border border-white/10 text-white max-w-5xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
              <Calculator className="w-5 h-5 text-[#FF6600]" />
@@ -222,58 +234,25 @@ ${customMessage ? `${customMessage}\n\n` : ''}Para aprovar, responda "Aprovar".`
 
                 <div className="flex-1 overflow-y-auto bg-black/20 rounded-lg border border-white/10 p-3 pr-4 space-y-3">
                    {items.map((item, index) => (
-                      <div key={index} className="flex gap-3 items-start bg-white/5 p-3 rounded-lg group border border-white/5 mt-2">
-                         {item.image_url ? (
-                             <button type="button" onClick={() => setZoomImage(item.image_url)} className="shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity" title="Ampliar imagem">
-                               <img src={item.image_url} alt="Item" className="w-16 h-16 rounded-md object-cover border border-white/10 shadow-sm" />
-                             </button>
-                         ) : (
-                             <div className="w-16 h-16 shrink-0 rounded-md bg-white/10 flex items-center justify-center border border-white/5">
-                                <ProductIcon name={item.garment_type} className="w-6 h-6 text-gray-500" />
-                             </div>
-                         )}
-                         
-                         <div className="flex-1 grid grid-cols-12 gap-2 mt-1">
-                            <div className="col-span-5 relative">
-                                <span className="absolute -top-4 left-0 text-[10px] text-gray-500">Peça</span>
-                                <input 
-                                   list="products"
-                                   value={item.garment_type || ''}
-                                   onChange={(e) => handleItemChange(index, 'garment_type', e.target.value)}
-                                   placeholder="Peça"
-                                   className="w-full bg-transparent border-b border-white/10 text-sm focus:outline-none focus:border-[#FF6600]"
-                                />
-                            </div>
-                            <div className="col-span-2 relative">
-                                <span className="absolute -top-4 left-0 w-full text-center text-[10px] text-gray-500">Qtd</span>
-                                <input 
-                                   type="number"
-                                   value={item.qty ?? 1}
-                                   onChange={(e) => handleItemChange(index, 'qty', parseInt(e.target.value) || 0)}
-                                   className="w-full bg-transparent border-b border-white/10 text-sm text-center focus:outline-none focus:border-[#FF6600]"
-                                />
-                            </div>
-                            <div className="col-span-3 relative">
-                                <span className="absolute -top-4 right-0 text-[10px] text-gray-500">Preço</span>
-                                <input 
-                                   type="number"
-                                   value={item.unit_price || 0}
-                                   onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                                   className="w-full bg-transparent border-b border-white/10 text-sm text-right focus:outline-none focus:border-[#FF6600]"
-                                />
-                            </div>
-                            <div className="col-span-2 flex justify-end">
-                                <button onClick={() => handleRemoveItem(index)} className="text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                                   <Trash2 className="w-4 h-4" />
-                                </button>
-                            </div>
-                            {item.notes && <div className="col-span-12 text-xs text-gray-500 italic mt-1">{item.notes}</div>}
-                         </div>
+                      <div key={item.line_id || index} className="relative">
+                         <GarmentReviewCard
+                            item={item}
+                            index={index}
+                            products={products}
+                            catalogOptions={catalogOptions}
+                            onImageClick={setZoomImage}
+                            onChange={(next) => setItems((current) => current.map((candidate, i) => (i === index ? next : candidate)))}
+                         />
+                         <button
+                            type="button"
+                            onClick={() => handleRemoveItem(index)}
+                            className="absolute top-3 right-3 text-red-400 hover:text-red-300"
+                            title="Remover item"
+                         >
+                            <Trash2 className="w-4 h-4" />
+                         </button>
                       </div>
                    ))}
-                   <datalist id="products">
-                      {products.map(p => <option key={p.id} value={p.name} />)}
-                   </datalist>
                 </div>
              </div>
 
