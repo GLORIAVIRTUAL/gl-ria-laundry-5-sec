@@ -254,8 +254,6 @@ Deno.serve(async (req) => {
         const textLower = (message.text || "").trim().toLowerCase();
         const cleanText = textLower.replace(/[^a-z0-9]/g, '');
         const currentState = conversation.metadata || {};
-        currentState._debug_deployed = true;
-        await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
 
         if (message.type === 'TEXT' && shouldIgnoreSoloMessage(message.text || '') && !currentState.flow) {
              console.log(`Skipping orchestrator due to ignored solo text: ${message.text}`);
@@ -990,14 +988,6 @@ Deno.serve(async (req) => {
 
             // ENCAIXE DETERMINÍSTICO: pagamento antecipado confirmado + cliente quer agendar coleta.
             // Não depende da IA — cria a coleta direto no próximo turno disponível.
-            currentState._debug_encaixe = {
-                payment_confirmed: currentState.payment_confirmed,
-                payment_confirmed_type: typeof currentState.payment_confirmed,
-                text: (message.text || '').slice(0, 100),
-                regexMatch: /\b(coleta|agendar|pegar|buscar|retirar)\b/i.test(message.text || ''),
-                flow: currentState.flow
-            };
-            await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
             if (currentState.payment_confirmed && /\b(coleta|agendar|pegar|buscar|retirar)\b/i.test(message.text || '')) {
                 const customerRecord = await base44.asServiceRole.entities.Customer.get(customer.id).catch(() => null);
                 const hasSavedAddress = customerRecord?.address && customerRecord?.address_number;
