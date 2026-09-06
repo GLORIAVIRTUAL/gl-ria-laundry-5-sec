@@ -1,6 +1,7 @@
 import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.6';
-import { buildFiscalDraft, getFiscalReadiness, validateFiscalProfile } from '../../shared/fiscalProviderContract.js';
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.46';
+import { secrets } from 'base44:runtime';
+import { buildFiscalDraft, getFiscalReadiness, validateFiscalProfile, buildFocusNfePayload, getFocusNfeBaseUrl } from '../../shared/fiscalProviderContract.js';
 
 const MANAGER_ROLES = new Set(['super_admin', 'admin', 'manager', 'finance']);
 const OPERATOR_ROLES = new Set(['super_admin', 'admin', 'manager', 'finance', 'cashier']);
@@ -29,7 +30,32 @@ async function addEvent(base44: any, document: any, user: any, requestId: string
   });
 }
 
-Deno.serve(async (req) => {
+function focusNfeAuthHeader() {
+  const token = secrets.get('FOCUSNFE_TOKEN');
+  if (!token) throw Object.assign(new Error('focusnfe_token_not_configured'), { code: 'focusnfe_token_not_configured' });
+  const encoded = btoa(`${token}:`);
+  return `Basic ${encoded}`;
+}
+
+async function focusNfeRequest(method: string, path: string, body?: any) {
+  const url = `${getFocusNfeBaseUrl()}/v2${path}`;
+  const headers: Record<string, string> = {
+    'Authorization': focusNfeAuthHeader(),
+    'Accept': 'application/json',
+  };
+  const init: RequestInit = { method, headers };
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
+  const response = await fetch(url, init);
+  const text = await response.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  return { status: response.status, data };
+}
+
+export default async function(req: Request): Promise<Response> {
   const requestId = crypto.randomUUID();
   try {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
@@ -46,11 +72,13 @@ Deno.serve(async (req) => {
       if (!unitId || !canAccessUnit(user, unitId)) return Response.json({ error: 'forbidden_unit', request_id: requestId }, { status: 403 });
       const profiles = await base44.asServiceRole.entities.FiscalProfile.filter({ unit_id: unitId });
       const current = body.fiscal_profile_id ? await base44.asServiceRole.entities.FiscalProfile.get(body.fiscal_profile_id) : profiles[0];
+      const provider = body.provider || current?.provider || 'focusnfe';
+      const environment = body.environment || current?.environment || (provider === 'focusnfe' ? 'homologation' : 'disabled');
       const data = {
         unit_id: unitId,
         status: 'draft',
-        provider: body.provider || current?.provider || 'national_nfse',
-        environment: 'disabled',
+        provider,
+        environment,
         municipality_code: body.municipality_code || current?.municipality_code || '4314902',
         municipality_name: body.municipality_name || current?.municipality_name || 'Porto Alegre',
         legal_name: body.legal_name ?? current?.legal_name,
@@ -72,18 +100,18 @@ Deno.serve(async (req) => {
         created_by_user_id: current?.created_by_user_id || user.id,
         updated_by_user_id: user.id,
         notes: body.notes ?? current?.notes,
-        metadata: { ...(current?.metadata || {}), target_standard: 'national_nfse', transmission_enabled: false },
+        metadata: { ...(current?.metadata || {}), target_standard: provider === 'focusnfe' ? 'focusnfe' : 'national_nfse', transmission_enabled: provider === 'focusnfe' },
       };
       const profile = current
         ? await base44.asServiceRole.entities.FiscalProfile.update(current.id, data)
         : await base44.asServiceRole.entities.FiscalProfile.create(data);
       await base44.asServiceRole.entities.AuditLog.create({
         action: current ? 'update' : 'create', entity_type: 'fiscal_profile', entity_id: profile.id,
-        item_label: profile.trade_name || profile.legal_name || unitId, reason: 'fiscal_profile_saved_transmission_disabled',
+        item_label: profile.trade_name || profile.legal_name || unitId, reason: `fiscal_profile_saved_provider_${provider}`,
         user_email: user.email, user_name: user.full_name || user.display_name, user_role: user.role,
         unit_id: unitId, request_id: requestId, before_data: current || null, after_data: { ...profile, credential_reference: profile.credential_reference ? '[REFERENCE]' : undefined, certificate_reference: profile.certificate_reference ? '[REFERENCE]' : undefined }, success: true,
       });
-      return Response.json({ fiscal_profile: profile, readiness: validateFiscalProfile(profile), transmission_enabled: false, request_id: requestId });
+      return Response.json({ fiscal_profile: profile, readiness: validateFiscalProfile(profile), transmission_enabled: provider === 'focusnfe', request_id: requestId });
     }
 
     if (!OPERATOR_ROLES.has(user.role) && !(user.permissions || []).includes('fiscal.manage')) return Response.json({ error: 'forbidden', request_id: requestId }, { status: 403 });
@@ -141,7 +169,7 @@ Deno.serve(async (req) => {
       await base44.asServiceRole.entities.FiscalProfile.update(profile.id, { next_rps_number: rpsNumber + 1, updated_by_user_id: user.id });
       for (const order of orders) await base44.asServiceRole.entities.Order.update(order.id, { fiscal_document_ids: [...new Set([...(order.fiscal_document_ids || []), document.id])], fiscal_status: 'draft' });
       if (statement) await base44.asServiceRole.entities.BillingStatement.update(statement.id, { fiscal_document_id: document.id });
-      await addEvent(base44, document, user, requestId, 'created', 'success', 'RPS preparado localmente; transmissão desativada.', { transmission_enabled: false });
+      await addEvent(base44, document, user, requestId, 'created', 'success', 'RPS preparado localmente.', { transmission_enabled: draft.metadata?.transmission_enabled });
       return Response.json({ fiscal_document: document, readiness: getFiscalReadiness(profile, document), request_id: requestId });
     }
 
@@ -163,14 +191,117 @@ Deno.serve(async (req) => {
         last_validation_status: readiness.structurally_ready ? 'success' : 'failed',
         updated_by_user_id: user.id,
       });
-      await addEvent(base44, updated, user, requestId, 'validated', readiness.structurally_ready ? 'success' : 'failed', readiness.structurally_ready ? 'Estrutura fiscal pronta para homologação futura.' : 'Documento fiscal incompleto.', { errors: readiness.errors, transmission_enabled: false });
+      await addEvent(base44, updated, user, requestId, 'validated', readiness.structurally_ready ? 'success' : 'failed', readiness.structurally_ready ? 'Estrutura fiscal pronta.' : 'Documento fiscal incompleto.', { errors: readiness.errors });
       return Response.json({ fiscal_document: updated, readiness, request_id: requestId });
     }
 
-    if (action === 'queue' || action === 'transmit') {
+    if (action === 'transmit') {
+      if (profile.provider !== 'focusnfe') return Response.json({ error: 'provider_not_focusnfe', request_id: requestId }, { status: 409 });
       const readiness = getFiscalReadiness(profile, document);
-      await addEvent(base44, document, user, requestId, 'error', 'failed', 'Transmissão fiscal não ativada nesta etapa.', { ...readiness, code: 'fiscal_adapter_not_activated' });
-      return Response.json({ error: 'fiscal_transmission_not_implemented', readiness, request_id: requestId }, { status: 409 });
+      if (!readiness.transmission_ready) return Response.json({ error: 'fiscal_not_ready', readiness, request_id: requestId }, { status: 422 });
+      if (!['draft', 'ready', 'rejected', 'error'].includes(document.status)) return Response.json({ error: 'fiscal_document_not_transmittable', request_id: requestId }, { status: 409 });
+
+      const ref = `5asec-${document.unit_id}-${document.rps_series}-${document.rps_number}`;
+      const payload = buildFocusNfePayload({ document, profile, ref });
+
+      let focusResponse: any;
+      try {
+        focusResponse = await focusNfeRequest('POST', '/nfse', payload);
+      } catch (err: any) {
+        const updated = await base44.asServiceRole.entities.FiscalDocument.update(document.id, {
+          status: 'error',
+          last_error_code: err?.code || 'transmission_failed',
+          last_error_message: err?.message || 'Falha na comunicação com a Focus NFe.',
+          attempt_count: Number(document.attempt_count || 0) + 1,
+        });
+        await addEvent(base44, updated, user, requestId, 'error', 'failed', err?.message || 'Falha na comunicação.', { code: err?.code });
+        return Response.json({ error: 'focusnfe_request_failed', fiscal_document: updated, request_id: requestId }, { status: 502 });
+      }
+
+      const { status: httpStatus, data: focusData } = focusResponse;
+      const updated = await base44.asServiceRole.entities.FiscalDocument.update(document.id, {
+        status: httpStatus === 201 ? 'processing' : 'error',
+        external_protocol: ref,
+        attempt_count: Number(document.attempt_count || 0) + 1,
+        last_error_code: httpStatus === 201 ? undefined : String(focusData?.error || httpStatus),
+        last_error_message: httpStatus === 201 ? undefined : JSON.stringify(focusData),
+        metadata: { ...(document.metadata || {}), focusnfe_ref: ref, focusnfe_response: focusData },
+      });
+
+      if (httpStatus === 201) {
+        await addEvent(base44, updated, user, requestId, 'submitted', 'success', `NFSe enviada à Focus NFe (ref ${ref}). Aguarde autorização.`, { ref });
+        return Response.json({ fiscal_document: updated, focusnfe_ref: ref, request_id: requestId });
+      }
+      await addEvent(base44, updated, user, requestId, 'error', 'failed', `Focus NFe rejeitou a emissão (HTTP ${httpStatus}).`, { http_status: httpStatus, response: focusData });
+      return Response.json({ error: 'focusnfe_rejected', fiscal_document: updated, focusnfe_response: focusData, request_id: requestId }, { status: 422 });
+    }
+
+    if (action === 'consult') {
+      const ref = document.external_protocol || `5asec-${document.unit_id}-${document.rps_series}-${document.rps_number}`;
+      let focusResponse: any;
+      try {
+        focusResponse = await focusNfeRequest('GET', `/nfse/${encodeURIComponent(ref)}`);
+      } catch (err: any) {
+        return Response.json({ error: 'focusnfe_request_failed', message: err?.message, request_id: requestId }, { status: 502 });
+      }
+      const { status: httpStatus, data: focusData } = focusResponse;
+      if (httpStatus === 404) return Response.json({ error: 'focusnfe_not_found', request_id: requestId }, { status: 404 });
+
+      const statusMap: Record<string, string> = {
+        'processando_autorizacao': 'processing',
+        'autorizada': 'authorized',
+        'cancelada': 'cancelled',
+        'erro_autorizacao': 'rejected',
+      };
+      const newStatus = statusMap[focusData?.status] || document.status;
+      const patch: any = { metadata: { ...(document.metadata || {}), focusnfe_consult: focusData } };
+      if (newStatus !== document.status) patch.status = newStatus;
+      if (focusData?.numero_nfse) { patch.nfse_number = String(focusData.numero_nfse); patch.document_type = 'nfse'; }
+      if (focusData?.codigo_verificacao) patch.verification_code = String(focusData.codigo_verificacao);
+      if (newStatus === 'authorized' && !document.authorized_at) {
+        patch.authorized_at = new Date().toISOString();
+        for (const orderId of document.order_ids || []) {
+          const order = await base44.asServiceRole.entities.Order.get(orderId);
+          if (order) await base44.asServiceRole.entities.Order.update(order.id, { fiscal_status: 'authorized' });
+        }
+      }
+      if (newStatus === 'rejected') {
+        patch.last_error_code = 'focusnfe_rejected';
+        patch.last_error_message = JSON.stringify(focusData);
+      }
+      const updated = await base44.asServiceRole.entities.FiscalDocument.update(document.id, patch);
+      await addEvent(base44, updated, user, requestId, 'submitted', newStatus === 'authorized' ? 'success' : newStatus === 'rejected' ? 'failed' : 'pending', `Consulta Focus NFe: ${focusData?.status || 'sem status'}`, { ref, focusnfe_status: focusData?.status });
+      return Response.json({ fiscal_document: updated, focusnfe_status: focusData?.status, request_id: requestId });
+    }
+
+    if (action === 'cancel_nfse') {
+      if (!MANAGER_ROLES.has(user.role) && !(user.permissions || []).includes('fiscal.cancel')) return Response.json({ error: 'manager_approval_required', request_id: requestId }, { status: 403 });
+      if (!['authorized', 'processing', 'rejected'].includes(document.status)) return Response.json({ error: 'fiscal_document_not_cancellable_remotely', request_id: requestId }, { status: 409 });
+      const reason = String(body.reason || '').trim();
+      if (reason.length < 15) return Response.json({ error: 'cancellation_reason_required', request_id: requestId }, { status: 422 });
+      const ref = document.external_protocol || `5asec-${document.unit_id}-${document.rps_series}-${document.rps_number}`;
+      let focusResponse: any;
+      try {
+        focusResponse = await focusNfeRequest('DELETE', `/nfse/${encodeURIComponent(ref)}`, { justificativa: reason });
+      } catch (err: any) {
+        return Response.json({ error: 'focusnfe_request_failed', message: err?.message, request_id: requestId }, { status: 502 });
+      }
+      const { status: httpStatus, data: focusData } = focusResponse;
+      if (httpStatus === 200) {
+        const updated = await base44.asServiceRole.entities.FiscalDocument.update(document.id, {
+          status: 'cancelled',
+          cancelled_at: new Date().toISOString(),
+          cancellation_reason: reason,
+        });
+        for (const orderId of document.order_ids || []) {
+          const order = await base44.asServiceRole.entities.Order.get(orderId);
+          if (order) await base44.asServiceRole.entities.Order.update(order.id, { fiscal_status: 'cancelled' });
+        }
+        await addEvent(base44, updated, user, requestId, 'cancelled', 'success', `NFSe cancelada na Focus NFe: ${reason}`, { ref });
+        return Response.json({ fiscal_document: updated, request_id: requestId });
+      }
+      await addEvent(base44, document, user, requestId, 'error', 'failed', `Focus NFe rejeitou cancelamento (HTTP ${httpStatus}).`, { http_status: httpStatus, response: focusData });
+      return Response.json({ error: 'focusnfe_cancel_rejected', focusnfe_response: focusData, request_id: requestId }, { status: 422 });
     }
 
     if (action === 'cancel_draft') {
@@ -200,7 +331,7 @@ Deno.serve(async (req) => {
     console.error(`[manage_fiscal_document:${requestId}]`, error);
     const message = error instanceof Error ? error.message : 'fiscal_operation_failed';
     const details = (error as any)?.details;
-    const status = ['fiscal_profile_incomplete', 'fiscal_recipient_incomplete', 'fiscal_recipient_required', 'invalid_fiscal_amount'].includes(message) ? 422 : 500;
+    const status = ['fiscal_profile_incomplete', 'fiscal_recipient_incomplete', 'fiscal_recipient_required', 'invalid_fiscal_amount', 'focusnfe_token_not_configured', 'provider_not_focusnfe', 'fiscal_not_ready'].includes(message) ? 422 : 500;
     return Response.json({ error: message, details, request_id: requestId }, { status });
   }
-});
+}

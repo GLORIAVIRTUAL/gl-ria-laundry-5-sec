@@ -46,14 +46,14 @@ export function buildFiscalDraft({ profile, customer, orders = [], statement, co
     tax_id: digits(customer.tax_id || customer.cpf_cnpj),
     municipal_registration: customer.municipal_registration,
     email: customer.billing_email || customer.email,
-    phone: customer.phone,
+    phone: (customer.phones || [])[0] || customer.phone,
     address: customer.address?.street || customer.address,
     address_number: customer.address?.number || customer.address_number,
     address_complement: customer.address?.complement || customer.address_complement,
-    district: customer.address?.district || customer.district,
+    district: customer.address?.district || customer.neighborhood || customer.district,
     city: customer.address?.city || customer.city,
     state: customer.address?.state || customer.state,
-    zip_code: customer.address?.zip_code || customer.zip_code,
+    zip_code: (customer.address?.zip_code || customer.zip_code || '').replace(/\D/g, ''),
   };
   const recipientCheck = validateFiscalRecipient(recipient);
   if (!recipientCheck.valid) {
@@ -88,7 +88,7 @@ export function buildFiscalDraft({ profile, customer, orders = [], statement, co
     document_type: 'rps',
     status: 'draft',
     environment: profile.environment || 'disabled',
-    provider: profile.provider || 'national_nfse',
+    provider: profile.provider || 'focusnfe',
     competence_date: competenceDate,
     service_city_code: profile.municipality_code,
     service_code: profile.service_code,
@@ -105,11 +105,10 @@ export function buildFiscalDraft({ profile, customer, orders = [], statement, co
     recipient,
     items,
     metadata: {
-      target_standard: 'national_nfse',
+      target_standard: profile.provider === 'focusnfe' ? 'focusnfe' : 'national_nfse',
       municipality_name: profile.municipality_name || 'Porto Alegre',
       municipality_code: profile.municipality_code,
-      dps_contract_version: 'pending_homologation',
-      transmission_enabled: false,
+      transmission_enabled: profile.provider === 'focusnfe',
     },
   };
 }
@@ -122,15 +121,72 @@ export function getFiscalReadiness(profile, document) {
   if (!recipientCheck.valid) errors.push(...recipientCheck.missing.map((field) => `recipient.${field}`));
   if (Number(document?.total_amount || 0) <= 0) errors.push('document.total_amount');
   if (!Array.isArray(document?.order_ids) || document.order_ids.length === 0) errors.push('document.order_ids');
+  const isFocusNfe = profile?.provider === 'focusnfe';
   return {
     structurally_ready: errors.length === 0,
-    transmission_ready: false,
-    transmission_block_reason: 'fiscal_adapter_not_activated',
+    transmission_ready: isFocusNfe && errors.length === 0,
+    transmission_block_reason: isFocusNfe ? null : 'fiscal_adapter_not_activated',
     errors,
-    recommended_provider: profile?.municipality_code === '4314902' ? 'national_nfse' : profile?.provider || 'national_nfse',
+    recommended_provider: 'focusnfe',
   };
 }
 
-export function assertTransmissionDisabled() {
-  throw new Error('fiscal_transmission_not_implemented');
+export function buildFocusNfePayload({ document, profile, ref }) {
+  const prestadorTaxId = digits(profile.tax_id);
+  const prestador = {
+    cnpj: prestadorTaxId.length === 14 ? prestadorTaxId : undefined,
+    cpf: prestadorTaxId.length === 11 ? prestadorTaxId : undefined,
+    inscricao_municipal: profile.municipal_registration,
+    codigo_municipio: profile.municipality_code,
+  };
+
+  const recipTaxId = digits(document.recipient?.tax_id);
+  const tomador = {
+    cpf: recipTaxId.length === 11 ? recipTaxId : undefined,
+    cnpj: recipTaxId.length === 14 ? recipTaxId : undefined,
+    razao_social: document.recipient?.legal_name || document.recipient?.name,
+    email: document.recipient?.email,
+    endereco: {
+      logradouro: document.recipient?.address,
+      numero: document.recipient?.address_number,
+      complemento: document.recipient?.address_complement,
+      bairro: document.recipient?.district,
+      codigo_municipio: profile.municipality_code,
+      uf: document.recipient?.state,
+      cep: (document.recipient?.zip_code || '').replace(/\D/g, ''),
+    },
+  };
+
+  const discriminacao = (document.items || []).map((item) => item.description).join(' | ') || document.service_description;
+
+  const servico = {
+    aliquota: Number(profile.iss_rate || 0) / 100,
+    base_calculo: document.taxable_amount,
+    discriminacao,
+    iss_retido: document.iss_withheld ? '1' : '2',
+    item_lista_servico: profile.service_code,
+    valor_iss: document.iss_amount,
+    valor_liquido: document.total_amount,
+    valor_servicos: document.subtotal,
+    desconto_incondicionado: document.discount_amount || 0,
+    desconto_condicionado: 0,
+  };
+
+  return {
+    ref,
+    data_emissao: new Date().toISOString(),
+    natureza_operacao: '1',
+    optante_simples_nacional: false,
+    incentivador_cultural: false,
+    prestador,
+    tomador,
+    servico,
+  };
+}
+
+export function getFocusNfeBaseUrl() {
+  const env = (typeof process !== 'undefined' && process.env?.FOCUSNFE_ENVIRONMENT) || 'homologation';
+  return env === 'production'
+    ? 'https://api.focusnfe.com.br'
+    : 'https://homologacao.focusnfe.com.br';
 }
