@@ -12,14 +12,12 @@ export default function PieceServiceOptions({ piece, updatePiece, ironing, speci
   return (
     <div className="space-y-3">
       <div>
-        <p className="lq-attr-label">Serviço principal</p>
+        <p className="lq-attr-label">Serviços da peça</p>
         <div className="lq-chips">
-          <button type="button" onClick={() => updatePiece({ service_type: 'cleaning' })} className={`lq-chip ${piece.service_type !== 'ironing' ? 'active' : ''}`}>
-            Lavagem
-          </button>
+          <span className="lq-chip active">Lavagem</span>
           {ironingAvailable && (
-            <button type="button" onClick={() => updatePiece({ service_type: 'ironing' })} className={`lq-chip ${piece.service_type === 'ironing' ? 'active' : ''}`}>
-              Passadoria · {Number(ironing?.percent ?? 70)}%
+            <button type="button" onClick={() => updatePiece({ include_ironing: !piece.include_ironing })} className={`lq-chip ${piece.include_ironing ? 'active' : ''}`}>
+              Passadoria · +{Number(ironing?.percent ?? 70)}%
             </button>
           )}
         </div>

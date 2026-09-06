@@ -11,12 +11,14 @@ const SUGGESTIONS = {
   size: ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG', 'Infantil', 'Único', 'Outro'],
 };
 const DAMAGES = ['Mancha', 'Rasgo', 'Furo', 'Desgaste', 'Desbotado', 'Costura solta', 'Botão ausente', 'Zíper danificado'];
+const COLLECTION_PRICE = 15;
+const FREE_COLLECTION_THRESHOLD = 150;
 
 export default function LandingQuoteForm({ unitId }) {
   const [products, setProducts] = useState([]);
   const [services, setServices] = useState([]);
   const [ironing, setIroning] = useState({ percent: 70, active: true });
-  const [selectedDeliveryId, setSelectedDeliveryId] = useState('');
+  const [collectionSelected, setCollectionSelected] = useState(false);
   const [pieces, setPieces] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [form, setForm] = useState({ name: '', phone: '' });
@@ -54,6 +56,7 @@ export default function LandingQuoteForm({ unitId }) {
       unit_price: Number(product.price) || 0,
       quantity: 1,
       service_type: 'cleaning',
+      include_ironing: false,
       special_service_ids: [],
       attributes: { color: '', brand: '', material: '', pattern: '', size: '' },
       damages: [],
@@ -69,17 +72,17 @@ export default function LandingQuoteForm({ unitId }) {
   );
 
   const specialServices = services.filter((service) => service.category === 'special_treatment');
-  const deliveryServices = services.filter((service) => service.category === 'delivery');
-  const selectedDelivery = deliveryServices.find((service) => service.id === selectedDeliveryId);
-  const estimatedTotal = pieces.reduce((sum, piece) => {
-    const mainPrice = piece.service_type === 'ironing'
-      ? (Number(piece.unit_price) || 0) * Number(ironing?.percent ?? 70) / 100
-      : Number(piece.unit_price) || 0;
+  const serviceSubtotal = pieces.reduce((sum, piece) => {
+    const basePrice = Number(piece.unit_price) || 0;
+    const ironingPrice = piece.include_ironing ? basePrice * Number(ironing?.percent ?? 70) / 100 : 0;
     const specialPrice = specialServices
       .filter((service) => (piece.special_service_ids || []).includes(service.id))
       .reduce((total, service) => total + (Number(service.base_price) || 0), 0);
-    return sum + (mainPrice + specialPrice) * (piece.quantity || 1);
-  }, 0) + (Number(selectedDelivery?.base_price) || 0);
+    return sum + (basePrice + ironingPrice + specialPrice) * (piece.quantity || 1);
+  }, 0);
+  const collectionIsFree = serviceSubtotal > FREE_COLLECTION_THRESHOLD;
+  const collectionPrice = collectionSelected && !collectionIsFree ? COLLECTION_PRICE : 0;
+  const estimatedTotal = serviceSubtotal + collectionPrice;
   const fmt = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const updatePiece = (id, patch) => {
@@ -112,12 +115,18 @@ export default function LandingQuoteForm({ unitId }) {
         const attrs = [p.attributes?.color, p.attributes?.material, p.attributes?.pattern, p.attributes?.size, p.attributes?.brand].filter(Boolean).join(', ');
         const dmg = (p.damages || []).length ? ` | avarias: ${p.damages.join(', ')}` : '';
         const obs = p.notes ? ` | obs: ${p.notes}` : '';
-        const mainService = p.service_type === 'ironing' ? `Passadoria (${Number(ironing?.percent ?? 70)}% do valor da peça)` : 'Lavagem';
+        const mainService = p.include_ironing
+          ? `Lavagem + Passadoria (+${Number(ironing?.percent ?? 70)}% do valor da peça)`
+          : 'Lavagem';
         const extras = specialServices.filter((service) => (p.special_service_ids || []).includes(service.id));
         const extraText = extras.length ? ` | especiais: ${extras.map((service) => service.name).join(', ')}` : '';
         return `${p.quantity}x ${p.garment_type}${attrs ? ` (${attrs})` : ''} | serviço: ${mainService}${extraText}${dmg}${obs}`;
       });
-      if (selectedDelivery) lines.push(`Coleta/entrega: ${selectedDelivery.name} (${fmt(selectedDelivery.base_price)})`);
+      if (collectionSelected) {
+        lines.push(collectionIsFree
+          ? 'Coleta/entrega: Grátis (orçamento acima de R$ 150,00)'
+          : `Coleta/entrega: ${fmt(COLLECTION_PRICE)}`);
+      }
       const message = `Olá! Sou ${form.name.trim()} e gostaria de um orçamento:\n${lines.join('\n')}`;
       const res = await base44.functions.invoke('landing_widget_start', {
         name: form.name.trim(),
@@ -259,17 +268,15 @@ export default function LandingQuoteForm({ unitId }) {
         <p className="lq-empty">Use a busca acima para encontrar e adicionar suas peças.</p>
       )}
 
-      {pieces.length > 0 && deliveryServices.length > 0 && (
+      {pieces.length > 0 && (
         <div className="lq-piece">
           <div className="lq-details space-y-2">
             <p className="lq-attr-label">Coleta e entrega (opcional)</p>
             <div className="lq-chips">
-              <button type="button" onClick={() => setSelectedDeliveryId('')} className={`lq-chip ${!selectedDeliveryId ? 'active' : ''}`}>Sem coleta</button>
-              {deliveryServices.map((service) => (
-                <button key={service.id} type="button" onClick={() => setSelectedDeliveryId(service.id)} className={`lq-chip ${selectedDeliveryId === service.id ? 'active' : ''}`}>
-                  {service.name} · {fmt(service.base_price)}
-                </button>
-              ))}
+              <button type="button" onClick={() => setCollectionSelected(false)} className={`lq-chip ${!collectionSelected ? 'active' : ''}`}>Sem coleta</button>
+              <button type="button" onClick={() => setCollectionSelected(true)} className={`lq-chip ${collectionSelected ? 'active' : ''}`}>
+                Coleta e entrega · {collectionIsFree ? 'Grátis' : fmt(COLLECTION_PRICE)}
+              </button>
             </div>
           </div>
         </div>
@@ -278,6 +285,12 @@ export default function LandingQuoteForm({ unitId }) {
       {error && <p className="text-red-400 text-xs flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{error}</p>}
 
       {/* Estimated budget */}
+      {collectionIsFree && (
+        <div className="lq-free-collection" role="status">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          Seu orçamento passou de R$ 150,00 — a coleta agora é grátis!
+        </div>
+      )}
       {pieces.length > 0 && (
         <div className="lq-estimate">
           <div>
