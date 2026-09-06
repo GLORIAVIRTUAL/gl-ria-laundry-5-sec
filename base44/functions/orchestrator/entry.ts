@@ -1189,6 +1189,14 @@ Deno.serve(async (req) => {
                 });
             }
 
+            // Pagamento antecipado confirmado via Pix (Asaas) → coleta como encaixe
+            if (currentState.payment_confirmed) {
+                chatMessages.push({
+                    role: 'system',
+                    content: `🚨 PAGAMENTO CONFIRMADO: O pagamento antecipado via Pix deste cliente foi confirmado pelo sistema (Asaas). A coleta deve ser tratada como ENCAIXE — peça o endereço (se ainda não tiver) e chame 'schedule_pickup' com encaixe=true e o endereço (NÃO pergunte data nem turno). O sistema agenda automaticamente o próximo turno disponível. Informe ao cliente: "Recebi a confirmação do seu pagamento! ✅ Sua coleta entrará como encaixe no próximo turno disponível."`
+                });
+            }
+
             const specialServiceFact = buildSpecialServiceFact(detectSpecialServiceTiers(specialServiceContextText, specialServiceRows));
             if (specialServiceFact) {
                 chatMessages.push({ role: 'system', content: specialServiceFact });
@@ -1306,9 +1314,13 @@ Deno.serve(async (req) => {
                                     notes: {
                                         type: "string",
                                         description: "Observações adicionais."
+                                    },
+                                    encaixe: {
+                                        type: "boolean",
+                                        description: "Se true, o sistema calcula automaticamente o próximo turno disponível (encaixe). Use quando o pagamento foi confirmado antecipado via Pix. NÃO passe date, weekday nem period quando encaixe=true."
                                     }
                                 },
-                                required: ["date", "weekday", "period", "address"]
+                                required: ["address"]
                             }
                         }
                     },
@@ -1941,6 +1953,83 @@ Deno.serve(async (req) => {
                     if (toolCall.function.name === 'schedule_pickup') {
                         const args = JSON.parse(toolCall.function.arguments);
                         try {
+                            // ENCAIXE: pagamento antecipado confirmado → sistema calcula próximo turno
+                            if (args.encaixe) {
+                                const nowBRT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+                                const currentHour = nowBRT.getHours();
+                                const isMorning = currentHour < 12;
+                                const pad = (n) => String(n).padStart(2, '0');
+                                const dateKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+                                const HOLIDAYS_FIXED = {
+                                    '01-01': true, '02-02': true, '21-04': true, '01-05': true,
+                                    '07-09': true, '20-09': true, '12-10': true, '02-11': true,
+                                    '15-11': true, '25-12': true
+                                };
+                                const isHoliday = (d) => {
+                                    const ddmm = `${pad(d.getDate())}-${pad(d.getMonth() + 1)}`;
+                                    return !!HOLIDAYS_FIXED[ddmm];
+                                };
+
+                                const hasCapacity = async (date, period) => {
+                                    const sched = getPickupScheduleForDate(date);
+                                    if (!sched.isOpen) return false;
+                                    const checkDate = new Date(`${date}T12:00:00-03:00`);
+                                    if (isHoliday(checkDate)) return false;
+                                    if (period === 'morning' && sched.morningSlots.length === 0) return false;
+                                    if (period === 'afternoon' && sched.afternoonSlots.length === 0) return false;
+                                    const range = getPickupDateRange(date);
+                                    const dayPickups = await base44.asServiceRole.entities.Pickup.filter({
+                                        scheduled_at: { $gte: range.start, $lte: range.end },
+                                        status: { $ne: 'cancelled' }
+                                    });
+                                    const capacity = period === 'morning' ? sched.morningCapacity : sched.afternoonCapacity;
+                                    const count = dayPickups.filter(p => {
+                                        const h = getPickupLocalHour(p.scheduled_at);
+                                        return period === 'morning' ? h < 13 : h >= 13;
+                                    }).length;
+                                    return count < capacity;
+                                };
+
+                                let targetDate = null;
+                                let targetPeriod = null;
+
+                                // Manhã → tenta tarde de hoje
+                                if (isMorning && currentHour < 16) {
+                                    const todayKey = dateKey(nowBRT);
+                                    if (await hasCapacity(todayKey, 'afternoon')) {
+                                        targetDate = todayKey;
+                                        targetPeriod = 'afternoon';
+                                    }
+                                }
+
+                                // Se não achou, procura próxima manhã útil
+                                if (!targetDate) {
+                                    for (let i = 1; i <= 7; i++) {
+                                        const future = new Date(nowBRT);
+                                        future.setDate(future.getDate() + i);
+                                        const futureKey = dateKey(future);
+                                        if (await hasCapacity(futureKey, 'morning')) {
+                                            targetDate = futureKey;
+                                            targetPeriod = 'morning';
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if (!targetDate) {
+                                    chatMessages.push({
+                                        role: "tool",
+                                        tool_call_id: toolCall.id,
+                                        content: JSON.stringify({ error: "Não há turnos disponíveis para encaixe nos próximos dias. Ofereça uma data específica ao cliente." })
+                                    });
+                                    continue;
+                                }
+
+                                args.date = targetDate;
+                                args.period = targetPeriod;
+                            }
+
                             const schedule = getPickupScheduleForDate(args.date);
                             if (!schedule.isOpen || (args.period === 'afternoon' && schedule.afternoonSlots.length === 0)) {
                                 chatMessages.push({
@@ -2024,8 +2113,9 @@ Deno.serve(async (req) => {
                                 const shiftInfo = args.period === 'morning' ? `(turno manhã) das ${schedule.isSaturday ? '9h' : '8h'} às 12h` : '(turno tarde) das 13h às 16h';
                                 pickupScheduledOk = true;
                                 // Coleta agendada de fato — limpa qualquer coleta pendente salva para não duplicar depois.
-                                if (currentState.pending_pickup) {
+                                if (currentState.pending_pickup || currentState.payment_confirmed) {
                                     currentState.pending_pickup = null;
+                                    currentState.payment_confirmed = false;
                                     await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
                                 }
                                 chatMessages.push({

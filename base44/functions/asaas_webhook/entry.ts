@@ -106,6 +106,18 @@ export default async function (req: Request): Promise<Response> {
           await db.Quote.update(payment.quote_id, { status: 'ACCEPTED' }).catch(() => null);
         }
 
+        // Marca a conversa como pagamento confirmado para a IA agendar coleta como encaixe
+        if (payment.customer_id) {
+          const conversations = await db.Conversation.filter({ customer_id: payment.customer_id }).catch(() => []);
+          for (const conv of (conversations || [])) {
+            if (conv.metadata?.flow === 'WAITING_RECEIPT') {
+              await db.Conversation.update(conv.id, {
+                metadata: { ...conv.metadata, payment_confirmed: true }
+              }).catch(() => null);
+            }
+          }
+        }
+
         applied = 'payment_confirmed';
       } else if (REFUND_EVENTS.has(event)) {
         await db.Payment.update(payment.id, {
