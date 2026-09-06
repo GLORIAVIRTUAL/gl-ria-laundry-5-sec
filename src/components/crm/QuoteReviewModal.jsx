@@ -12,6 +12,7 @@ import ProductIcon from "@/components/ui/ProductIcon";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import ImageLightbox from "@/components/crm/ImageLightbox";
 import { 
   Loader2, 
   Plus, 
@@ -31,6 +32,7 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
   const [addition, setAddition] = useState(0);
   const [customMessage, setCustomMessage] = useState("");
   const [adjustmentReason, setAdjustmentReason] = useState("");
+  const [zoomImage, setZoomImage] = useState(null);
 
   useEffect(() => {
     if (isOpen && card?.linked_quote_id) {
@@ -222,9 +224,9 @@ ${customMessage ? `${customMessage}\n\n` : ''}Para aprovar, responda "Aprovar".`
                    {items.map((item, index) => (
                       <div key={index} className="flex gap-3 items-start bg-white/5 p-3 rounded-lg group border border-white/5 mt-2">
                          {item.image_url ? (
-                             <a href={item.image_url} target="_blank" rel="noopener noreferrer" className="shrink-0 cursor-pointer hover:opacity-80 transition-opacity" title="Ver imagem original">
+                             <button type="button" onClick={() => setZoomImage(item.image_url)} className="shrink-0 cursor-zoom-in hover:opacity-80 transition-opacity" title="Ampliar imagem">
                                <img src={item.image_url} alt="Item" className="w-16 h-16 rounded-md object-cover border border-white/10 shadow-sm" />
-                             </a>
+                             </button>
                          ) : (
                              <div className="w-16 h-16 shrink-0 rounded-md bg-white/10 flex items-center justify-center border border-white/5">
                                 <ProductIcon name={item.garment_type} className="w-6 h-6 text-gray-500" />
@@ -345,6 +347,7 @@ ${customMessage ? `${customMessage}\n\n` : ''}Para aprovar, responda "Aprovar".`
             Enviar Orçamento
           </Button>
         </DialogFooter>
+        <ImageLightbox url={zoomImage} onClose={() => setZoomImage(null)} />
       </DialogContent>
     </Dialog>
   );
