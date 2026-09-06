@@ -959,7 +959,9 @@ Deno.serve(async (req) => {
 
             // Perguntas diretas sobre coleta hoje/amanhã têm resposta determinística.
             // Isso impede a IA de oferecer sábado à tarde antes de consultar a agenda real.
-            const pickupAvailabilityRequest = resolvePickupAvailabilityRequest(message.text || '');
+            // EXCEÇÃO: quando payment_confirmed=true, a coleta é encaixe automático —
+            // não interceptar, deixar a IA chamar schedule_pickup com encaixe=true.
+            const pickupAvailabilityRequest = !currentState.payment_confirmed ? resolvePickupAvailabilityRequest(message.text || '') : null;
             if (pickupAvailabilityRequest) {
                 const schedule = getPickupScheduleForDate(pickupAvailabilityRequest.date);
                 let dayPickups = [];
