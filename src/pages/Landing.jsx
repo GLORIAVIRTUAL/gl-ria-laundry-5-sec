@@ -3,7 +3,7 @@ import { Sparkles, ShieldCheck, Shirt, Droplets, Leaf, MessageSquare, Clock, Tru
 import LandingQuoteForm from '@/components/landing/LandingQuoteForm';
 import './Landing.css';
 
-const LOGO = 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/4c0406102_images1.png';
+const LOGO = 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/28c27e13c_Untitled110x40px.png';
 const CAMPAIGN = 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/007d82095_fc1ba4a60_generated_image.png';
 const STORE = 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/0819c7ea4_padrao.jpg';
 const INTERIOR = 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/8a97fb82d_images7.jpg';
