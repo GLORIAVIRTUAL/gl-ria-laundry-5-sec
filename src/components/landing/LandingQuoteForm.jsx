@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Minus, Trash2, Shirt, Loader2, Send, CheckCircle2, ChevronDown, AlertTriangle, Search } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
+import PieceServiceOptions from '@/components/landing/PieceServiceOptions';
 
 const SUGGESTIONS = {
   color: ['Branco', 'Preto', 'Azul', 'Vermelho', 'Verde', 'Bege', 'Cinza', 'Rosa', 'Amarelo', 'Laranja', 'Roxo', 'Marrom', 'Vinho', 'Dourado', 'Prateado', 'Multicolorido', 'Outro'],
@@ -13,6 +14,9 @@ const DAMAGES = ['Mancha', 'Rasgo', 'Furo', 'Desgaste', 'Desbotado', 'Costura so
 
 export default function LandingQuoteForm({ unitId }) {
   const [products, setProducts] = useState([]);
+  const [services, setServices] = useState([]);
+  const [ironing, setIroning] = useState({ percent: 70, active: true });
+  const [selectedDeliveryId, setSelectedDeliveryId] = useState('');
   const [pieces, setPieces] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [form, setForm] = useState({ name: '', phone: '' });
@@ -25,9 +29,20 @@ export default function LandingQuoteForm({ unitId }) {
   const [finalTotal, setFinalTotal] = useState(0);
 
   useEffect(() => {
-    base44.entities.Product.list()
-      .then(setProducts)
-      .catch(() => setProducts([]));
+    Promise.all([
+      base44.entities.Product.list(),
+      base44.entities.LaundryService.filter({ active: true }),
+      base44.entities.IroningSettings.list('-updated_date', 1),
+    ])
+      .then(([productRows, serviceRows, ironingRows]) => {
+        setProducts(productRows);
+        setServices(serviceRows);
+        if (ironingRows[0]) setIroning(ironingRows[0]);
+      })
+      .catch(() => {
+        setProducts([]);
+        setServices([]);
+      });
   }, []);
 
   const addPiece = (product) => {
@@ -38,6 +53,8 @@ export default function LandingQuoteForm({ unitId }) {
       garment_type: product.name,
       unit_price: Number(product.price) || 0,
       quantity: 1,
+      service_type: 'cleaning',
+      special_service_ids: [],
       attributes: { color: '', brand: '', material: '', pattern: '', size: '' },
       damages: [],
       notes: '',
@@ -51,7 +68,18 @@ export default function LandingQuoteForm({ unitId }) {
     !search || p.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const estimatedTotal = pieces.reduce((sum, p) => sum + (Number(p.unit_price) || 0) * (p.quantity || 1), 0);
+  const specialServices = services.filter((service) => service.category === 'special_treatment');
+  const deliveryServices = services.filter((service) => service.category === 'delivery');
+  const selectedDelivery = deliveryServices.find((service) => service.id === selectedDeliveryId);
+  const estimatedTotal = pieces.reduce((sum, piece) => {
+    const mainPrice = piece.service_type === 'ironing'
+      ? (Number(piece.unit_price) || 0) * Number(ironing?.percent ?? 70) / 100
+      : Number(piece.unit_price) || 0;
+    const specialPrice = specialServices
+      .filter((service) => (piece.special_service_ids || []).includes(service.id))
+      .reduce((total, service) => total + (Number(service.base_price) || 0), 0);
+    return sum + (mainPrice + specialPrice) * (piece.quantity || 1);
+  }, 0) + (Number(selectedDelivery?.base_price) || 0);
   const fmt = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const updatePiece = (id, patch) => {
@@ -84,8 +112,12 @@ export default function LandingQuoteForm({ unitId }) {
         const attrs = [p.attributes?.color, p.attributes?.material, p.attributes?.pattern, p.attributes?.size, p.attributes?.brand].filter(Boolean).join(', ');
         const dmg = (p.damages || []).length ? ` | avarias: ${p.damages.join(', ')}` : '';
         const obs = p.notes ? ` | obs: ${p.notes}` : '';
-        return `${p.quantity}x ${p.garment_type}${attrs ? ` (${attrs})` : ''}${dmg}${obs}`;
+        const mainService = p.service_type === 'ironing' ? `Passadoria (${Number(ironing?.percent ?? 70)}% do valor da peça)` : 'Lavagem';
+        const extras = specialServices.filter((service) => (p.special_service_ids || []).includes(service.id));
+        const extraText = extras.length ? ` | especiais: ${extras.map((service) => service.name).join(', ')}` : '';
+        return `${p.quantity}x ${p.garment_type}${attrs ? ` (${attrs})` : ''} | serviço: ${mainService}${extraText}${dmg}${obs}`;
       });
+      if (selectedDelivery) lines.push(`Coleta/entrega: ${selectedDelivery.name} (${fmt(selectedDelivery.base_price)})`);
       const message = `Olá! Sou ${form.name.trim()} e gostaria de um orçamento:\n${lines.join('\n')}`;
       const res = await base44.functions.invoke('landing_widget_start', {
         name: form.name.trim(),
@@ -115,7 +147,7 @@ export default function LandingQuoteForm({ unitId }) {
           <strong>{fmt(finalTotal)}</strong>
         </div>
         <p className="lq-success-copy">
-          Recebemos suas peças. Entraremos em contato para confirmar.
+          Sua solicitação foi enviada. Nossa equipe entrará em contato pelo número de WhatsApp informado para confirmar o pedido e todos os detalhes.
         </p>
         <p className="lq-warning">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -189,6 +221,13 @@ export default function LandingQuoteForm({ unitId }) {
                 <AnimatePresence>
                   {open && (
                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="lq-details space-y-3">
+                      <PieceServiceOptions
+                        piece={p}
+                        updatePiece={(patch) => updatePiece(p.line_id, patch)}
+                        ironing={ironing}
+                        specialServices={specialServices}
+                        fmt={fmt}
+                      />
                       <div className="lq-attr-grid">
                         <AttrField label="Cor" value={p.attributes?.color} options={SUGGESTIONS.color} onChange={(v) => updateAttr(p.line_id, 'color', v)} />
                         <AttrField label="Tecido" value={p.attributes?.material} options={SUGGESTIONS.material} onChange={(v) => updateAttr(p.line_id, 'material', v)} />
@@ -218,6 +257,22 @@ export default function LandingQuoteForm({ unitId }) {
       {/* Hint to add via search */}
       {pieces.length === 0 && (
         <p className="lq-empty">Use a busca acima para encontrar e adicionar suas peças.</p>
+      )}
+
+      {pieces.length > 0 && deliveryServices.length > 0 && (
+        <div className="lq-piece">
+          <div className="lq-details space-y-2">
+            <p className="lq-attr-label">Coleta e entrega (opcional)</p>
+            <div className="lq-chips">
+              <button type="button" onClick={() => setSelectedDeliveryId('')} className={`lq-chip ${!selectedDeliveryId ? 'active' : ''}`}>Sem coleta</button>
+              {deliveryServices.map((service) => (
+                <button key={service.id} type="button" onClick={() => setSelectedDeliveryId(service.id)} className={`lq-chip ${selectedDeliveryId === service.id ? 'active' : ''}`}>
+                  {service.name} · {fmt(service.base_price)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {error && <p className="text-red-400 text-xs flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{error}</p>}
