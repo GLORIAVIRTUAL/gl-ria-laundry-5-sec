@@ -3,6 +3,7 @@ import { Draggable } from '@hello-pangea/dnd';
 import { motion } from 'framer-motion';
 import { Clock, MessageSquare, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import CustomerSourceBadge from '@/components/crm/CustomerSourceBadge';
 
 const formatBrasiliaDate = (value, includeYear = false) => {
   if (!value) return '';
@@ -60,6 +61,10 @@ export default function KanbanCard({ card, index, customer, onClick, onDeleteCli
                   {formatBrasiliaDate(card.created_date)}
                 </div>
               )}
+            </div>
+
+            <div className="mb-3">
+              <CustomerSourceBadge source={card.customer_source} />
             </div>
             
             <div onClick={() => onClick(card)} className="cursor-pointer">

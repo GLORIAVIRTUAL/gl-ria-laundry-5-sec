@@ -61,6 +61,14 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'human_review_required', unresolved_items: unresolvedItems.length, request_id: requestId }, { status: 409 });
     }
 
+    const customerSource = quote.origin === 'customer_portal'
+      ? 'SITE_QUOTE'
+      : quote.origin === 'whatsapp'
+        ? 'WHATSAPP_GLORIA'
+        : ['management_manual', 'management_vision', 'counter'].includes(quote.origin)
+          ? 'COUNTER_MANUAL'
+          : undefined;
+
     const pricingCatalog = await loadLaundryPricingCatalog(base44, { unitId: quote.unit_id, customerId: quote.customer_id });
     const pricing = priceGarmentItems({
       items,
@@ -212,6 +220,7 @@ Deno.serve(async (req) => {
         linked_order_id: createdOrder.id,
         linked_quote_id: quote.id,
         unit_id: quote.unit_id,
+        customer_source: customerSource,
       });
     }
 

@@ -52,7 +52,8 @@ export default function NewItemModal({ isOpen, onClose, pipeline, stage, unitId,
         stage: stage,
         priority: formData.priority,
         customer_id: customerId,
-        unit_id: unitId
+        unit_id: unitId,
+        customer_source: 'COUNTER_MANUAL'
       });
       
       onSuccess();

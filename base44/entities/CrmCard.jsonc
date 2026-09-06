@@ -26,6 +26,16 @@
       ],
       "default": "MEDIUM"
     },
+    "customer_source": {
+      "type": "string",
+      "enum": [
+        "SITE_QUOTE",
+        "COUNTER_MANUAL",
+        "WHATSAPP_HUMAN",
+        "WHATSAPP_GLORIA"
+      ],
+      "description": "Origem inicial do cliente no CRM"
+    },
     "assigned_to": {
       "type": "string",
       "description": "User ID of the staff member"

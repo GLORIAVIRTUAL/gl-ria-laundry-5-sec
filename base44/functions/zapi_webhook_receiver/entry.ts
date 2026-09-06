@@ -4,6 +4,7 @@ import { classifyConsentResponse, hasActiveConsentRequest } from '../../shared/w
 import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../../shared/dispatchReplyPolicy.js';
 import { hasRecentHumanReply } from '../../shared/humanActivity.js';
 import { canonicalPhone } from '../../shared/customerPhone.js';
+import { CUSTOMER_SOURCES, ensureCustomerSourceCard } from '../../shared/customerSource.js';
 
 Deno.serve(async (req) => {
     // Helper: mantém o trabalho em background VIVO após o retorno do 200.
@@ -311,16 +312,6 @@ Deno.serve(async (req) => {
                 status: 'active'
             });
 
-            try {
-                await base44.asServiceRole.entities.CrmCard.create({
-                    pipeline_type: 'NEW_CUSTOMER',
-                    stage: 'Novo cliente',
-                    priority: 'MEDIUM',
-                    customer_id: customer.id
-                });
-            } catch (err) {
-                console.error("Failed to create CRM card for new customer", err);
-            }
         } else {
             // Update last interaction. If we got a real name now and the stored one is a placeholder,
             // update it so the chat list shows the actual contact name from WhatsApp.
@@ -347,6 +338,13 @@ Deno.serve(async (req) => {
             }
             await base44.asServiceRole.entities.Customer.update(customer.id, updatePayload);
         }
+
+        await ensureCustomerSourceCard(
+            base44,
+            customer,
+            customer.unit_id,
+            payload.fromMe ? CUSTOMER_SOURCES.WHATSAPP_HUMAN : CUSTOMER_SOURCES.WHATSAPP_GLORIA
+        );
 
         // 2. Find Conversation — SOMENTE conversas desta conexão principal.
         // Conversas da conexão Moinhos (source zapi_moinhos) são de OUTRO número e

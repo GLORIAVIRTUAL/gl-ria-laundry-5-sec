@@ -1,6 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.46';
 import { securityErrorResponse } from '../../shared/functionSecurity.js';
 import { canonicalPhone, isPlaceholderName } from '../../shared/customerPhone.js';
+import { CUSTOMER_SOURCES, ensureCustomerSourceCard } from '../../shared/customerSource.js';
 
 // Landing pública da Unidade Teste: captura nome + telefone do lead, cria
 // cliente/conversa/mensagem e dispara a Glória (ai_pending). A conversa entra
@@ -45,17 +46,6 @@ Deno.serve(async (req) => {
         unit_id: unitId || undefined,
         preferred_unit_name: 'Unidade Teste',
       });
-      try {
-        await base44.asServiceRole.entities.CrmCard.create({
-          pipeline_type: 'NEW_CUSTOMER',
-          stage: 'Novo cliente',
-          priority: 'MEDIUM',
-          customer_id: customer.id,
-          unit_id: unitId || undefined,
-        });
-      } catch (err) {
-        console.error('CRM card create failed', err);
-      }
     } else {
       const isPlaceholder = isPlaceholderName(customer.full_name);
       const update = { last_inbound_at: new Date().toISOString() };
@@ -65,6 +55,8 @@ Deno.serve(async (req) => {
       if (unitId && !customer.unit_id) update.unit_id = unitId;
       await base44.asServiceRole.entities.Customer.update(customer.id, update);
     }
+
+    await ensureCustomerSourceCard(base44, customer, unitId, CUSTOMER_SOURCES.SITE_QUOTE);
 
     // Find or create conversation (WHATSAPP channel so the orchestrator/zapi_sender flow works).
     let conversation = await base44.asServiceRole.entities.Conversation
