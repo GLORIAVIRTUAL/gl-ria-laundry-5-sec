@@ -1,10 +1,14 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sparkles, ShieldCheck, Shirt, Droplets, Leaf, MessageSquare, Clock, Truck } from 'lucide-react';
 import LandingQuoteForm from '@/components/landing/LandingQuoteForm';
 import './Landing.css';
 
 const LOGO = 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/28c27e13c_Untitled110x40px.png';
-const CAMPAIGN = 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/007d82095_fc1ba4a60_generated_image.png';
+const HERO_IMAGES = [
+  { src: 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/81906a8b9_bag.png', alt: 'Bags 5àsec para cuidar das roupas de toda a família' },
+  { src: 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/7e98f6ec3_L01_banner_960x545_5aSec.jpg', alt: 'Promoção 5àsec: você ganha de lavada' },
+  { src: 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/41db71819_do-seu-jeito.jpg', alt: 'Planos 5àsec do seu jeito' },
+];
 const STORE = 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/0819c7ea4_padrao.jpg';
 const INTERIOR = 'https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/8a97fb82d_images7.jpg';
 const WHATSAPP = '5587988020504';
@@ -18,7 +22,13 @@ const services = [
 ];
 
 export default function Landing() {
+  const [heroImage, setHeroImage] = useState(0);
   const message = encodeURIComponent('Olá! Vim pelo site da Unidade Teste e gostaria de um orçamento de roupas.');
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setHeroImage((current) => (current + 1) % HERO_IMAGES.length), 4500);
+    return () => window.clearInterval(timer);
+  }, []);
   const whatsappUrl = `https://wa.me/${WHATSAPP}?text=${message}`;
 
   return (
@@ -33,10 +43,10 @@ export default function Landing() {
 
       <main>
         <section className="landing-hero landing-wrap">
-          <img className="landing-hero-img" src={CAMPAIGN} alt="30% OFF · Especial de Aniversário" />
+          <img key={heroImage} className="landing-hero-img landing-hero-img-slide" src={HERO_IMAGES[heroImage].src} alt={HERO_IMAGES[heroImage].alt} />
           <div className="landing-hero-copy">
-            <p className="landing-eyebrow">30% OFF</p>
-            <h1>Especial de Aniversário</h1>
+            <p className="landing-eyebrow">5àsec · Textile Expert</p>
+            <h1>Suas roupas merecem o melhor cuidado</h1>
             <p>Tratamento têxtil profissional para suas peças, com cuidado em cada detalhe.</p>
             <div className="landing-unit-summary"><strong>Unidade Teste</strong><span>Lavanderia, tratamento têxtil e delivery com coleta programada e controle total da peça do início ao fim.</span></div>
           </div>
