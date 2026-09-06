@@ -106,7 +106,7 @@ export default function ZapiConnectionCard({ store = 'main', title, description,
             </div>
 
             <div className="flex gap-3 flex-wrap">
-              <Button variant="outline" onClick={checkConnection} disabled={checkingConnection} className="border-white/10 hover:bg-white/5">
+              <Button variant="outline" onClick={checkConnection} disabled={checkingConnection} className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white">
                 <RefreshCw className={`w-4 h-4 mr-2 ${checkingConnection ? 'animate-spin' : ''}`} />
                 Atualizar Status
               </Button>

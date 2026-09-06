@@ -6,7 +6,7 @@ Deno.serve(async (req) => {
         
         // Auth check
         const user = await base44.auth.me();
-        if (!user || user.role !== 'admin') {
+        if (!user || !['admin', 'super_admin', 'manager'].includes(user.role)) {
              return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
 

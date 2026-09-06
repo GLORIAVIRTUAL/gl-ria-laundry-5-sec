@@ -661,15 +661,9 @@ Templates WhatsApp (3) — JSON [
         <TabsContent value="connection" className="mt-0 space-y-6">
             <ZapiConnectionCard
                 store="main"
-                title="Conexão da Rede (Z-API)"
-                description="Instância principal 5àsec (todas as lojas, exceto Moinhos)."
+                title="Conexão WhatsApp (Z-API)"
+                description="Instância 5àsec conectada ao atendimento."
                 accent="green"
-            />
-            <ZapiConnectionCard
-                store="moinhos"
-                title="Conexão Loja Moinhos Shopping (Z-API)"
-                description="Instância dedicada da unidade Moinhos Shopping."
-                accent="blue"
             />
         </TabsContent>
 
