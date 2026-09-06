@@ -53,6 +53,27 @@ Deno.serve(async (req) => {
     }
 
     const source = message.ai_source || (conversation.metadata || {}).source || null;
+    const interceptorArgs = {
+        conversation_id: conversation.id,
+        message_id: message.id,
+        payload: source ? { source } : {},
+        _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
+    };
+
+    // ENCAIXE DETERMINÍSTICO: roda antes do orchestrator. Se o pagamento
+    // antecipado está confirmado e o cliente pede coleta, cria a coleta
+    // direto — sem depender da IA.
+    let interceptorResult = null;
+    try {
+        interceptorResult = await base44.asServiceRole.functions.invoke('encaixeInterceptor', interceptorArgs);
+    } catch (e) {
+        console.warn('Encaixe interceptor falhou (não fatal):', e?.message);
+    }
+
+    if (interceptorResult && interceptorResult.data && interceptorResult.data.handled) {
+        return Response.json({ status: 'encaixe_intercepted', action: interceptorResult.data.action, request_id: requestId });
+    }
+
     const args = {
         conversation_id: conversation.id,
         message_id: message.id,
