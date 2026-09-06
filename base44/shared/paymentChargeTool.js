@@ -50,7 +50,7 @@ export async function handlePaymentChargeToolCall({ toolCall, base44, customer }
                     pix_copy_paste: code || null,
                     invoice_url: data.url || null,
                     instruction: code
-                        ? `Cobrança Pix criada no Asaas. Envie ao cliente EXATAMENTE este código Pix copia e cola, sozinho, sem alterar nenhum caractere: ${code} — explique que é só copiar e colar no app do banco e que o pagamento é confirmado automaticamente. É PROIBIDO informar qualquer outra chave Pix.`
+                        ? `Cobrança Pix criada no Asaas. Envie ao cliente EXATAMENTE este código Pix copia e cola, sozinho, sem alterar nenhum caractere: ${code} — explique que é só copiar e colar no app do banco e que o pagamento é confirmado automaticamente. É PROIBIDO informar qualquer outra chave Pix. A mensagem deve tratar SOMENTE do pagamento: não pergunte nem mencione coleta, data, turno ou endereço agora — aguarde a confirmação do pagamento pelo webhook do Asaas.`
                         : `Cobrança Pix criada. Envie ao cliente este link de pagamento: ${data.url}. É PROIBIDO informar chave Pix manual.`
                 })
             };
@@ -60,7 +60,7 @@ export async function handlePaymentChargeToolCall({ toolCall, base44, customer }
             content: JSON.stringify({
                 success: true,
                 payment_url: data.url,
-                instruction: `Cobrança no cartão criada no Asaas. Envie ao cliente EXATAMENTE este link de pagamento: ${data.url} — explique que ele pode pagar no cartão de crédito por esse link com segurança.`
+                instruction: `Cobrança no cartão criada no Asaas. Envie ao cliente EXATAMENTE este link de pagamento: ${data.url} — explique que ele pode pagar no cartão de crédito por esse link com segurança. A mensagem deve tratar SOMENTE do pagamento: não pergunte nem mencione coleta, data, turno ou endereço agora — aguarde a confirmação do pagamento pelo webhook do Asaas.`
             })
         };
     } catch (e) {
