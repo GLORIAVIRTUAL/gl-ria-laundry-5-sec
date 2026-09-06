@@ -107,17 +107,17 @@ export default function LandingQuoteForm({ unitId }) {
 
   if (done) {
     return (
-      <div className="flex flex-col items-center justify-center text-center py-10 space-y-4">
-        <CheckCircle2 className="w-14 h-14 text-green-400" />
-        <p className="text-white font-semibold text-lg">Orçamento recebido!</p>
-        <div className="rounded-xl border border-[#FF6600]/30 bg-[#FF6600]/10 px-6 py-4">
-          <p className="text-xs text-white/60 uppercase tracking-wide">Valor estimado</p>
-          <p className="text-3xl font-extrabold text-[#FF6600] mt-1">{fmt(finalTotal)}</p>
+      <div className="lq-success">
+        <CheckCircle2 className="lq-success-icon" />
+        <p className="lq-success-title">Orçamento recebido!</p>
+        <div className="lq-success-total">
+          <p>Valor estimado</p>
+          <strong>{fmt(finalTotal)}</strong>
         </div>
-        <p className="text-white/60 text-sm max-w-xs">
+        <p className="lq-success-copy">
           Recebemos suas peças. Entraremos em contato para confirmar.
         </p>
-        <p className="text-xs text-amber-300/80 max-w-xs flex items-start gap-1.5">
+        <p className="lq-warning">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           O valor pode ser ajustado caso alguma peça exija tratamento especial.
         </p>
@@ -126,39 +126,39 @@ export default function LandingQuoteForm({ unitId }) {
   }
 
   return (
-    <form onSubmit={submit} className="space-y-4">
+    <form onSubmit={submit} className="lq-form">
       <input value={honeypot} onChange={(e) => setHoneypot(e.target.value)} type="text" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden="true" />
 
       {/* Customer */}
-      <div className="grid grid-cols-2 gap-3">
-        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nome" className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm placeholder-white/30 focus:border-[#FF6600] focus:outline-none" />
-        <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Telefone / WhatsApp" className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm placeholder-white/30 focus:border-[#FF6600] focus:outline-none" />
+      <div className="lq-row">
+        <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Nome" className="lq-input" />
+        <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Telefone / WhatsApp" className="lq-input" />
       </div>
 
       {/* Search bar to locate garment types */}
-      <div className="relative">
+      <div className="lq-search">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+          <Search className="lq-search-icon" />
           <input
             value={search}
             onChange={(e) => { setSearch(e.target.value); setSearchFocused(true); }}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
             placeholder="Buscar tipo de peça (ex: camisa, vestido, manta...)"
-            className="w-full bg-white/5 border border-white/10 rounded-lg pl-9 pr-3 py-2.5 text-sm placeholder-white/30 focus:border-[#FF6600] focus:outline-none"
+            className="lq-input"
           />
         </div>
         {searchFocused && search && (
-          <div className="absolute z-20 left-0 right-0 mt-1 rounded-xl border border-white/10 bg-[#1a0b36] shadow-2xl max-h-56 overflow-y-auto">
+          <div className="lq-search-results">
             {filteredProducts.length === 0 ? (
-              <p className="px-3 py-4 text-center text-xs text-white/40">Nenhuma peça encontrada para "{search}".</p>
+              <p className="lq-empty px-3 py-4">Nenhuma peça encontrada para "{search}".</p>
             ) : (
               filteredProducts.slice(0, 20).map((prod) => (
-                <button key={prod.id} type="button" onMouseDown={(e) => { e.preventDefault(); addPiece(prod); }} className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-white/5 transition border-b border-white/5 last:border-0">
+                <button key={prod.id} type="button" onMouseDown={(e) => { e.preventDefault(); addPiece(prod); }} className="lq-search-option">
                   <Shirt className="w-4 h-4 text-[#FF6600] shrink-0" />
-                  <span className="text-xs font-medium text-white truncate flex-1">{prod.name}</span>
-                  {prod.base_price ? <span className="text-[10px] text-white/40">R$ {Number(prod.base_price).toFixed(2)}</span> : null}
-                  <Plus className="w-3.5 h-3.5 text-white/30" />
+                  <span className="text-xs font-medium truncate flex-1">{prod.name}</span>
+                  {prod.base_price ? <span className="text-[10px] text-[#806889]">R$ {Number(prod.base_price).toFixed(2)}</span> : null}
+                  <Plus className="w-3.5 h-3.5 text-[#806889]" />
                 </button>
               ))
             )}
@@ -167,45 +167,45 @@ export default function LandingQuoteForm({ unitId }) {
       </div>
 
       {/* Pieces list */}
-      <div className="space-y-2">
+      <div className="lq-pieces">
         <AnimatePresence>
           {pieces.map((p, i) => {
             const open = expandedId === p.line_id;
             return (
-              <motion.div key={p.line_id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
-                <div className="flex items-center gap-2 p-3">
-                  <button type="button" onClick={() => setExpandedId(open ? null : p.line_id)} className="flex items-center gap-2 flex-1 text-left">
+              <motion.div key={p.line_id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }} className="lq-piece">
+                <div className="lq-piece-head">
+                  <button type="button" onClick={() => setExpandedId(open ? null : p.line_id)} className="lq-piece-toggle">
                     <Shirt className="w-4 h-4 text-[#FF6600] shrink-0" />
-                    <span className="text-sm font-medium text-white truncate">{i + 1}. {p.garment_type}</span>
-                    <ChevronDown className={`w-4 h-4 text-white/40 transition-transform ${open ? 'rotate-180' : ''}`} />
+                    <span className="text-sm font-medium truncate">{i + 1}. {p.garment_type}</span>
+                    <ChevronDown className={`w-4 h-4 text-[#806889] transition-transform ${open ? 'rotate-180' : ''}`} />
                   </button>
-                  <div className="flex items-center gap-1 bg-black/20 rounded-lg px-1">
+                  <div className="lq-quantity">
                     <button type="button" onClick={() => changeQty(p.line_id, -1)} className="p-1 hover:bg-white/10 rounded"><Minus className="w-3 h-3" /></button>
                     <span className="text-xs font-semibold w-5 text-center">{p.quantity}</span>
                     <button type="button" onClick={() => changeQty(p.line_id, 1)} className="p-1 hover:bg-white/10 rounded"><Plus className="w-3 h-3" /></button>
                   </div>
-                  <button type="button" onClick={() => removePiece(p.line_id)} className="p-1.5 hover:bg-red-500/20 rounded text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                  <button type="button" onClick={() => removePiece(p.line_id)} className="lq-remove"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
                 <AnimatePresence>
                   {open && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="border-t border-white/10 p-3 space-y-3 bg-black/20">
-                      <div className="grid grid-cols-2 gap-2">
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="lq-details space-y-3">
+                      <div className="lq-attr-grid">
                         <AttrField label="Cor" value={p.attributes?.color} options={SUGGESTIONS.color} onChange={(v) => updateAttr(p.line_id, 'color', v)} />
                         <AttrField label="Tecido" value={p.attributes?.material} options={SUGGESTIONS.material} onChange={(v) => updateAttr(p.line_id, 'material', v)} />
                         <AttrField label="Estampa" value={p.attributes?.pattern} options={SUGGESTIONS.pattern} onChange={(v) => updateAttr(p.line_id, 'pattern', v)} />
                         <AttrField label="Tamanho" value={p.attributes?.size} options={SUGGESTIONS.size} onChange={(v) => updateAttr(p.line_id, 'size', v)} />
                       </div>
-                      <input value={p.attributes?.brand || ''} onChange={(e) => updateAttr(p.line_id, 'brand', e.target.value)} placeholder="Marca (opcional)" className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs placeholder-white/30 focus:border-[#FF6600] focus:outline-none" />
+                      <input value={p.attributes?.brand || ''} onChange={(e) => updateAttr(p.line_id, 'brand', e.target.value)} placeholder="Marca (opcional)" className="lq-input" />
                       <div>
-                        <p className="text-xs text-white/50 mb-1.5">Avarias observadas</p>
-                        <div className="flex flex-wrap gap-1.5">
+                        <p className="lq-attr-label">Avarias observadas</p>
+                        <div className="lq-chips">
                           {DAMAGES.map((d) => {
                             const sel = (p.damages || []).includes(d);
-                            return <button key={d} type="button" onClick={() => toggleDamage(p.line_id, d)} className={`rounded-full border px-2.5 py-1 text-xs transition ${sel ? 'border-red-400/60 bg-red-500/20 text-red-100' : 'border-white/10 bg-white/5 text-white/50 hover:border-white/25'}`}>{d}</button>;
+                            return <button key={d} type="button" onClick={() => toggleDamage(p.line_id, d)} className={`lq-chip ${sel ? 'active' : ''}`}>{d}</button>;
                           })}
                         </div>
                       </div>
-                      <textarea value={p.notes || ''} onChange={(e) => updatePiece(p.line_id, { notes: e.target.value })} placeholder="Observações da peça (local da mancha, estado...)" rows={2} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs placeholder-white/30 focus:border-[#FF6600] focus:outline-none resize-none" />
+                      <textarea value={p.notes || ''} onChange={(e) => updatePiece(p.line_id, { notes: e.target.value })} placeholder="Observações da peça (local da mancha, estado...)" rows={2} className="lq-textarea" />
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -217,26 +217,26 @@ export default function LandingQuoteForm({ unitId }) {
 
       {/* Hint to add via search */}
       {pieces.length === 0 && (
-        <p className="text-xs text-white/40 text-center">Use a busca acima para encontrar e adicionar suas peças.</p>
+        <p className="lq-empty">Use a busca acima para encontrar e adicionar suas peças.</p>
       )}
 
       {error && <p className="text-red-400 text-xs flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{error}</p>}
 
       {/* Estimated budget */}
       {pieces.length > 0 && (
-        <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-white/50 uppercase tracking-wide">Valor estimado</span>
-            <span className="text-2xl font-extrabold text-[#FF6600]">{fmt(estimatedTotal)}</span>
-          </div>
-          <p className="text-[11px] text-amber-300/70 flex items-start gap-1.5">
+        <div className="lq-estimate">
+          <div>
+            <span className="lq-estimate-label">Valor estimado</span>
+            <p className="lq-warning">
             <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-            O valor pode ser ajustado caso alguma peça exija tratamento especial.
-          </p>
+              O valor pode ser ajustado caso alguma peça exija tratamento especial.
+            </p>
+          </div>
+          <strong className="lq-estimate-value">{fmt(estimatedTotal)}</strong>
         </div>
       )}
 
-      <button type="submit" disabled={loading || pieces.length === 0} className="w-full bg-[#FF6600] hover:bg-[#e55c00] text-white font-semibold py-3 rounded-lg text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
+      <button type="submit" disabled={loading || pieces.length === 0} className="lq-send">
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         {loading ? 'Enviando...' : `Pedir orçamento (${pieces.length} ${pieces.length === 1 ? 'peça' : 'peças'})`}
       </button>
@@ -247,11 +247,11 @@ export default function LandingQuoteForm({ unitId }) {
 function AttrField({ label, value, options, onChange }) {
   return (
     <div>
-      <p className="text-xs text-white/50 mb-1">{label}</p>
-      <input value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder={`Ex: ${options[0]}`} className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs placeholder-white/30 focus:border-[#FF6600] focus:outline-none" />
-      <div className="flex flex-wrap gap-1 mt-1">
+      <p className="lq-attr-label">{label}</p>
+      <input value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder={`Ex: ${options[0]}`} className="lq-input" />
+      <div className="lq-chips">
         {options.slice(0, 5).map((o) => (
-          <button key={o} type="button" onClick={() => onChange(value === o ? '' : o)} className={`rounded-full border px-2 py-0.5 text-[10px] transition ${value === o ? 'border-[#FF6600] bg-[#FF6600]/20 text-orange-100' : 'border-white/10 text-white/50 hover:border-white/25'}`}>{o}</button>
+          <button key={o} type="button" onClick={() => onChange(value === o ? '' : o)} className={`lq-chip ${value === o ? 'active' : ''}`}>{o}</button>
         ))}
       </div>
     </div>
