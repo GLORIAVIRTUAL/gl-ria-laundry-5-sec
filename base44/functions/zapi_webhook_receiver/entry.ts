@@ -3,6 +3,7 @@ import { requireProviderToken, securityErrorResponse } from '../../shared/functi
 import { classifyConsentResponse, hasActiveConsentRequest } from '../../shared/whatsappConsent.js';
 import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../../shared/dispatchReplyPolicy.js';
 import { hasRecentHumanReply } from '../../shared/humanActivity.js';
+import { canonicalPhone } from '../../shared/customerPhone.js';
 
 Deno.serve(async (req) => {
     // Helper: mantém o trabalho em background VIVO após o retorno do 200.
@@ -236,18 +237,6 @@ Deno.serve(async (req) => {
         // and use THAT same key both to FIND and to SAVE. This guarantees that the same
         // person always maps to the same record — no more duplicates.
         // ============================================================================
-        const canonicalPhone = (raw) => {
-            let d = String(raw || '').replace(/\D/g, '');
-            if (!d) return '';
-            // Add Brazil country code if missing (10 or 11 digit local numbers)
-            if (!d.startsWith('55') && (d.length === 10 || d.length === 11)) d = '55' + d;
-            // For BR mobiles: 55 + DDD(2) + 9 + 8 digits = 13 chars. Strip the extra 9.
-            if (d.startsWith('55') && d.length === 13 && d[4] === '9') {
-                d = d.substring(0, 4) + d.substring(5);
-            }
-            return d;
-        };
-
         const canonPhone = phoneIsLid ? '' : canonicalPhone(phone);
         // Store the canonical phone (so all future webhooks match the same key).
         if (canonPhone) phone = canonPhone;
