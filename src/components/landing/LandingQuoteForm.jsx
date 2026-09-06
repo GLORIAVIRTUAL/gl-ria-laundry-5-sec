@@ -22,6 +22,7 @@ export default function LandingQuoteForm({ unitId }) {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
+  const [finalTotal, setFinalTotal] = useState(0);
 
   useEffect(() => {
     base44.entities.Product.list()
@@ -49,6 +50,9 @@ export default function LandingQuoteForm({ unitId }) {
   const filteredProducts = products.filter((p) =>
     !search || p.name?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const estimatedTotal = pieces.reduce((sum, p) => sum + (Number(p.unit_price) || 0) * (p.quantity || 1), 0);
+  const fmt = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   const updatePiece = (id, patch) => {
     setPieces((prev) => prev.map((p) => p.line_id === id ? { ...p, ...patch } : p));
@@ -92,6 +96,7 @@ export default function LandingQuoteForm({ unitId }) {
       });
       const data = res?.data || res;
       if (data?.error) return setError(data.error);
+      setFinalTotal(estimatedTotal);
       setDone(true);
     } catch (err) {
       setError('Não foi possível enviar. Tente novamente.');
@@ -102,10 +107,20 @@ export default function LandingQuoteForm({ unitId }) {
 
   if (done) {
     return (
-      <div className="flex flex-col items-center justify-center text-center py-10">
-        <CheckCircle2 className="w-14 h-14 text-green-400 mb-4" />
+      <div className="flex flex-col items-center justify-center text-center py-10 space-y-4">
+        <CheckCircle2 className="w-14 h-14 text-green-400" />
         <p className="text-white font-semibold text-lg">Orçamento recebido!</p>
-        <p className="text-white/60 text-sm mt-2 max-w-xs">Recebemos suas peças. Em breve entraremos em contato com o valor.</p>
+        <div className="rounded-xl border border-[#FF6600]/30 bg-[#FF6600]/10 px-6 py-4">
+          <p className="text-xs text-white/60 uppercase tracking-wide">Valor estimado</p>
+          <p className="text-3xl font-extrabold text-[#FF6600] mt-1">{fmt(finalTotal)}</p>
+        </div>
+        <p className="text-white/60 text-sm max-w-xs">
+          Recebemos suas peças. Entraremos em contato para confirmar.
+        </p>
+        <p className="text-xs text-amber-300/80 max-w-xs flex items-start gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          O valor pode ser ajustado caso alguma peça exija tratamento especial.
+        </p>
       </div>
     );
   }
@@ -206,6 +221,20 @@ export default function LandingQuoteForm({ unitId }) {
       )}
 
       {error && <p className="text-red-400 text-xs flex items-center gap-1"><AlertTriangle className="w-3 h-3" />{error}</p>}
+
+      {/* Estimated budget */}
+      {pieces.length > 0 && (
+        <div className="rounded-xl border border-white/10 bg-black/20 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-white/50 uppercase tracking-wide">Valor estimado</span>
+            <span className="text-2xl font-extrabold text-[#FF6600]">{fmt(estimatedTotal)}</span>
+          </div>
+          <p className="text-[11px] text-amber-300/70 flex items-start gap-1.5">
+            <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+            O valor pode ser ajustado caso alguma peça exija tratamento especial.
+          </p>
+        </div>
+      )}
 
       <button type="submit" disabled={loading || pieces.length === 0} className="w-full bg-[#FF6600] hover:bg-[#e55c00] text-white font-semibold py-3 rounded-lg text-sm flex items-center justify-center gap-2 disabled:opacity-50 transition-colors">
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
