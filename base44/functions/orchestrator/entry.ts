@@ -254,6 +254,8 @@ Deno.serve(async (req) => {
         const textLower = (message.text || "").trim().toLowerCase();
         const cleanText = textLower.replace(/[^a-z0-9]/g, '');
         const currentState = conversation.metadata || {};
+        currentState._debug_deployed = true;
+        await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
 
         if (message.type === 'TEXT' && shouldIgnoreSoloMessage(message.text || '') && !currentState.flow) {
              console.log(`Skipping orchestrator due to ignored solo text: ${message.text}`);
