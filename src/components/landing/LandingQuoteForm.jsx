@@ -4,10 +4,10 @@ import { Plus, Minus, Trash2, Shirt, Loader2, Send, CheckCircle2, ChevronDown, A
 import { base44 } from '@/api/base44Client';
 
 const SUGGESTIONS = {
-  color: ['Branco', 'Preto', 'Azul', 'Vermelho', 'Verde', 'Bege', 'Cinza', 'Rosa'],
-  material: ['Algodão', 'Poliéster', 'Lã', 'Seda', 'Linho', 'Couro', 'Viscose', 'Sintético'],
-  pattern: ['Liso', 'Listrado', 'Xadrez', 'Floral', 'Estampado', 'Poá'],
-  size: ['PP', 'P', 'M', 'G', 'GG', 'XG', 'Único'],
+  color: ['Branco', 'Preto', 'Azul', 'Vermelho', 'Verde', 'Bege', 'Cinza', 'Rosa', 'Amarelo', 'Laranja', 'Roxo', 'Marrom', 'Vinho', 'Dourado', 'Prateado', 'Multicolorido', 'Outro'],
+  material: ['Algodão', 'Poliéster', 'Lã', 'Seda', 'Linho', 'Couro', 'Viscose', 'Sintético', 'Jeans', 'Veludo', 'Camurça', 'Renda', 'Cetim', 'Malha', 'Nylon', 'Elastano', 'Outro'],
+  pattern: ['Liso', 'Listrado', 'Xadrez', 'Floral', 'Estampado', 'Poá', 'Animal print', 'Geométrico', 'Abstrato', 'Tie-dye', 'Camuflado', 'Bordado', 'Outro'],
+  size: ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG', 'Infantil', 'Único', 'Outro'],
 };
 const DAMAGES = ['Mancha', 'Rasgo', 'Furo', 'Desgaste', 'Desbotado', 'Costura solta', 'Botão ausente', 'Zíper danificado'];
 
@@ -36,7 +36,7 @@ export default function LandingQuoteForm({ unitId }) {
       line_id: id,
       product_id: product.id,
       garment_type: product.name,
-      unit_price: product.base_price || 0,
+      unit_price: Number(product.price) || 0,
       quantity: 1,
       attributes: { color: '', brand: '', material: '', pattern: '', size: '' },
       damages: [],
@@ -157,7 +157,7 @@ export default function LandingQuoteForm({ unitId }) {
                 <button key={prod.id} type="button" onMouseDown={(e) => { e.preventDefault(); addPiece(prod); }} className="lq-search-option">
                   <Shirt className="w-4 h-4 text-[#FF6600] shrink-0" />
                   <span className="text-xs font-medium truncate flex-1">{prod.name}</span>
-                  {prod.base_price ? <span className="text-[10px] text-[#806889]">R$ {Number(prod.base_price).toFixed(2)}</span> : null}
+                  {Number(prod.price) > 0 ? <span className="text-[10px] text-[#806889]">{fmt(prod.price)}</span> : null}
                   <Plus className="w-3.5 h-3.5 text-[#806889]" />
                 </button>
               ))
@@ -250,7 +250,7 @@ function AttrField({ label, value, options, onChange }) {
       <p className="lq-attr-label">{label}</p>
       <input value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder={`Ex: ${options[0]}`} className="lq-input" />
       <div className="lq-chips">
-        {options.slice(0, 5).map((o) => (
+        {options.map((o) => (
           <button key={o} type="button" onClick={() => onChange(value === o ? '' : o)} className={`lq-chip ${value === o ? 'active' : ''}`}>{o}</button>
         ))}
       </div>
