@@ -125,9 +125,6 @@ export default async function(req) {
         return Response.json({ handled: true, action: 'encaixe_scheduled', date: encaixe.date, period: encaixe.period, request_id: requestId });
     } catch (error) {
         console.error('encaixeInterceptor error:', error?.message, error?.stack);
-        if (error?.code === 'INVALID_INTERNAL_TOKEN' || error?.name === 'SecurityError') {
-            return securityErrorResponse(error, requestId);
-        }
-        return Response.json({ handled: false, error: error?.message, stack: String(error?.stack || '').slice(0, 800), request_id: requestId }, { status: 200 });
+        return securityErrorResponse(error, requestId);
     }
 }
