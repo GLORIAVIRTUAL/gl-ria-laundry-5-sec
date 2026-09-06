@@ -18,6 +18,7 @@ import AdvancedQuoteModal from '@/components/crm/AdvancedQuoteModal';
 import useUnitAccess, { filterRecordsByUnit, getUnitLabel } from '@/components/units/useUnitAccess';
 import UnitFilterSelect from '@/components/units/UnitFilterSelect';
 import DateRangeFilter from '@/components/crm/DateRangeFilter';
+import syncNewCustomerCards from '@/lib/syncNewCustomerCards';
 import { startOfDay, startOfWeek, startOfMonth, endOfDay, endOfWeek, endOfMonth, parseISO } from 'date-fns';
 
 const PIPELINES = {
@@ -81,13 +82,21 @@ export default function Orders() {
     fetchData();
   }, [activePipeline, selectedUnitId, unitsLoading]);
 
+  useEffect(() => {
+    if (activePipeline !== 'NEW_CUSTOMER') return;
+    return base44.entities.Customer.subscribe((event) => {
+      if (event.type === 'create') fetchData();
+    });
+  }, [activePipeline, selectedUnitId, defaultUnitId]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [fetchedCards, allCustomers] = await Promise.all([
-        base44.entities.CrmCard.filter({ pipeline_type: activePipeline }),
-        base44.entities.Customer.list('-created_date', 500)
-      ]);
+      const allCustomers = await base44.entities.Customer.list('-created_date', 500);
+      if (activePipeline === 'NEW_CUSTOMER') {
+        await syncNewCustomerCards(allCustomers, defaultUnitId);
+      }
+      const fetchedCards = await base44.entities.CrmCard.filter({ pipeline_type: activePipeline });
 
       const visibleCards = filterRecordsByUnit(fetchedCards, selectedUnitId, defaultUnitId);
       const customerMap = {};
