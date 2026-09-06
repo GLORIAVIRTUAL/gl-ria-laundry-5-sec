@@ -1195,7 +1195,12 @@ Deno.serve(async (req) => {
             if (currentState.payment_confirmed) {
                 chatMessages.push({
                     role: 'system',
-                    content: `🚨 PAGAMENTO CONFIRMADO: O pagamento antecipado via Pix deste cliente foi confirmado pelo sistema (Asaas). A coleta deve ser tratada como ENCAIXE — peça o endereço (se ainda não tiver) e chame 'schedule_pickup' com encaixe=true e o endereço (NÃO pergunte data nem turno). O sistema agenda automaticamente o próximo turno disponível. Informe ao cliente: "Recebi a confirmação do seu pagamento! ✅ Sua coleta entrará como encaixe no próximo turno disponível."`
+                    content: `🚨🚨🚨 PAGAMENTO JÁ CONFIRMADO PELO SISTEMA (ASAAS) — ESTA REGRA SOBREPOE TODAS AS DEMAIS:\n` +
+                    `1. O pagamento antecipado via Pix deste cliente JÁ FOI CONFIRMADO pelo sistema Asaas. NÃO pergunte "você conseguiu finalizar o pagamento?" — o pagamento ESTÁ confirmado.\n` +
+                    `2. NÃO peça foto do comprovante. NÃO informe a chave Pix. O fluxo WAITING_RECEIPT foi encerrado pelo pagamento.\n` +
+                    `3. A coleta deve ser tratada como ENCAIXE: peça o ENDEREÇO COMPLETO de coleta (se ainda não tiver no histórico) e chame 'schedule_pickup' com encaixe=true e o endereço. NÃO passe date, weekday nem period — o sistema calcula automaticamente.\n` +
+                    `4. Informe ao cliente: "Recebi a confirmação do seu pagamento! ✅ Como você já pagou antecipado, sua coleta entrará como encaixe no próximo turno disponível."\n` +
+                    `5. Se já tiver o endereço, chame 'schedule_pickup' com encaixe=true AGORA — não pergunte mais nada.`
                 });
             }
 
