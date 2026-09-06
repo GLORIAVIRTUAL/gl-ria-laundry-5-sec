@@ -18,6 +18,7 @@ import { logGuardEvent, classifyCorrection } from '../../shared/guardTelemetry.j
 import { buildMainPrompt } from '../../shared/gloriaPrompt.js';
 import { loadIroningSettings, IRONING_RULE } from '../../shared/ironingSettings.js';
 import { shouldIncludeInAiHistory } from '../../shared/messageOrigin.js';
+import { findNextEncaixeSlot, formatEncaixeDate } from '../../shared/encaixeScheduler.js';
 // Handoffs automáticos de disparo/campanha nunca bloqueiam a IA (ver dispatchReplyPolicy).
 
 const normalizeText = (value = '') => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -983,6 +984,60 @@ Deno.serve(async (req) => {
                     conversation_id: conversation.id
                 });
                 return Response.json({ action: 'pickup_availability_answered', date: pickupAvailabilityRequest.date });
+            }
+
+            // ENCAIXE DETERMINÍSTICO: pagamento antecipado confirmado + cliente quer agendar coleta.
+            // Não depende da IA — cria a coleta direto no próximo turno disponível.
+            if (currentState.payment_confirmed && /\b(coleta|agendar|pegar|buscar|retirar)\b/i.test(message.text || '')) {
+                const customerRecord = await base44.asServiceRole.entities.Customer.get(customer.id).catch(() => null);
+                const hasSavedAddress = customerRecord?.address && customerRecord?.address_number;
+
+                if (hasSavedAddress) {
+                    const encaixe = await findNextEncaixeSlot(base44.asServiceRole);
+                    if (encaixe) {
+                        const oldPickups = await base44.asServiceRole.entities.Pickup.filter({ customer_id: customer.id, status: 'scheduled' });
+                        for (const op of oldPickups) await base44.asServiceRole.entities.Pickup.update(op.id, { status: 'cancelled' });
+
+                        const fullAddress = `${customerRecord.address}, ${customerRecord.address_number}${customerRecord.address_complement ? `, ${customerRecord.address_complement}` : ''}${customerRecord.neighborhood ? ` — ${customerRecord.neighborhood}` : ''}`;
+                        await base44.asServiceRole.entities.Pickup.create({
+                            customer_id: customer.id,
+                            unit_id: currentState.unit_id || '6a99e42ee48200f5d8ddd176',
+                            scheduled_at: encaixe.slotIso,
+                            address: fullAddress,
+                            neighborhood: customerRecord.neighborhood,
+                            status: 'scheduled',
+                            fee: 0,
+                            notes: 'ENCAIXE — pagamento antecipado via Pix confirmado',
+                            source: 'ai',
+                            created_by_name: 'Glória (IA)',
+                            metadata: { encaixe: true, payment_confirmed: true }
+                        });
+                        currentState.payment_confirmed = false;
+                        currentState.flow = null;
+                        currentState.pending_pickup = null;
+                        await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
+
+                        const shiftLabel = encaixe.period === 'morning' ? 'manhã' : 'tarde';
+                        await invokeSender({
+                            phone: customer.phones[0],
+                            message: `Recebi a confirmação do seu pagamento! ✅ Como você já pagou antecipado, sua coleta entrará como encaixe no próximo turno disponível: ${formatEncaixeDate(encaixe.date)}, turno da ${shiftLabel}. 🚚\n\nEndereço: ${fullAddress}\n\nAguarde nosso motorista! 😊`,
+                            conversation_id: conversation.id
+                        });
+                        return Response.json({ action: 'encaixe_scheduled', date: encaixe.date, period: encaixe.period });
+                    }
+                    await invokeSender({
+                        phone: customer.phones[0],
+                        message: `Recebi a confirmação do seu pagamento! ✅ No momento não há turnos disponíveis para encaixe nos próximos dias. Vou verificar a agenda e te retornar com uma data específica. 😊`,
+                        conversation_id: conversation.id
+                    });
+                    return Response.json({ action: 'encaixe_no_slots' });
+                }
+                await invokeSender({
+                    phone: customer.phones[0],
+                    message: `Recebi a confirmação do seu pagamento! ✅ Como você já pagou antecipado, sua coleta entrará como encaixe no próximo turno disponível. 🚚\n\nPara agendar, preciso do seu endereço completo: rua, número, complemento e bairro. 😊`,
+                    conversation_id: conversation.id
+                });
+                return Response.json({ action: 'encaixe_needs_address' });
             }
 
             const fmtM2 = (v) => `R$ ${Number(v || 0).toFixed(2).replace('.', ',')}`;
@@ -1962,69 +2017,8 @@ Deno.serve(async (req) => {
                         try {
                             // ENCAIXE: pagamento antecipado confirmado → sistema calcula próximo turno
                             if (args.encaixe) {
-                                const nowBRT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-                                const currentHour = nowBRT.getHours();
-                                const isMorning = currentHour < 12;
-                                const pad = (n) => String(n).padStart(2, '0');
-                                const dateKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-                                const HOLIDAYS_FIXED = {
-                                    '01-01': true, '02-02': true, '21-04': true, '01-05': true,
-                                    '07-09': true, '20-09': true, '12-10': true, '02-11': true,
-                                    '15-11': true, '25-12': true
-                                };
-                                const isHoliday = (d) => {
-                                    const ddmm = `${pad(d.getDate())}-${pad(d.getMonth() + 1)}`;
-                                    return !!HOLIDAYS_FIXED[ddmm];
-                                };
-
-                                const hasCapacity = async (date, period) => {
-                                    const sched = getPickupScheduleForDate(date);
-                                    if (!sched.isOpen) return false;
-                                    const checkDate = new Date(`${date}T12:00:00-03:00`);
-                                    if (isHoliday(checkDate)) return false;
-                                    if (period === 'morning' && sched.morningSlots.length === 0) return false;
-                                    if (period === 'afternoon' && sched.afternoonSlots.length === 0) return false;
-                                    const range = getPickupDateRange(date);
-                                    const dayPickups = await base44.asServiceRole.entities.Pickup.filter({
-                                        scheduled_at: { $gte: range.start, $lte: range.end },
-                                        status: { $ne: 'cancelled' }
-                                    });
-                                    const capacity = period === 'morning' ? sched.morningCapacity : sched.afternoonCapacity;
-                                    const count = dayPickups.filter(p => {
-                                        const h = getPickupLocalHour(p.scheduled_at);
-                                        return period === 'morning' ? h < 13 : h >= 13;
-                                    }).length;
-                                    return count < capacity;
-                                };
-
-                                let targetDate = null;
-                                let targetPeriod = null;
-
-                                // Manhã → tenta tarde de hoje
-                                if (isMorning && currentHour < 16) {
-                                    const todayKey = dateKey(nowBRT);
-                                    if (await hasCapacity(todayKey, 'afternoon')) {
-                                        targetDate = todayKey;
-                                        targetPeriod = 'afternoon';
-                                    }
-                                }
-
-                                // Se não achou, procura próxima manhã útil
-                                if (!targetDate) {
-                                    for (let i = 1; i <= 7; i++) {
-                                        const future = new Date(nowBRT);
-                                        future.setDate(future.getDate() + i);
-                                        const futureKey = dateKey(future);
-                                        if (await hasCapacity(futureKey, 'morning')) {
-                                            targetDate = futureKey;
-                                            targetPeriod = 'morning';
-                                            break;
-                                        }
-                                    }
-                                }
-
-                                if (!targetDate) {
+                                const encaixe = await findNextEncaixeSlot(base44.asServiceRole);
+                                if (!encaixe) {
                                     chatMessages.push({
                                         role: "tool",
                                         tool_call_id: toolCall.id,
@@ -2032,9 +2026,8 @@ Deno.serve(async (req) => {
                                     });
                                     continue;
                                 }
-
-                                args.date = targetDate;
-                                args.period = targetPeriod;
+                                args.date = encaixe.date;
+                                args.period = encaixe.period;
                             }
 
                             const schedule = getPickupScheduleForDate(args.date);
