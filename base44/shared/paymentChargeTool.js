@@ -10,16 +10,23 @@ export async function handlePaymentChargeToolCall({ toolCall, base44, customer }
         const args = JSON.parse(toolCall.function.arguments || '{}');
         const billingType = args.billing_type === 'credit_card' ? 'credit_card' : 'pix';
 
-        // Referência da cobrança: pedido em aberto ou orçamento já aprovado.
-        const orders = await base44.asServiceRole.entities.Order.filter(
-            { customer_id: customer.id, payment_status: 'unpaid' }, '-created_date', 1
+        // Referência da cobrança: SEMPRE o orçamento aprovado mais recente (é o que o cliente
+        // acabou de aceitar). Só cai para um pedido antigo em aberto se não houver orçamento aceito.
+        let referenceKey = null;
+        const quotes = await base44.asServiceRole.entities.Quote.filter(
+            { customer_id: customer.id, status: 'ACCEPTED' }, '-created_date', 1
         );
-        let referenceKey = orders[0] ? { order_id: orders[0].id } : null;
-        if (!referenceKey) {
-            const quotes = await base44.asServiceRole.entities.Quote.filter(
-                { customer_id: customer.id, status: 'ACCEPTED' }, '-created_date', 1
+        if (quotes[0]) {
+            const linkedOrders = await base44.asServiceRole.entities.Order.filter(
+                { customer_id: customer.id, source_quote_id: quotes[0].id }, '-created_date', 1
             );
-            if (quotes[0]) referenceKey = { quote_id: quotes[0].id };
+            referenceKey = linkedOrders[0] ? { order_id: linkedOrders[0].id } : { quote_id: quotes[0].id };
+        }
+        if (!referenceKey) {
+            const orders = await base44.asServiceRole.entities.Order.filter(
+                { customer_id: customer.id, payment_status: 'unpaid' }, '-created_date', 1
+            );
+            if (orders[0]) referenceKey = { order_id: orders[0].id };
         }
         if (!referenceKey) {
             return fail('Não há pedido ou orçamento aprovado para cobrar. Aprove o orçamento (approve_quote) antes de gerar a cobrança.');
