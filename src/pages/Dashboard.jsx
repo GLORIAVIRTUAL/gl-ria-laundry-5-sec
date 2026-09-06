@@ -21,6 +21,8 @@ import ProductionBatchesColumn from '@/components/dashboard/ProductionBatchesCol
 import useUnitAccess, { filterRecordsByUnit, getUnitLabel } from '@/components/units/useUnitAccess';
 import UnitFilterSelect from '@/components/units/UnitFilterSelect';
 import AdvancedQuoteModal from '@/components/crm/AdvancedQuoteModal';
+import SellOptionsDialog from '@/components/dashboard/SellOptionsDialog';
+import IntelligentQuoteModal from '@/components/management/IntelligentQuoteModal';
 import { toast } from 'sonner';
 
 export default function Dashboard() {
@@ -49,6 +51,8 @@ export default function Dashboard() {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [ticketPickup, setTicketPickup] = useState(null);
   const [sellModalOpen, setSellModalOpen] = useState(false);
+  const [sellChoiceOpen, setSellChoiceOpen] = useState(false);
+  const [photoQuoteOpen, setPhotoQuoteOpen] = useState(false);
 
   const handleGenerateTicket = (pickup) => {
     const customer = customerMap[pickup.customer_id];
@@ -279,7 +283,7 @@ export default function Dashboard() {
 
         <div className="flex justify-center">
           <Button
-            onClick={() => setSellModalOpen(true)}
+            onClick={() => setSellChoiceOpen(true)}
             className="gap-3 animate-pulse rounded-2xl border-2 border-green-400/60 bg-green-500/10 px-12 py-7 text-xl font-bold text-green-300 shadow-lg shadow-green-500/20 backdrop-blur-sm hover:bg-green-500/20 hover:text-green-200"
           >
             <ShoppingCart className="h-7 w-7" /> VENDER
@@ -348,6 +352,21 @@ export default function Dashboard() {
           />
         </div>
       </div>
+
+      <SellOptionsDialog
+        open={sellChoiceOpen}
+        onOpenChange={setSellChoiceOpen}
+        onPhotoQuote={() => { setSellChoiceOpen(false); setPhotoQuoteOpen(true); }}
+        onManualQuote={() => { setSellChoiceOpen(false); setSellModalOpen(true); }}
+      />
+
+      <IntelligentQuoteModal
+        open={photoQuoteOpen}
+        onOpenChange={setPhotoQuoteOpen}
+        customers={Object.values(customerMap)}
+        defaultUnitId={selectedUnitId !== 'all' ? selectedUnitId : defaultUnitId}
+        onCreated={fetchDashboardData}
+      />
 
       <AdvancedQuoteModal
         isOpen={sellModalOpen}
