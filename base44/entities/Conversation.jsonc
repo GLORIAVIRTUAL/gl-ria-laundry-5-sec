@@ -9,7 +9,8 @@
       "type": "string",
       "enum": [
         "WHATSAPP",
-        "INSTAGRAM"
+        "INSTAGRAM",
+        "MESSENGER"
       ],
       "default": "WHATSAPP"
     },
