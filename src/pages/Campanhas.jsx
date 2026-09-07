@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Sparkles, Upload, Image as ImageIcon, Loader2, Wand2, Send, Save, Clapperboard } from 'lucide-react';
+import { Sparkles, Upload, Image as ImageIcon, Loader2, Wand2, Send, Save, Clapperboard, Instagram } from 'lucide-react';
 import { campaignDefaultPrompt } from '@/lib/campaignDefaultPrompt';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ export default function Campanhas() {
   const [generatedImage, setGeneratedImage] = useState('');
   const [modelText, setModelText] = useState('');
   const [publishing, setPublishing] = useState(false);
+  const [postingInstagram, setPostingInstagram] = useState(false);
   const [videoSending, setVideoSending] = useState(false);
   const [campaignName, setCampaignName] = useState('');
 
@@ -187,6 +188,27 @@ Regras obrigatórias:
       toast.error(errorMessage, { duration: 8000 });
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const handlePublishInstagram = async () => {
+    if (!generatedImage || !modelText.trim()) {
+      toast.error('Gere a arte e a legenda antes de postar.');
+      return;
+    }
+
+    setPostingInstagram(true);
+    try {
+      await base44.functions.invoke('instagramPublish', {
+        image_url: generatedImage,
+        caption: modelText,
+      });
+      toast.success('Post publicado no Instagram!');
+    } catch (error) {
+      const errorMessage = error?.response?.data?.error || error.message || 'Erro ao publicar no Instagram.';
+      toast.error(errorMessage, { duration: 8000 });
+    } finally {
+      setPostingInstagram(false);
     }
   };
 
@@ -371,6 +393,10 @@ Regras obrigatórias:
                   <Button onClick={handlePublish} disabled={publishing || !generatedImage || !modelText.trim()} className="bg-[#FF6600] text-white hover:bg-[#e55c00]">
                     {publishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     {publishing ? 'Enviando ao Instagram...' : 'Enviar para Instagram'}
+                  </Button>
+                  <Button onClick={handlePublishInstagram} disabled={postingInstagram || !generatedImage || !modelText.trim()} className="bg-gradient-to-r from-[#833AB4] via-[#E1306C] to-[#F77737] text-white hover:opacity-90">
+                    {postingInstagram ? <Loader2 className="w-4 h-4 animate-spin" /> : <Instagram className="w-4 h-4" />}
+                    {postingInstagram ? 'Publicando...' : 'Postar no Instagram'}
                   </Button>
                 </div>
               </div>

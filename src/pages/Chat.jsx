@@ -581,6 +581,19 @@ export default function Chat() {
 
     try {
         const customer = customers[activeConversation.customer_id];
+
+        // Conversas do Instagram (DM) são respondidas pela API do Instagram, não pelo WhatsApp.
+        if (activeConversation.channel === 'INSTAGRAM') {
+            await base44.functions.invoke('instagramSender', {
+                conversation_id: activeConversation.id,
+                message: textToSend,
+                mediaUrl: mediaUrl,
+                sent_by: currentUserName || "Atendente"
+            });
+            scrollToBottom();
+            return;
+        }
+
         if (!customer || !customer.phones || customer.phones.length === 0) {
             toast.error("Cliente sem telefone cadastrado.");
             return;
