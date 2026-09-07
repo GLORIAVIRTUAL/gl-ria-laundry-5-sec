@@ -14,10 +14,11 @@ export default async function (req) {
     if (!imageUrl) return Response.json({ error: 'image_url é obrigatório' }, { status: 400 });
 
     const accessToken = Deno.env.get('INSTAGRAM_ACCESS_TOKEN');
-    const accountId = Deno.env.get('INSTAGRAM_ACCOUNT_ID');
-    if (!accessToken || !accountId) {
+    if (!accessToken) {
       return Response.json({ error: 'Integração do Instagram não configurada' }, { status: 503 });
     }
+    // 'me' resolve a conta do próprio token (Instagram Login API).
+    const accountId = 'me';
 
     const createRes = await fetch(`https://graph.instagram.com/v21.0/${accountId}/media`, {
       method: 'POST',
