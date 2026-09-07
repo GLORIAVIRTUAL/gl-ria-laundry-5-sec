@@ -50,7 +50,7 @@ export default async function (req) {
 
     const payload = JSON.parse(rawBody || '{}');
     const pageId = Deno.env.get('MESSENGER_PAGE_ID');
-    const pageToken = Deno.env.get('MESSENGER_PAGE_ACCESS_TOKEN');
+    const pageToken = Deno.env.get('FACEBOOK_PAGE_ACCESS_TOKEN') || Deno.env.get('MESSENGER_PAGE_ACCESS_TOKEN');
 
     const events = [];
     for (const entry of payload.entry || []) {
@@ -93,7 +93,7 @@ export default async function (req) {
         let name = '';
         if (pageToken) {
           try {
-            const res = await fetch(`https://graph.facebook.com/v21.0/${senderId}?fields=name,first_name,last_name&access_token=${pageToken}`, { signal: AbortSignal.timeout(4000) });
+            const res = await fetch(`https://graph.facebook.com/v21.0/${senderId}?fields=name,first_name,last_name`, { headers: { Authorization: `Bearer ${pageToken}` }, signal: AbortSignal.timeout(4000) });
             if (res.ok) {
               const info = await res.json();
               name = info.name || [info.first_name, info.last_name].filter(Boolean).join(' ');
