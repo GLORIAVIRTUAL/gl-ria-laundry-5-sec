@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Ban, CheckCircle2, FileCheck2, Landmark, Loader2, Save, ShieldCheck, Send, RefreshCw, XCircle, ExternalLink } from 'lucide-react';
+import { Ban, CheckCircle2, FileCheck2, Landmark, Loader2, Save, ShieldCheck, Send, RefreshCw, XCircle, ExternalLink, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -40,6 +40,7 @@ export default function FiscalReadinessPanel({ profiles = [], documents = [], or
   const [source, setSource] = useState('');
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [refInput, setRefInput] = useState('');
   const [form, setForm] = useState({
     legal_name: profile?.legal_name || '', trade_name: profile?.trade_name || '', tax_id: profile?.tax_id || '',
     municipal_registration: profile?.municipal_registration || '', service_code: profile?.service_code || '',
@@ -93,6 +94,9 @@ export default function FiscalReadinessPanel({ profiles = [], documents = [], or
         focusnfe_request_failed: 'Falha na comunicação com a Focus NFe. Tente novamente.',
         focusnfe_not_found: 'Documento não encontrado na Focus NFe.',
         focusnfe_cancel_rejected: 'A Focus NFe rejeitou o cancelamento.',
+        focusnfe_ref_required: 'Informe a referência da nota na Focus NFe.',
+        authorized_document_must_be_cancelled_first: 'Cancele a NFSe autorizada antes de excluir o registro.',
+        manager_approval_required: 'Apenas gestores podem excluir ou cancelar notas.',
       };
       toast.error(messages[code] || 'Não foi possível concluir a operação fiscal.');
       throw error;
@@ -120,6 +124,16 @@ export default function FiscalReadinessPanel({ profiles = [], documents = [], or
   const transmit = (docId) => execute({ action: 'transmit', fiscal_document_id: docId }, 'NFSe enviada à Focus NFe. Consulte o status em instantes.');
   const consult = (docId) => execute({ action: 'consult', fiscal_document_id: docId }, 'Status da NFSe atualizado.');
   const cancelDraft = (docId) => execute({ action: 'cancel_draft', fiscal_document_id: docId, reason: 'Cancelamento local do RPS antes da transmissão.' }, 'RPS cancelado localmente.');
+  const importRef = async () => {
+    const ref = refInput.trim();
+    if (!ref) return toast.error('Informe a referência da nota na Focus NFe.');
+    await execute({ action: 'import_ref', unit_id: unitId, ref }, 'Nota importada da Focus NFe.');
+    setRefInput('');
+  };
+  const deleteDocument = async (docId) => {
+    if (!window.confirm('Excluir definitivamente este registro de nota do sistema?')) return;
+    await execute({ action: 'delete', fiscal_document_id: docId, reason: 'Exclusão manual pelo painel fiscal.' }, 'Registro fiscal excluído.');
+  };
   const cancelNfse = async () => {
     if (!cancelTarget || cancelReason.trim().length < 15) return toast.error('A justificativa deve ter no mínimo 15 caracteres.');
     await execute({ action: 'cancel_nfse', fiscal_document_id: cancelTarget, reason: cancelReason.trim() }, 'NFSe cancelada na Focus NFe.');
@@ -207,6 +221,14 @@ export default function FiscalReadinessPanel({ profiles = [], documents = [], or
               </select>
               <Button onClick={prepare} disabled={busy || !profile || !source} className="w-full bg-violet-500 hover:bg-violet-400"><ShieldCheck className="mr-2 h-4 w-4" />Preparar e validar localmente</Button>
             </div>
+            <div className="mt-5 border-t border-white/10 pt-4">
+              <Label>Importar nota já emitida (referência Focus NFe)</Label>
+              <div className="mt-2 flex gap-2">
+                <Input value={refInput} onChange={(e) => setRefInput(e.target.value)} placeholder="ex: 5asec-unidade-1-4" className="border-white/10 bg-black/20" />
+                <Button onClick={importRef} disabled={busy || !profile || !refInput.trim()} variant="outline" className="border-white/10 bg-white/5 shrink-0"><RefreshCw className="mr-1 h-3.5 w-3.5" />Importar</Button>
+              </div>
+              <p className="mt-2 text-xs text-white/35">Traz para o painel notas transmitidas que ainda não aparecem aqui, com o status atual (processando, autorizada, etc.).</p>
+            </div>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
@@ -249,6 +271,9 @@ export default function FiscalReadinessPanel({ profiles = [], documents = [], or
                       )}
                       {['draft', 'ready', 'rejected', 'error'].includes(document.status) && (
                         <Button size="sm" variant="ghost" disabled={busy} onClick={() => cancelDraft(document.id)} className="text-white/40 hover:text-red-300">Descartar</Button>
+                      )}
+                      {document.status !== 'authorized' && (
+                        <Button size="sm" variant="ghost" disabled={busy} onClick={() => deleteDocument(document.id)} className="text-white/40 hover:text-red-300"><Trash2 className="mr-1 h-3.5 w-3.5" />Excluir</Button>
                       )}
                     </div>
                   </div>

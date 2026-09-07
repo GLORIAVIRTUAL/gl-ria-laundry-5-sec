@@ -173,6 +173,53 @@ export default async function(req: Request): Promise<Response> {
       return Response.json({ fiscal_document: document, readiness: getFiscalReadiness(profile, document), request_id: requestId });
     }
 
+    if (action === 'import_ref') {
+      const unitId = body.unit_id || user.primary_unit_id;
+      if (!unitId || !canAccessUnit(user, unitId)) return Response.json({ error: 'forbidden_unit', request_id: requestId }, { status: 403 });
+      const ref = String(body.ref || '').trim();
+      if (!ref) return Response.json({ error: 'focusnfe_ref_required', request_id: requestId }, { status: 422 });
+      const profiles = await base44.asServiceRole.entities.FiscalProfile.filter({ unit_id: unitId });
+      const importProfile = profiles[0];
+      if (!importProfile) return Response.json({ error: 'fiscal_profile_not_found', request_id: requestId }, { status: 404 });
+      const existingByRef = await base44.asServiceRole.entities.FiscalDocument.filter({ external_protocol: ref });
+      if (existingByRef.length > 0) return Response.json({ fiscal_document: existingByRef[0], duplicate: true, request_id: requestId });
+      const { status: httpStatus, data: focusData } = await focusNfeRequest('GET', `/nfse/${encodeURIComponent(ref)}`);
+      if (httpStatus === 404) return Response.json({ error: 'focusnfe_not_found', request_id: requestId }, { status: 404 });
+      if (httpStatus >= 400) return Response.json({ error: 'focusnfe_request_failed', focusnfe_response: focusData, request_id: requestId }, { status: 502 });
+      const statusMap: Record<string, string> = {
+        'processando_autorizacao': 'processing',
+        'autorizada': 'authorized',
+        'cancelada': 'cancelled',
+        'erro_autorizacao': 'rejected',
+      };
+      const refParts = ref.split('-');
+      const imported = await base44.asServiceRole.entities.FiscalDocument.create({
+        unit_id: unitId,
+        fiscal_profile_id: importProfile.id,
+        document_type: focusData?.numero_nfse ? 'nfse' : 'rps',
+        status: statusMap[focusData?.status] || 'processing',
+        environment: importProfile.environment,
+        provider: 'focusnfe',
+        rps_series: refParts.length > 1 ? refParts[refParts.length - 2] : importProfile.rps_series,
+        rps_number: Number(refParts[refParts.length - 1]) || undefined,
+        nfse_number: focusData?.numero_nfse ? String(focusData.numero_nfse) : undefined,
+        verification_code: focusData?.codigo_verificacao ? String(focusData.codigo_verificacao) : undefined,
+        external_protocol: ref,
+        competence_date: (focusData?.data_emissao || new Date().toISOString()).slice(0, 10),
+        service_description: importProfile.service_description || 'Serviços de lavanderia',
+        service_code: importProfile.service_code,
+        total_amount: Number(focusData?.valor_total || focusData?.valor_servicos || 0),
+        taxable_amount: Number(focusData?.valor_servicos || focusData?.valor_total || 0),
+        recipient: { name: focusData?.nome_tomador || focusData?.razao_social_tomador || 'Tomador importado', tax_id: focusData?.cnpj_tomador || focusData?.cpf_tomador },
+        idempotency_key: `import-${ref}`,
+        created_by_user_id: user.id,
+        request_id: requestId,
+        metadata: { focusnfe_ref: ref, focusnfe_consult: focusData, imported: true },
+      });
+      await addEvent(base44, imported, user, requestId, 'submitted', 'pending', `Nota importada da Focus NFe (ref ${ref}).`, { ref, focusnfe_status: focusData?.status });
+      return Response.json({ fiscal_document: imported, focusnfe_status: focusData?.status, request_id: requestId });
+    }
+
     const document = await base44.asServiceRole.entities.FiscalDocument.get(body.fiscal_document_id);
     if (!document || !canAccessUnit(user, document.unit_id)) return Response.json({ error: 'fiscal_document_not_found', request_id: requestId }, { status: 404 });
     const profile = await base44.asServiceRole.entities.FiscalProfile.get(document.fiscal_profile_id);
@@ -327,6 +374,30 @@ export default async function(req: Request): Promise<Response> {
       }
       await addEvent(base44, updated, user, requestId, 'cancelled', 'success', reason);
       return Response.json({ fiscal_document: updated, request_id: requestId });
+    }
+
+    if (action === 'delete') {
+      if (!MANAGER_ROLES.has(user.role) && !(user.permissions || []).includes('fiscal.cancel')) return Response.json({ error: 'manager_approval_required', request_id: requestId }, { status: 403 });
+      if (document.status === 'authorized') return Response.json({ error: 'authorized_document_must_be_cancelled_first', request_id: requestId }, { status: 409 });
+      for (const orderId of document.order_ids || []) {
+        const order = await base44.asServiceRole.entities.Order.get(orderId);
+        if ((order?.fiscal_document_ids || []).includes(document.id)) {
+          const remaining = (order.fiscal_document_ids || []).filter((id: string) => id !== document.id);
+          await base44.asServiceRole.entities.Order.update(order.id, { fiscal_document_ids: remaining, fiscal_status: remaining.length ? order.fiscal_status : 'not_issued' });
+        }
+      }
+      if (document.billing_statement_id) {
+        const statement = await base44.asServiceRole.entities.BillingStatement.get(document.billing_statement_id);
+        if (statement?.fiscal_document_id === document.id) await base44.asServiceRole.entities.BillingStatement.update(statement.id, { fiscal_document_id: undefined });
+      }
+      await base44.asServiceRole.entities.AuditLog.create({
+        action: 'delete', entity_type: 'fiscal_document', entity_id: document.id,
+        item_label: `RPS ${document.rps_series}-${document.rps_number}`, reason: String(body.reason || 'exclusao_registro_fiscal'),
+        user_email: user.email, user_name: user.full_name || user.display_name, user_role: user.role,
+        unit_id: document.unit_id, request_id: requestId, before_data: document, success: true,
+      });
+      await base44.asServiceRole.entities.FiscalDocument.delete(document.id);
+      return Response.json({ deleted: true, fiscal_document_id: document.id, request_id: requestId });
     }
 
     return Response.json({ error: 'unsupported_action', request_id: requestId }, { status: 400 });
