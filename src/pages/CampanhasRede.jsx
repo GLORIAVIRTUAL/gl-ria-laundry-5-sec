@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Network, Upload, Send, Loader2, Image as ImageIcon, X, Download, Calendar, Clock, Save } from 'lucide-react';
+import { Network, Upload, Send, Loader2, Image as ImageIcon, X, Download, Calendar, Clock, Save, Facebook } from 'lucide-react';
 import { toast } from 'sonner';
 import SavedCampaignCard from '@/components/campaigns/SavedCampaignCard';
 
@@ -20,6 +20,7 @@ export default function CampanhasRede() {
   const [caption, setCaption] = useState('');
   const [uploading, setUploading] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [postingFacebook, setPostingFacebook] = useState(false);
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
 
@@ -136,6 +137,33 @@ export default function CampanhasRede() {
     } catch (error) {
       console.error(error);
       toast.error('Erro ao baixar a imagem.');
+    }
+  };
+
+  const handlePostFacebook = async () => {
+    if (!uploadedImageUrl) {
+      toast.error('Carregue uma imagem antes de publicar.');
+      return;
+    }
+    if (!caption.trim()) {
+      toast.error('Cole o texto da legenda antes de publicar.');
+      return;
+    }
+    setPostingFacebook(true);
+    try {
+      const res = await base44.functions.invoke('facebookPublish', {
+        image_url: uploadedImageUrl,
+        caption,
+      });
+      if (res?.data?.status === 'published') {
+        toast.success('Publicado na página do Facebook!');
+      } else {
+        toast.error(`Falha ao publicar: ${res?.data?.error || 'erro desconhecido'}`);
+      }
+    } catch (error) {
+      toast.error(`Erro: ${error?.message || 'falha desconhecida'}`);
+    } finally {
+      setPostingFacebook(false);
     }
   };
 
@@ -356,6 +384,23 @@ export default function CampanhasRede() {
                   <>
                     <Send className="w-4 h-4 mr-2" />
                     {scheduledDate && scheduledTime ? 'Agendar publicação' : 'Publicar no Instagram'}
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={handlePostFacebook}
+                disabled={postingFacebook || uploading}
+                className="flex-1 bg-[#1877F2] hover:bg-[#155ecb] disabled:opacity-50"
+              >
+                {postingFacebook ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Publicando...
+                  </>
+                ) : (
+                  <>
+                    <Facebook className="w-4 h-4 mr-2" />
+                    Publicar no Facebook
                   </>
                 )}
               </Button>
