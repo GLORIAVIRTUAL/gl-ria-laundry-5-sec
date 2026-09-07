@@ -34,25 +34,35 @@ export default async function (req) {
     if (req.method !== 'POST') return new Response('method_not_allowed', { status: 405 });
 
     const rawBody = await req.text();
+    const base44 = createClientFromRequest(req);
     const appSecret = Deno.env.get('INSTAGRAM_APP_SECRET');
     const signature = req.headers.get('x-hub-signature-256') || '';
-    if (appSecret) {
-      const expectedSig = `sha256=${await hmacSha256Hex(appSecret, rawBody)}`;
+    if (signature) {
+      const expectedSig = `sha256=${await hmacSha256Hex(appSecret || '', rawBody)}`;
       if (signature !== expectedSig) {
         console.warn('Instagram webhook signature mismatch.');
         return new Response('invalid_signature', { status: 401 });
       }
+    } else {
+      // Sem assinatura da Meta: só aceitamos de um usuário logado do app (testes internos).
+      const tester = await base44.auth.me().catch(() => null);
+      if (!tester) return new Response('invalid_signature', { status: 401 });
     }
 
     const payload = JSON.parse(rawBody || '{}');
-    const base44 = createClientFromRequest(req);
     const igAccountId = Deno.env.get('INSTAGRAM_ACCOUNT_ID');
     const accessToken = Deno.env.get('INSTAGRAM_ACCESS_TOKEN');
 
+    // A Meta envia DMs em dois formatos: entry[].messaging[] (produção) e
+    // entry[].changes[{field:'messages', value:{...}}] (testes do painel e algumas contas).
     const events = [];
     for (const entry of payload.entry || []) {
       for (const ev of entry.messaging || []) events.push(ev);
+      for (const change of entry.changes || []) {
+        if (change.field === 'messages' && change.value) events.push(change.value);
+      }
     }
+    if (payload.field === 'messages' && payload.value) events.push(payload.value);
 
     for (const ev of events) {
       const senderId = String(ev.sender?.id || '');
