@@ -238,8 +238,8 @@ export default function FiscalReadinessPanel({ profiles = [], documents = [], or
                 <div key={document.id} className="rounded-2xl border border-white/10 bg-black/15 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-white">RPS {document.rps_series}-{document.rps_number}{document.nfse_number ? ` · NFSe ${document.nfse_number}` : ''}</p>
-                      <p className="text-xs text-white/35">{document.recipient?.legal_name || document.recipient?.name}</p>
+                      <p className="text-sm font-medium text-white">{document.recipient?.legal_name || document.recipient?.name || 'Tomador não identificado'}</p>
+                      <p className="text-xs text-white/35">RPS {document.rps_series}-{document.rps_number}{document.nfse_number ? ` · NFSe ${document.nfse_number}` : ''}</p>
                       {document.last_error_message && <p className="mt-1 text-xs text-red-300/70 truncate" title={document.last_error_message}>{document.last_error_message}</p>}
                     </div>
                     <Badge variant="outline" className={STATUS_COLORS[document.status] || 'border-white/10 text-white/50'}>{STATUS_LABELS[document.status] || document.status}</Badge>
