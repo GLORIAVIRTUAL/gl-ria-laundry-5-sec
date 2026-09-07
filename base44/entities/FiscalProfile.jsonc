@@ -43,6 +43,10 @@
       "type": "string",
       "default": "Porto Alegre"
     },
+    "state": {
+      "type": "string",
+      "description": "UF do municipio de prestacao (ex: PE)"
+    },
     "legal_name": {
       "type": "string"
     },
@@ -90,7 +94,7 @@
     },
     "certificate_reference": {
       "type": "string",
-      "description": "Identificador do certificado no cofre da plataforma; nunca o conte\u00fado"
+      "description": "Identificador do certificado no cofre da plataforma; nunca o conteudo"
     },
     "last_validation_at": {
       "type": "string",

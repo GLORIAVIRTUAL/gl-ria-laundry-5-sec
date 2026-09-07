@@ -219,16 +219,19 @@ export default async function(req: Request): Promise<Response> {
       }
 
       const { status: httpStatus, data: focusData } = focusResponse;
+      // A Focus NFe aceita a emissão com HTTP 200/201/202 e status "processando_autorizacao" ou "autorizada".
+      const accepted = [200, 201, 202].includes(httpStatus)
+        && ['processando_autorizacao', 'autorizada'].includes(String(focusData?.status || ''));
       const updated = await base44.asServiceRole.entities.FiscalDocument.update(document.id, {
-        status: httpStatus === 201 ? 'processing' : 'error',
+        status: accepted ? (focusData?.status === 'autorizada' ? 'authorized' : 'processing') : 'error',
         external_protocol: ref,
         attempt_count: Number(document.attempt_count || 0) + 1,
-        last_error_code: httpStatus === 201 ? undefined : String(focusData?.error || httpStatus),
-        last_error_message: httpStatus === 201 ? undefined : JSON.stringify(focusData),
+        last_error_code: accepted ? undefined : String(focusData?.codigo || focusData?.error || httpStatus),
+        last_error_message: accepted ? undefined : JSON.stringify(focusData),
         metadata: { ...(document.metadata || {}), focusnfe_ref: ref, focusnfe_response: focusData },
       });
 
-      if (httpStatus === 201) {
+      if (accepted) {
         await addEvent(base44, updated, user, requestId, 'submitted', 'success', `NFSe enviada à Focus NFe (ref ${ref}). Aguarde autorização.`, { ref });
         return Response.json({ fiscal_document: updated, focusnfe_ref: ref, request_id: requestId });
       }

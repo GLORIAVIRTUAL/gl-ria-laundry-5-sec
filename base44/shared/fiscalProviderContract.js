@@ -141,20 +141,25 @@ export function buildFocusNfePayload({ document, profile, ref }) {
   };
 
   const recipTaxId = digits(document.recipient?.tax_id);
+  const recipientUf = String(document.recipient?.state || profile.state || '').trim().toUpperCase();
+  const recipientCep = (document.recipient?.zip_code || '').replace(/\D/g, '');
+  const endereco = {
+    logradouro: document.recipient?.address || undefined,
+    numero: document.recipient?.address_number || undefined,
+    complemento: document.recipient?.address_complement || undefined,
+    bairro: document.recipient?.district || undefined,
+    codigo_municipio: profile.municipality_code,
+    // O schema ABRASF exige Uf antes de Cep; sem UF o CEP nao pode ser enviado.
+    uf: recipientUf || undefined,
+    cep: recipientUf && recipientCep ? recipientCep : undefined,
+  };
   const tomador = {
     cpf: recipTaxId.length === 11 ? recipTaxId : undefined,
     cnpj: recipTaxId.length === 14 ? recipTaxId : undefined,
     razao_social: document.recipient?.legal_name || document.recipient?.name,
     email: document.recipient?.email,
-    endereco: {
-      logradouro: document.recipient?.address,
-      numero: document.recipient?.address_number,
-      complemento: document.recipient?.address_complement,
-      bairro: document.recipient?.district,
-      codigo_municipio: profile.municipality_code,
-      uf: document.recipient?.state,
-      cep: (document.recipient?.zip_code || '').replace(/\D/g, ''),
-    },
+    // O endereco somente pode ser enviado com UF (exigencia do schema ABRASF).
+    endereco: recipientUf ? endereco : undefined,
   };
 
   const discriminacao = (document.items || []).map((item) => item.description).join(' | ') || document.service_description;
