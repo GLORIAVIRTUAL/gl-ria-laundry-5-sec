@@ -73,7 +73,7 @@ function parseGeminiImage(data) {
 async function generateCampaignPlan(apiKey, prompt, reference_image_urls) {
   const imageParts = await Promise.all(reference_image_urls.slice(0, 6).map(urlToInlinePart));
 
-  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent', {
+  const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
