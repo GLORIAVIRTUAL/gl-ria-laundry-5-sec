@@ -36,6 +36,7 @@ import PaymentLinkDialog from '@/components/chat/PaymentLinkDialog';
 import EditCustomerModal from '@/components/chat/EditCustomerModal';
 import DeleteConversationButton from '@/components/chat/DeleteConversationButton';
 import ConversationListItem from '@/components/chat/ConversationListItem';
+import ChannelFilter from '@/components/chat/ChannelFilter';
 import ReactMarkdown from 'react-markdown';
 import useUnitAccess from '@/components/units/useUnitAccess';
 
@@ -57,6 +58,8 @@ export default function Chat() {
   const [units, setUnits] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
   const [conversationView, setConversationView] = useState('all');
+  // Filtro por canal de origem (todos / WhatsApp / Instagram / Messenger)
+  const [channelFilter, setChannelFilter] = useState('all');
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [deletingConversation, setDeletingConversation] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -930,8 +933,19 @@ export default function Chat() {
   const activeConvsCount = conversations.filter(c => !isClosedConv(c)).length;
   const closedConvsCount = conversations.filter(isClosedConv).length;
 
+  // Canal da conversa: registros antigos sem campo são do WhatsApp
+  const convChannel = (conv) => conv.channel || 'WHATSAPP';
+  const channelCounts = {
+    all: conversations.length,
+    WHATSAPP: conversations.filter(c => convChannel(c) === 'WHATSAPP').length,
+    INSTAGRAM: conversations.filter(c => convChannel(c) === 'INSTAGRAM').length,
+    MESSENGER: conversations.filter(c => convChannel(c) === 'MESSENGER').length,
+  };
+
   const filteredConversations = conversations.filter((conv) => {
     const customer = customers[conv.customer_id];
+
+    if (channelFilter !== 'all' && convChannel(conv) !== channelFilter) return false;
 
     if (conversationView === 'closed') {
       if (!isClosedConv(conv)) return false;
@@ -999,6 +1013,8 @@ export default function Chat() {
              </button>
           </div>
         </div>
+
+        <ChannelFilter value={channelFilter} onChange={setChannelFilter} counts={channelCounts} />
 
         <div className="mb-4 flex gap-2 px-2">
           <button
