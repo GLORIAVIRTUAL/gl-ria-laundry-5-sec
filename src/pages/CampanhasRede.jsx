@@ -347,7 +347,7 @@ export default function CampanhasRede() {
               )}
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
               <Button
                 onClick={handleDownload}
                 disabled={!uploadedImageUrl}
