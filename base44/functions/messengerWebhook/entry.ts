@@ -59,6 +59,9 @@ export default async function (req) {
         if (change.field === 'messages' && change.value) events.push(change.value);
       }
     }
+    // Testes do painel da Meta chegam com { field, value } na raiz.
+    if (payload.field === 'messages' && payload.value) events.push(payload.value);
+    if (payload.sample?.field === 'messages' && payload.sample?.value) events.push(payload.sample.value);
 
     for (const ev of events) {
       const senderId = String(ev.sender?.id || '');
