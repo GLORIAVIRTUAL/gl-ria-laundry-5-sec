@@ -173,6 +173,20 @@ export default function CampanhasRede() {
 
     setPosting(true);
     try {
+      if (!scheduled_at) {
+        const publishRes = await base44.functions.invoke('instagramPublish', {
+          image_url: uploadedImageUrl,
+          caption,
+        });
+        const publishData = publishRes?.data;
+        if (publishData?.status === 'published') {
+          toast.success('Publicado no Instagram!');
+        } else {
+          toast.error(`Falha ao publicar: ${publishData?.error || 'erro desconhecido'}`);
+        }
+        return;
+      }
+
       const response = await base44.functions.invoke('sendCampaignToMake', {
         image_url: uploadedImageUrl,
         caption,
