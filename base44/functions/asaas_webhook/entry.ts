@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.44';
 import { secrets } from 'base44:runtime';
+import { notifyPaymentConfirmed } from '../../shared/paymentConfirmationNotice.js';
 
 // Recebe os eventos do Asaas (via gateway) e confirma o pagamento no sistema.
 // Configure esta URL no painel do Asaas / gateway:
@@ -106,16 +107,12 @@ export default async function (req: Request): Promise<Response> {
           await db.Quote.update(payment.quote_id, { status: 'ACCEPTED' }).catch(() => null);
         }
 
-        // Marca a conversa como pagamento confirmado para a IA agendar coleta como encaixe
+        // Avisa o cliente no WhatsApp e agenda a coleta como encaixe imediatamente.
         if (payment.customer_id) {
-          const conversations = await db.Conversation.filter({ customer_id: payment.customer_id }).catch(() => []);
-          for (const conv of (conversations || [])) {
-            if (conv.metadata?.flow === 'WAITING_RECEIPT') {
-              await db.Conversation.update(conv.id, {
-                metadata: { ...conv.metadata, payment_confirmed: true }
-              }).catch(() => null);
-            }
-          }
+          await notifyPaymentConfirmed(base44, payment.customer_id).catch((err) => {
+            console.error(`[asaas_webhook:${requestId}] notify_failed`, err?.message);
+            return null;
+          });
         }
 
         applied = 'payment_confirmed';
