@@ -3,6 +3,7 @@ import { AlertTriangle, MapPin, Phone, CheckCircle, XCircle, Pencil, Bot, Clock 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import PickupAuditInfo from '@/components/pickups/PickupAuditInfo';
+import ServiceKindBadge from '@/components/pickups/ServiceKindBadge';
 
 // Coletas agendadas além da capacidade dos slots do dia.
 // Antes elas ficavam invisíveis na agenda — agora aparecem aqui.
@@ -28,6 +29,7 @@ export default function OverflowPickupsSection({ pickups, customerMap, formatBR,
                 <div className="flex-1 min-w-0">
                   <h4 className="font-semibold text-white flex items-center gap-2 flex-wrap">
                     {customer?.full_name || 'Cliente Desconhecido'}
+                    <ServiceKindBadge value={pickup.service_kind} />
                     <Badge variant="outline" className="text-[10px] py-0 h-5 bg-orange-500/20 text-orange-300 border-orange-500/30">EXCEDENTE</Badge>
                     {pickup.status === 'completed' && <CheckCircle className="w-4 h-4 text-green-500" />}
                   </h4>

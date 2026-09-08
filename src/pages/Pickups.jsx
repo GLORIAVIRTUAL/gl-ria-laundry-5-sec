@@ -37,6 +37,8 @@ import AdvancedQuoteModal from '@/components/crm/AdvancedQuoteModal';
 import OverflowPickupsSection from '@/components/pickups/OverflowPickupsSection';
 import PickupAuditInfo from '@/components/pickups/PickupAuditInfo';
 import MultiDatesSection from '@/components/pickups/MultiDatesSection';
+import ServiceKindSelector from '@/components/pickups/ServiceKindSelector';
+import ServiceKindBadge from '@/components/pickups/ServiceKindBadge';
 import { loadAllCustomers } from '@/lib/loadAllCustomers';
 import { buildPickupIso, formatBrasiliaDateTime, getBrasiliaTimeParts, isSameBrasiliaDay } from '@/lib/pickupDateTime';
 
@@ -78,6 +80,7 @@ export default function Pickups() {
   const [notes, setNotes] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [priority, setPriority] = useState(false);
+  const [serviceKind, setServiceKind] = useState('dirty');
   const [isExtraPickup, setIsExtraPickup] = useState(false);
   const [isFixedPickup, setIsFixedPickup] = useState(false);
   const [fixedStartDate, setFixedStartDate] = useState('');
@@ -224,6 +227,7 @@ export default function Pickups() {
           source: 'human',
           created_by_name: currentUser?.full_name || currentUser?.email || 'Usuário do sistema',
           priority: priority,
+          service_kind: serviceKind,
           type: 'fixed'
         }));
 
@@ -248,6 +252,7 @@ export default function Pickups() {
           source: 'human',
           created_by_name: currentUser?.full_name || currentUser?.email || 'Usuário do sistema',
           priority: priority,
+          service_kind: serviceKind,
           type: 'extra'
         });
 
@@ -303,6 +308,7 @@ export default function Pickups() {
             source: 'human',
             created_by_name: currentUser?.full_name || currentUser?.email || 'Usuário do sistema',
             priority: priority,
+            service_kind: serviceKind,
             type: 'regular'
           });
         }
@@ -397,6 +403,7 @@ export default function Pickups() {
     setNotes('');
     setSearchTerm('');
     setPriority(false);
+    setServiceKind('dirty');
     setIsExtraPickup(false);
     setIsFixedPickup(false);
     setFixedStartDate('');
@@ -643,6 +650,8 @@ export default function Pickups() {
                   O sistema irá alocar automaticamente a primeira vaga disponível no turno.
                 </p>
               </div>
+
+              <ServiceKindSelector value={serviceKind} onChange={setServiceKind} />
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="space-y-2">
@@ -954,6 +963,7 @@ export default function Pickups() {
                                         <div className="flex-1 min-w-0">
                                           <h4 className="font-semibold text-white flex items-center gap-2 flex-wrap">
                                             {customer?.full_name || 'Cliente Desconhecido'}
+                                            <ServiceKindBadge value={pickup.service_kind} />
                                             {pickup.status === 'completed' && <CheckCircle className="w-4 h-4 text-green-500" />}
                                             {pickup.type === 'fixed' && <Badge variant="outline" className="ml-2 text-[10px] py-0 h-5 bg-yellow-500/20 text-yellow-500 border-yellow-500/30">FIXA</Badge>}
                                             {pickup.priority && <Badge variant="destructive" className="ml-2 text-[10px] py-0 h-5">PRIORIDADE</Badge>}
@@ -1091,6 +1101,7 @@ export default function Pickups() {
                         <div className="flex-1 min-w-0">
                           <h4 className="font-semibold text-white flex items-center gap-2 flex-wrap">
                             {customer?.full_name || 'Cliente Desconhecido'}
+                            <ServiceKindBadge value={pickup.service_kind} />
                             <Badge variant="outline" className="text-[10px] py-0 h-5 bg-purple-500/20 text-purple-300 border-purple-500/30">ENCAIXE</Badge>
                             {pickup.status === 'completed' && <CheckCircle className="w-4 h-4 text-green-500" />}
                             {pickup.priority && <Badge variant="destructive" className="text-[10px] py-0 h-5">PRIORIDADE</Badge>}

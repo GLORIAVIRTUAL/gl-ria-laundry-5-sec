@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { getBrasiliaDateKey, getBrasiliaTimeParts, buildPickupIso } from '@/lib/pickupDateTime';
 import MultiDatesSection from '@/components/pickups/MultiDatesSection';
+import ServiceKindSelector from '@/components/pickups/ServiceKindSelector';
 
 export default function EditPickupModal({ pickup, isOpen, onClose, customerMap }) {
   const [address, setAddress] = useState('');
@@ -17,6 +18,7 @@ export default function EditPickupModal({ pickup, isOpen, onClose, customerMap }
   const [addressComplement, setAddressComplement] = useState('');
   const [scheduledDate, setScheduledDate] = useState('');
   const [shift, setShift] = useState('manha');
+  const [serviceKind, setServiceKind] = useState('dirty');
   const [fetchingCep, setFetchingCep] = useState(false);
   const [saving, setSaving] = useState(false);
   const [multiEnabled, setMultiEnabled] = useState(false);
@@ -70,6 +72,7 @@ export default function EditPickupModal({ pickup, isOpen, onClose, customerMap }
       }
       
       setNotes(pickup.notes || '');
+      setServiceKind(pickup.service_kind || 'dirty');
 
       if (pickup.scheduled_at) {
         setScheduledDate(getBrasiliaDateKey(pickup.scheduled_at));
@@ -117,7 +120,8 @@ export default function EditPickupModal({ pickup, isOpen, onClose, customerMap }
 
       const payload = {
         address: finalAddress || pickup.address,
-        notes: notes
+        notes: notes,
+        service_kind: serviceKind
       };
 
       const current = pickup.scheduled_at
@@ -152,6 +156,7 @@ export default function EditPickupModal({ pickup, isOpen, onClose, customerMap }
           notes: notes,
           source: 'human',
           priority: pickup.priority || false,
+          service_kind: serviceKind,
           type: pickup.type || 'regular',
           created_by_name: pickup.created_by_name,
           status: 'scheduled'
@@ -198,6 +203,8 @@ export default function EditPickupModal({ pickup, isOpen, onClose, customerMap }
               </Select>
             </div>
           </div>
+
+          <ServiceKindSelector value={serviceKind} onChange={setServiceKind} />
 
           <MultiDatesSection
             enabled={multiEnabled}
