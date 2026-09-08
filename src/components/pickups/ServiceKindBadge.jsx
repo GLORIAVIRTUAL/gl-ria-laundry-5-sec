@@ -14,7 +14,7 @@ export default function ServiceKindBadge({ value }) {
       )}
     >
       {isClean ? <CheckCircle2 className="w-3 h-3" /> : <Truck className="w-3 h-3" />}
-      {isClean ? 'Limpa' : 'Suja'}
+      {isClean ? 'Entrega' : 'Coleta'}
     </span>
   );
 }

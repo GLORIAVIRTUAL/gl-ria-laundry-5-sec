@@ -17,7 +17,7 @@ export default function ServiceKindSelector({ value = 'dirty', onChange }) {
               : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10"
           )}
         >
-          <Truck className="w-4 h-4" /> Coleta Suja
+          <Truck className="w-4 h-4" /> Coleta
         </button>
         <button
           type="button"
@@ -29,7 +29,7 @@ export default function ServiceKindSelector({ value = 'dirty', onChange }) {
               : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10"
           )}
         >
-          <CheckCircle2 className="w-4 h-4" /> Entrega Limpa
+          <CheckCircle2 className="w-4 h-4" /> Entrega
         </button>
       </div>
       <p className="text-xs text-gray-500">
