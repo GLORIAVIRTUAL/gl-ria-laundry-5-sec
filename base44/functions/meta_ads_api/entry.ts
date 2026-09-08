@@ -37,7 +37,8 @@ Deno.serve(async (req) => {
         if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
         const { action, params = {} } = await req.json();
-        const adAccountId = params.ad_account_id || Deno.env.get('META_AD_ACCOUNT_ID');
+        const rawAccountId = params.ad_account_id || Deno.env.get('META_AD_ACCOUNT_ID') || '';
+        const adAccountId = rawAccountId.startsWith('act_') ? rawAccountId : `act_${rawAccountId}`;
 
         switch (action) {
             case 'diagnose': {
