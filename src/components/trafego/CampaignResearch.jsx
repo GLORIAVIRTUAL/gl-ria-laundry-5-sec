@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Lightbulb, Target, DollarSign, Users, Sparkles, MapPin, MessageSquare } from 'lucide-react';
 import { toast } from 'sonner';
+import usePersistentState from '@/lib/usePersistentState';
 
 const OBJECTIVE_LABELS = {
   OUTCOME_AWARENESS: 'Reconhecimento',
@@ -17,11 +18,11 @@ const OBJECTIVE_LABELS = {
 };
 
 export default function CampaignResearch({ onUseRecommendation }) {
-  const [briefing, setBriefing] = useState('');
-  const [goal, setGoal] = useState('');
-  const [budget, setBudget] = useState('30');
+  const [briefing, setBriefing] = usePersistentState('trafego_research_briefing', '');
+  const [goal, setGoal] = usePersistentState('trafego_research_goal', '');
+  const [budget, setBudget] = usePersistentState('trafego_research_budget', '30');
   const [loading, setLoading] = useState(false);
-  const [recommendation, setRecommendation] = useState(null);
+  const [recommendation, setRecommendation] = usePersistentState('trafego_research_recommendation', null);
 
   const handleResearch = async () => {
     if (!briefing.trim() || !goal.trim()) {

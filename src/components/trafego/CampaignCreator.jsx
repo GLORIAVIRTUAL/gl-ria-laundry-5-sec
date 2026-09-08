@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Rocket, AlertCircle, CheckCircle2, Upload, ImageIcon, Video } from 'lucide-react';
 import { toast } from 'sonner';
+import usePersistentState from '@/lib/usePersistentState';
 
 const OBJECTIVES = [
   { value: 'OUTCOME_AWARENESS', label: 'Reconhecimento' },
@@ -30,35 +31,35 @@ const CTA_TYPES = [
 
 export default function CampaignCreator({ prefill }) {
   // Campanha
-  const [name, setName] = useState('');
-  const [objective, setObjective] = useState('OUTCOME_TRAFFIC');
-  const [dailyBudget, setDailyBudget] = useState('30');
+  const [name, setName] = usePersistentState('trafego_create_name', '');
+  const [objective, setObjective] = usePersistentState('trafego_create_objective', 'OUTCOME_TRAFFIC');
+  const [dailyBudget, setDailyBudget] = usePersistentState('trafego_create_budget', '30');
 
   // Criativo
-  const [pageId, setPageId] = useState('');
-  const [mediaType, setMediaType] = useState('image'); // 'image' | 'video'
-  const [mediaUrl, setMediaUrl] = useState('');
-  const [uploadedHash, setUploadedHash] = useState('');
-  const [uploadedVideoId, setUploadedVideoId] = useState('');
+  const [pageId, setPageId] = usePersistentState('trafego_create_page_id', '');
+  const [mediaType, setMediaType] = usePersistentState('trafego_create_media_type', 'image'); // 'image' | 'video'
+  const [mediaUrl, setMediaUrl] = usePersistentState('trafego_create_media_url', '');
+  const [uploadedHash, setUploadedHash] = usePersistentState('trafego_create_image_hash', '');
+  const [uploadedVideoId, setUploadedVideoId] = usePersistentState('trafego_create_video_id', '');
   const [uploading, setUploading] = useState(false);
 
   // Copy
-  const [headline, setHeadline] = useState('');
-  const [primaryText, setPrimaryText] = useState('');
-  const [description, setDescription] = useState('');
-  const [linkUrl, setLinkUrl] = useState('https://www.5asec.com.br');
-  const [ctaType, setCtaType] = useState('LEARN_MORE');
+  const [headline, setHeadline] = usePersistentState('trafego_create_headline', '');
+  const [primaryText, setPrimaryText] = usePersistentState('trafego_create_primary_text', '');
+  const [description, setDescription] = usePersistentState('trafego_create_description', '');
+  const [linkUrl, setLinkUrl] = usePersistentState('trafego_create_link_url', 'https://www.5asec.com.br');
+  const [ctaType, setCtaType] = usePersistentState('trafego_create_cta', 'LEARN_MORE');
 
   // Público
-  const [ageMin, setAgeMin] = useState('18');
-  const [ageMax, setAgeMax] = useState('65');
-  const [locations, setLocations] = useState('');
+  const [ageMin, setAgeMin] = usePersistentState('trafego_create_age_min', '18');
+  const [ageMax, setAgeMax] = usePersistentState('trafego_create_age_max', '65');
+  const [locations, setLocations] = usePersistentState('trafego_create_locations', '');
 
   // Publicação
-  const [activate, setActivate] = useState(true);
+  const [activate, setActivate] = usePersistentState('trafego_create_activate', true);
   const [publishing, setPublishing] = useState(false);
   const [generatingCopy, setGeneratingCopy] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = usePersistentState('trafego_create_result', null);
 
   // Carrega páginas
   const { data: pages = [], isLoading: loadingPages } = useQuery({

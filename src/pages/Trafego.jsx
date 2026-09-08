@@ -4,9 +4,10 @@ import { Megaphone, Lightbulb, Rocket, BarChart3 } from 'lucide-react';
 import CampaignResearch from '@/components/trafego/CampaignResearch';
 import CampaignCreator from '@/components/trafego/CampaignCreator';
 import CampaignResults from '@/components/trafego/CampaignResults';
+import usePersistentState from '@/lib/usePersistentState';
 
 export default function Trafego() {
-  const [activeTab, setActiveTab] = useState('research');
+  const [activeTab, setActiveTab] = usePersistentState('trafego_active_tab', 'research');
   const [prefill, setPrefill] = useState(null);
 
   const handleUseRecommendation = (data) => {
