@@ -2142,6 +2142,14 @@ Deno.serve(async (req) => {
                     }
                 }
                 
+                // Toda tool_call precisa de uma resposta 'tool'; sem isso a API rejeita a
+                // próxima chamada e a conversa cai no fallback genérico.
+                const answeredToolIds = new Set(chatMessages.filter((m) => m.role === 'tool').map((m) => m.tool_call_id));
+                for (const toolCall of responseMessage.tool_calls.filter((tc) => !answeredToolIds.has(tc.id))) {
+                    console.warn(`Tool sem resposta tratada: ${toolCall.function?.name}`);
+                    chatMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ error: `Ferramenta '${toolCall.function?.name}' indisponível. Responda ao cliente sem usá-la.` }) });
+                }
+
                 const secondCompletion = await openai.chat.completions.create({
                     model: AI_MODEL, temperature: AI_TEMP,
                     messages: chatMessages
@@ -2464,6 +2472,9 @@ Deno.serve(async (req) => {
     } catch (error) {
         if (error?.name === 'SecurityError') return securityErrorResponse(error, requestId);
         console.error("Error in orchestrator:", error);
+        if (base44 && conversation?.id) {
+            try { await logGuardEvent(base44, { guard: 'orchestrator_error', conversation_id: conversation.id, customer_name: customer?.full_name, detail: `Falha na execução da IA: ${error?.message || error}`, excerpt: String(error?.stack || '').slice(0, 400) }); } catch { /* nunca bloqueia o fallback */ }
+        }
         if (error.isAxiosError && error.response) {
             console.error("Axios response data:", error.response.data);
             console.error("Axios response status:", error.response.status);
