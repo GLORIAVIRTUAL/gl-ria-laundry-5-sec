@@ -476,6 +476,10 @@ export default function Chat() {
 
         setConversations(uniqueConvs);
 
+        // Prévia da última mensagem na lista (antes só aparecia via tempo real,
+        // deixando "Toque para ver as mensagens" em todas as conversas).
+        loadPreviews(uniqueConvs.slice(0, 30));
+
         // After the list loads, try to recover real names for customers stuck as "Novo Cliente"
         // — runs in background, does not block the UI.
         refreshUnknownCustomerNames(allCustomers);
@@ -484,6 +488,23 @@ export default function Chat() {
     } finally {
         setLoadingConversations(false);
     }
+  };
+
+  // Busca a última mensagem de cada conversa para exibir a prévia na lista.
+  const loadPreviews = async (convs) => {
+    try {
+      const entries = await Promise.all(convs.map(async (conv) => {
+        const last = await base44.entities.Message.filter({ conversation_id: conv.id }, '-created_date', 1);
+        const msg = last[0];
+        if (!msg) return null;
+        const text = msg.text?.trim() ||
+          (msg.type === 'IMAGE' ? '📷 Foto' : msg.type === 'AUDIO' ? '🎤 Áudio' : '📎 Anexo');
+        return [conv.id, text];
+      }));
+      const map = {};
+      entries.filter(Boolean).forEach(([id, text]) => { map[id] = text; });
+      setPreviews(prev => ({ ...map, ...prev }));
+    } catch (err) { /* prévia é opcional */ }
   };
 
   // Background task: fetch real WhatsApp names for ALL "Novo Cliente" / "Cliente" customers.
