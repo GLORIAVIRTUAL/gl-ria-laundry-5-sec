@@ -4,9 +4,10 @@ import SearchCampaignForm from './forms/SearchCampaignForm';
 import DisplayCampaignForm from './forms/DisplayCampaignForm';
 import PerformanceMaxCampaignForm from './forms/PerformanceMaxCampaignForm';
 import VideoCampaignForm from './forms/VideoCampaignForm';
+import usePersistentState from '@/lib/usePersistentState';
 
 export default function GoogleAdsCampaignCreator({ prefill }) {
-  const [type, setType] = useState('search');
+  const [type, setType] = usePersistentState('gads_campaign_type', 'search');
 
   // Quando vem prefill da Pesquisa IA, força tipo "search"
   useEffect(() => {

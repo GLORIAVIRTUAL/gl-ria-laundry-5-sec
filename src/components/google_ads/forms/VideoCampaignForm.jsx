@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Send, Loader2, CheckCircle2, X, Youtube, ExternalLink, Save } from 'lucide-react';
 import { toast } from 'sonner';
+import usePersistentState from '@/lib/usePersistentState';
 
 const BRASIL_GEO_ID = 2076;
 const CHANNEL_STORAGE_KEY = 'google_ads_youtube_channel';
@@ -18,13 +19,13 @@ function extractYouTubeId(input) {
 }
 
 export default function VideoCampaignForm() {
-  const [name, setName] = useState('');
-  const [budget, setBudget] = useState(20);
-  const [finalUrl, setFinalUrl] = useState('');
-  const [youtubeInput, setYoutubeInput] = useState('');
-  const [startPaused, setStartPaused] = useState(true);
+  const [name, setName] = usePersistentState('gads_video_name', '');
+  const [budget, setBudget] = usePersistentState('gads_video_budget', 20);
+  const [finalUrl, setFinalUrl] = usePersistentState('gads_video_final_url', '');
+  const [youtubeInput, setYoutubeInput] = usePersistentState('gads_video_youtube', '');
+  const [startPaused, setStartPaused] = usePersistentState('gads_video_start_paused', true);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = usePersistentState('gads_video_result', null);
 
   // Canal do YouTube (referência) — salvo localmente
   const [channelUrl, setChannelUrl] = useState('');

@@ -6,13 +6,14 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Sparkles, Loader2, Lightbulb } from 'lucide-react';
+import usePersistentState from '@/lib/usePersistentState';
 
 export default function GoogleAdsResearch({ onUseRecommendation }) {
-  const [city, setCity] = useState('');
-  const [budget, setBudget] = useState(15);
-  const [objective, setObjective] = useState('Atrair novos clientes para lavanderia 5àsec');
+  const [city, setCity] = usePersistentState('gads_research_city', '');
+  const [budget, setBudget] = usePersistentState('gads_research_budget', 15);
+  const [objective, setObjective] = usePersistentState('gads_research_objective', 'Atrair novos clientes para lavanderia 5àsec');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = usePersistentState('gads_research_result', null);
 
   const handleGenerate = async () => {
     if (!city) return;

@@ -9,23 +9,24 @@ import { Switch } from '@/components/ui/switch';
 import { Send, Loader2, CheckCircle2, X, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import ImageUrlList from './ImageUrlList';
+import usePersistentState from '@/lib/usePersistentState';
 
 const BRASIL_GEO_ID = 2076;
 
 export default function PerformanceMaxCampaignForm() {
-  const [name, setName] = useState('');
-  const [budget, setBudget] = useState(30);
-  const [finalUrl, setFinalUrl] = useState('');
-  const [businessName, setBusinessName] = useState('5àsec');
-  const [headlines, setHeadlines] = useState('');
-  const [longHeadlines, setLongHeadlines] = useState('');
-  const [descriptions, setDescriptions] = useState('');
-  const [marketingImages, setMarketingImages] = useState([]);
-  const [squareImages, setSquareImages] = useState([]);
-  const [logoImages, setLogoImages] = useState([]);
-  const [startPaused, setStartPaused] = useState(true);
+  const [name, setName] = usePersistentState('gads_pmax_name', '');
+  const [budget, setBudget] = usePersistentState('gads_pmax_budget', 30);
+  const [finalUrl, setFinalUrl] = usePersistentState('gads_pmax_final_url', '');
+  const [businessName, setBusinessName] = usePersistentState('gads_pmax_business_name', '5àsec');
+  const [headlines, setHeadlines] = usePersistentState('gads_pmax_headlines', '');
+  const [longHeadlines, setLongHeadlines] = usePersistentState('gads_pmax_long_headlines', '');
+  const [descriptions, setDescriptions] = usePersistentState('gads_pmax_descriptions', '');
+  const [marketingImages, setMarketingImages] = usePersistentState('gads_pmax_marketing_images', []);
+  const [squareImages, setSquareImages] = usePersistentState('gads_pmax_square_images', []);
+  const [logoImages, setLogoImages] = usePersistentState('gads_pmax_logo_images', []);
+  const [startPaused, setStartPaused] = usePersistentState('gads_pmax_start_paused', true);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = usePersistentState('gads_pmax_result', null);
 
   const handleCreate = async () => {
     if (!name || !finalUrl) {

@@ -9,23 +9,24 @@ import { Switch } from '@/components/ui/switch';
 import { Send, Loader2, CheckCircle2, X, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import ImageUrlList from './ImageUrlList';
+import usePersistentState from '@/lib/usePersistentState';
 
 const BRASIL_GEO_ID = 2076;
 
 export default function DisplayCampaignForm() {
-  const [name, setName] = useState('');
-  const [budget, setBudget] = useState(15);
-  const [finalUrl, setFinalUrl] = useState('');
-  const [businessName, setBusinessName] = useState('5àsec');
-  const [headlines, setHeadlines] = useState('');
-  const [longHeadline, setLongHeadline] = useState('');
-  const [descriptions, setDescriptions] = useState('');
-  const [marketingImages, setMarketingImages] = useState([]);
-  const [squareImages, setSquareImages] = useState([]);
-  const [logoImages, setLogoImages] = useState([]);
-  const [startPaused, setStartPaused] = useState(true);
+  const [name, setName] = usePersistentState('gads_display_name', '');
+  const [budget, setBudget] = usePersistentState('gads_display_budget', 15);
+  const [finalUrl, setFinalUrl] = usePersistentState('gads_display_final_url', '');
+  const [businessName, setBusinessName] = usePersistentState('gads_display_business_name', '5àsec');
+  const [headlines, setHeadlines] = usePersistentState('gads_display_headlines', '');
+  const [longHeadline, setLongHeadline] = usePersistentState('gads_display_long_headline', '');
+  const [descriptions, setDescriptions] = usePersistentState('gads_display_descriptions', '');
+  const [marketingImages, setMarketingImages] = usePersistentState('gads_display_marketing_images', []);
+  const [squareImages, setSquareImages] = usePersistentState('gads_display_square_images', []);
+  const [logoImages, setLogoImages] = usePersistentState('gads_display_logo_images', []);
+  const [startPaused, setStartPaused] = usePersistentState('gads_display_start_paused', true);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = usePersistentState('gads_display_result', null);
 
   const handleCreate = async () => {
     if (!name || !finalUrl) {

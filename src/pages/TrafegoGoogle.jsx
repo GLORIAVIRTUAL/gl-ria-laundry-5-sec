@@ -6,10 +6,11 @@ import GoogleAdsResearch from '@/components/google_ads/GoogleAdsResearch';
 import GoogleAdsCampaignCreator from '@/components/google_ads/GoogleAdsCampaignCreator';
 import GoogleAdsResults from '@/components/google_ads/GoogleAdsResults';
 import GoogleAdsApprovalStatus from '@/components/google_ads/GoogleAdsApprovalStatus';
+import usePersistentState from '@/lib/usePersistentState';
 
 export default function TrafegoGoogle() {
-  const [tab, setTab] = useState('status');
-  const [prefill, setPrefill] = useState(null);
+  const [tab, setTab] = usePersistentState('gads_active_tab', 'status');
+  const [prefill, setPrefill] = usePersistentState('gads_prefill', null);
 
   const handleUseRecommendation = (data) => {
     setPrefill(data);

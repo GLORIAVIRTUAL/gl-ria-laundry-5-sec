@@ -8,19 +8,20 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Send, Loader2, CheckCircle2, X } from 'lucide-react';
 import { toast } from 'sonner';
+import usePersistentState from '@/lib/usePersistentState';
 
 const BRASIL_GEO_ID = 2076;
 
 export default function SearchCampaignForm({ prefill }) {
-  const [name, setName] = useState('');
-  const [budget, setBudget] = useState(15);
-  const [finalUrl, setFinalUrl] = useState('');
-  const [keywords, setKeywords] = useState('');
-  const [headlines, setHeadlines] = useState('');
-  const [descriptions, setDescriptions] = useState('');
-  const [startPaused, setStartPaused] = useState(true);
+  const [name, setName] = usePersistentState('gads_search_name', '');
+  const [budget, setBudget] = usePersistentState('gads_search_budget', 15);
+  const [finalUrl, setFinalUrl] = usePersistentState('gads_search_final_url', '');
+  const [keywords, setKeywords] = usePersistentState('gads_search_keywords', '');
+  const [headlines, setHeadlines] = usePersistentState('gads_search_headlines', '');
+  const [descriptions, setDescriptions] = usePersistentState('gads_search_descriptions', '');
+  const [startPaused, setStartPaused] = usePersistentState('gads_search_start_paused', true);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
+  const [result, setResult] = usePersistentState('gads_search_result', null);
 
   useEffect(() => {
     if (prefill) {
