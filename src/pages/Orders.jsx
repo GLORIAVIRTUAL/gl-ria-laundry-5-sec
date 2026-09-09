@@ -19,6 +19,7 @@ import useUnitAccess, { filterRecordsByUnit, getUnitLabel } from '@/components/u
 import UnitFilterSelect from '@/components/units/UnitFilterSelect';
 import DateRangeFilter from '@/components/crm/DateRangeFilter';
 import syncNewCustomerCards from '@/lib/syncNewCustomerCards';
+import applyCardSources from '@/lib/applyCardSources';
 import { startOfDay, startOfWeek, startOfMonth, endOfDay, endOfWeek, endOfMonth, parseISO } from 'date-fns';
 
 const PIPELINES = {
@@ -98,7 +99,7 @@ export default function Orders() {
       }
       const fetchedCards = await base44.entities.CrmCard.filter({ pipeline_type: activePipeline });
 
-      const visibleCards = filterRecordsByUnit(fetchedCards, selectedUnitId, defaultUnitId);
+      const visibleCards = await applyCardSources(filterRecordsByUnit(fetchedCards, selectedUnitId, defaultUnitId));
       const customerMap = {};
       allCustomers.forEach((customer) => {
         customerMap[customer.id] = customer;
