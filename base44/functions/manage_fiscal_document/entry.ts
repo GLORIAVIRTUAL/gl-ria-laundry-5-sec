@@ -296,6 +296,10 @@ export default async function(req: Request): Promise<Response> {
       }
       const { status: httpStatus, data: focusData } = focusResponse;
       if (httpStatus === 404) return Response.json({ error: 'focusnfe_not_found', request_id: requestId }, { status: 404 });
+      if (httpStatus >= 400 || (focusData?.codigo && !focusData?.status)) {
+        await addEvent(base44, document, user, requestId, 'error', 'failed', `Consulta Focus NFe falhou: ${focusData?.mensagem || focusData?.codigo || `HTTP ${httpStatus}`}`, { http_status: httpStatus, response: focusData });
+        return Response.json({ error: 'focusnfe_consult_failed', focusnfe_response: focusData, request_id: requestId }, { status: 502 });
+      }
 
       const statusMap: Record<string, string> = {
         'processando_autorizacao': 'processing',
