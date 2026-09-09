@@ -38,8 +38,12 @@ export default async function (req) {
     const appSecret = Deno.env.get('INSTAGRAM_APP_SECRET');
     const signature = req.headers.get('x-hub-signature-256') || '';
     if (signature) {
-      const expectedSig = `sha256=${await hmacSha256Hex(appSecret || '', rawBody)}`;
-      if (signature !== expectedSig) {
+      // A DM pode chegar pelo app do Instagram ou pelo app da Página (Messenger API for Instagram),
+      // que assinam com segredos diferentes. Aceitamos qualquer um dos dois.
+      const secrets = [appSecret, Deno.env.get('MESSENGER_APP_SECRET')].filter(Boolean);
+      const valid = [];
+      for (const secret of secrets) valid.push(`sha256=${await hmacSha256Hex(secret, rawBody)}`);
+      if (!valid.includes(signature)) {
         console.warn('Instagram webhook signature mismatch.');
         return new Response('invalid_signature', { status: 401 });
       }
