@@ -1,0 +1,45 @@
+{
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "*/5 * * * *",
+      "one_time_date": null,
+      "timezone": "America/Sao_Paulo",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "buscar_dms_instagram",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "importar_dms": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "instagramPoll",
+            "args": {}
+          },
+          "then": "end",
+          "x-base44": {
+            "title": "Importar DMs do Instagram",
+            "description": "A cada 5 minutos"
+          }
+        }
+      }
+    ]
+  },
+  "description": "Busca ativamente novas DMs do Instagram a cada 5 minutos e importa para o chat (fallback do webhook da Meta).",
+  "name": "Buscar DMs do Instagram"
+}
