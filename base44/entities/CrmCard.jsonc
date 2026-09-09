@@ -32,7 +32,9 @@
         "SITE_QUOTE",
         "COUNTER_MANUAL",
         "WHATSAPP_HUMAN",
-        "WHATSAPP_GLORIA"
+        "WHATSAPP_GLORIA",
+        "INSTAGRAM_DM",
+        "MESSENGER_DM"
       ],
       "description": "Origem inicial do cliente no CRM"
     },

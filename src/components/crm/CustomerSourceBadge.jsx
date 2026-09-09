@@ -5,6 +5,8 @@ const SOURCES = {
   COUNTER_MANUAL: { label: 'Manual do balcão', classes: 'border-amber-400/30 bg-amber-500/15 text-amber-300' },
   WHATSAPP_HUMAN: { label: 'WhatsApp humano', classes: 'border-emerald-400/30 bg-emerald-500/15 text-emerald-300' },
   WHATSAPP_GLORIA: { label: 'WhatsApp GlórIA', classes: 'border-fuchsia-400/30 bg-fuchsia-500/15 text-fuchsia-300' },
+  INSTAGRAM_DM: { label: 'Instagram DM', classes: 'border-pink-400/30 bg-pink-500/15 text-pink-300' },
+  MESSENGER_DM: { label: 'Messenger', classes: 'border-blue-400/30 bg-blue-500/15 text-blue-300' },
 };
 
 export default function CustomerSourceBadge({ source }) {
