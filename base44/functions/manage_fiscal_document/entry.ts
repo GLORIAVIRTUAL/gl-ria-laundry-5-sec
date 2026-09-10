@@ -248,7 +248,11 @@ export default async function(req: Request): Promise<Response> {
       if (!readiness.transmission_ready) return Response.json({ error: 'fiscal_not_ready', readiness, request_id: requestId }, { status: 422 });
       if (!['draft', 'ready', 'rejected', 'error'].includes(document.status)) return Response.json({ error: 'fiscal_document_not_transmittable', request_id: requestId }, { status: 409 });
 
-      const ref = `5asec-${document.unit_id}-${document.rps_series}-${document.rps_number}`;
+      // A Focus NFe guarda o resultado por ref; reenvio precisa de ref novo, senao devolve o erro antigo.
+      const attempt = Number(document.attempt_count || 0);
+      const ref = attempt > 0
+        ? `5asec-${document.unit_id}-${document.rps_series}-${document.rps_number}-r${attempt}`
+        : `5asec-${document.unit_id}-${document.rps_series}-${document.rps_number}`;
       const payload = buildFocusNfePayload({ document, profile, ref });
 
       let focusResponse: any;
