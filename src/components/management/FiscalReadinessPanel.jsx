@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Ban, CheckCircle2, FileCheck2, Landmark, Loader2, Save, ShieldCheck, Send, RefreshCw, XCircle, ExternalLink, Trash2 } from 'lucide-react';
+import { Ban, CheckCircle2, FileCheck2, Landmark, Loader2, Save, ShieldCheck, Send, RefreshCw, XCircle, ExternalLink, Trash2, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
@@ -237,16 +237,16 @@ export default function FiscalReadinessPanel({ profiles = [], documents = [], or
               {scopedDocuments.slice(0, 12).map((document) => (
                 <div key={document.id} className="rounded-2xl border border-white/10 bg-black/15 p-3">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-white">{document.recipient?.legal_name || document.recipient?.name || 'Tomador não identificado'}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-white break-words">{document.recipient?.legal_name || document.recipient?.name || 'Tomador não identificado'}</p>
                       <p className="text-xs text-white/35">RPS {document.rps_series}-{document.rps_number}{document.nfse_number ? ` · NFSe ${document.nfse_number}` : ''}</p>
-                      {document.last_error_message && <p className="mt-1 text-xs text-red-300/70 truncate" title={document.last_error_message}>{document.last_error_message}</p>}
+                      {document.last_error_message && <p className="mt-1 text-xs text-red-300/70 break-all line-clamp-3" title={document.last_error_message}>{document.last_error_message}</p>}
                     </div>
-                    <Badge variant="outline" className={STATUS_COLORS[document.status] || 'border-white/10 text-white/50'}>{STATUS_LABELS[document.status] || document.status}</Badge>
+                    <Badge variant="outline" className={`shrink-0 ${STATUS_COLORS[document.status] || 'border-white/10 text-white/50'}`}>{STATUS_LABELS[document.status] || document.status}</Badge>
                   </div>
-                  <div className="mt-3 flex items-center justify-between gap-2">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <span className="font-semibold text-white">{money(document.total_amount)}</span>
-                    <div className="flex gap-1.5">
+                    <div className="flex flex-wrap justify-end gap-1.5">
                       {document.status === 'draft' && (
                         <Button size="sm" variant="outline" disabled={busy} onClick={() => execute({ action: 'validate', fiscal_document_id: document.id }, 'Estrutura do RPS validada.')} className="border-white/10 bg-white/5"><CheckCircle2 className="mr-1 h-3.5 w-3.5" />Validar</Button>
                       )}
@@ -258,9 +258,14 @@ export default function FiscalReadinessPanel({ profiles = [], documents = [], or
                       )}
                       {document.status === 'authorized' && (
                         <>
-                          {document.metadata?.focusnfe_ref && (
-                            <a href={`${document.environment === 'production' ? 'https://api.focusnfe.com.br' : 'https://homologacao.focusnfe.com.br'}/v2/nfse/${encodeURIComponent(document.metadata.focusnfe_ref)}.pdf`} target="_blank" rel="noopener noreferrer">
-                              <Button size="sm" variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300"><ExternalLink className="mr-1 h-3.5 w-3.5" />PDF</Button>
+                          {docLinks(document).pdf && (
+                            <a href={docLinks(document).pdf} target="_blank" rel="noopener noreferrer">
+                              <Button size="sm" variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300"><ExternalLink className="mr-1 h-3.5 w-3.5" />Ver nota (PDF)</Button>
+                            </a>
+                          )}
+                          {docLinks(document).xml && (
+                            <a href={docLinks(document).xml} target="_blank" rel="noopener noreferrer" download>
+                              <Button size="sm" variant="outline" className="border-white/10 bg-white/5"><Download className="mr-1 h-3.5 w-3.5" />XML</Button>
                             </a>
                           )}
                           <Button size="sm" variant="outline" disabled={busy} onClick={() => { setCancelTarget(document.id); setCancelReason(''); }} className="border-red-500/20 bg-red-500/5 text-red-300"><XCircle className="mr-1 h-3.5 w-3.5" />Cancelar</Button>
@@ -300,6 +305,17 @@ export default function FiscalReadinessPanel({ profiles = [], documents = [], or
       )}
     </section>
   );
+}
+
+function docLinks(document) {
+  const base = document.environment === 'production' ? 'https://api.focusnfe.com.br' : 'https://homologacao.focusnfe.com.br';
+  const consult = document.metadata?.focusnfe_consult || {};
+  const ref = document.metadata?.focusnfe_ref || document.external_protocol;
+  const full = (path) => (path ? (path.startsWith('http') ? path : `${base}${path.startsWith('/') ? '' : '/'}${path}`) : null);
+  return {
+    pdf: consult.url_danfse || full(consult.caminho_danfse) || (ref ? `${base}/v2/nfse/${encodeURIComponent(ref)}.pdf` : null),
+    xml: full(consult.caminho_xml_nota_fiscal) || (ref ? `${base}/v2/nfse/${encodeURIComponent(ref)}.xml` : null),
+  };
 }
 
 function Field({ label, children }) { return <div className="space-y-2"><Label>{label}</Label>{children}</div>; }
