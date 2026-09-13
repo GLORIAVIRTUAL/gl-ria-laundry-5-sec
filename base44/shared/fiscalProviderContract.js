@@ -172,6 +172,8 @@ export function buildFocusNfePayload({ document, profile, ref }) {
     item_lista_servico: profile.service_code,
     // Petrolina/PE (e outros municipios ABRASF) exigem o codigo de tributacao municipal (erro EL84).
     codigo_tributario_municipio: document.taxation_code || profile.municipal_tax_code || undefined,
+    // Petrolina/PE exige o codigo do servico nacional (erro EL97) em campo proprio.
+    codigo_nbs: document.metadata?.codigo_nbs || profile.metadata?.codigo_nbs || undefined,
     valor_iss: document.iss_amount,
     valor_liquido: document.total_amount,
     valor_servicos: document.subtotal,
