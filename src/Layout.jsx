@@ -293,7 +293,7 @@ export default function Layout({ children }) {
             <img 
               src="https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/615381e59_Untitleddesign-2026-09-13T125240988.png"
               alt="GLÓRIA IA LAUNDRY"
-              className="h-32 w-full max-w-[260px] object-contain"
+              className="h-12 w-auto max-w-[180px] object-contain"
             />
           </div>
 
