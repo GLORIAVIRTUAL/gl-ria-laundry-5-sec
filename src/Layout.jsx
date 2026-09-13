@@ -291,7 +291,7 @@ export default function Layout({ children }) {
         <aside className="w-20 lg:w-72 min-h-screen bg-white/5 backdrop-blur-xl border-r border-white/10 flex flex-col transition-all duration-300">
           <div className="px-3 py-4 flex items-center justify-center lg:justify-start gap-3">
             <img 
-              src="https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/250769bd5_ChatGPTImage3desetde202619_33_19.png"
+              src="https://media.base44.com/images/public/6a99e42ee48200f5d8ddd176/654af97ea_ChatGPTImage6desetde202610_25_08.png"
               alt="GLÓRIA LAUNDRY 5àSec"
               className="h-32 w-full max-w-[260px] object-contain"
             />
