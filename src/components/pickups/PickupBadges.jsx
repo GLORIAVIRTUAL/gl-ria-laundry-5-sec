@@ -12,7 +12,7 @@ export default function PickupBadges({ pickup }) {
           PAGO (PIX)
         </Badge>
       )}
-      {free && (
+      {free && !paid && (
         <Badge variant="outline" className="text-[10px] py-0 h-5 bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
           GRÁTIS
         </Badge>
