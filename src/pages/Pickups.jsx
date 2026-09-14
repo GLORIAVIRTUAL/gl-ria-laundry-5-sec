@@ -39,6 +39,7 @@ import PickupAuditInfo from '@/components/pickups/PickupAuditInfo';
 import MultiDatesSection from '@/components/pickups/MultiDatesSection';
 import ServiceKindSelector from '@/components/pickups/ServiceKindSelector';
 import ServiceKindBadge from '@/components/pickups/ServiceKindBadge';
+import PickupBadges from '@/components/pickups/PickupBadges';
 import { loadAllCustomers } from '@/lib/loadAllCustomers';
 import { buildPickupIso, formatBrasiliaDateTime, getBrasiliaTimeParts, isSameBrasiliaDay } from '@/lib/pickupDateTime';
 
@@ -964,6 +965,7 @@ export default function Pickups() {
                                           <h4 className="font-semibold text-white flex items-center gap-2 flex-wrap">
                                             {customer?.full_name || 'Cliente Desconhecido'}
                                             <ServiceKindBadge value={pickup.service_kind} />
+                                            <PickupBadges pickup={pickup} />
                                             {pickup.status === 'completed' && <CheckCircle className="w-4 h-4 text-green-500" />}
                                             {pickup.type === 'fixed' && <Badge variant="outline" className="ml-2 text-[10px] py-0 h-5 bg-yellow-500/20 text-yellow-500 border-yellow-500/30">FIXA</Badge>}
                                             {pickup.priority && <Badge variant="destructive" className="ml-2 text-[10px] py-0 h-5">PRIORIDADE</Badge>}
@@ -1103,6 +1105,7 @@ export default function Pickups() {
                             {customer?.full_name || 'Cliente Desconhecido'}
                             <ServiceKindBadge value={pickup.service_kind} />
                             <Badge variant="outline" className="text-[10px] py-0 h-5 bg-purple-500/20 text-purple-300 border-purple-500/30">ENCAIXE</Badge>
+                            <PickupBadges pickup={pickup} />
                             {pickup.status === 'completed' && <CheckCircle className="w-4 h-4 text-green-500" />}
                             {pickup.priority && <Badge variant="destructive" className="text-[10px] py-0 h-5">PRIORIDADE</Badge>}
                           </h4>
