@@ -189,6 +189,8 @@ export default async function(req: Request): Promise<Response> {
       const statusMap: Record<string, string> = {
         'processando_autorizacao': 'processing',
         'autorizada': 'authorized',
+        'autorizado': 'authorized',
+        'cancelado': 'cancelled',
         'cancelada': 'cancelled',
         'erro_autorizacao': 'rejected',
       };
@@ -308,13 +310,15 @@ export default async function(req: Request): Promise<Response> {
       const statusMap: Record<string, string> = {
         'processando_autorizacao': 'processing',
         'autorizada': 'authorized',
+        'autorizado': 'authorized',
+        'cancelado': 'cancelled',
         'cancelada': 'cancelled',
         'erro_autorizacao': 'rejected',
       };
       const newStatus = statusMap[focusData?.status] || document.status;
       const patch: any = { metadata: { ...(document.metadata || {}), focusnfe_consult: focusData } };
       if (newStatus !== document.status) patch.status = newStatus;
-      if (focusData?.numero_nfse) { patch.nfse_number = String(focusData.numero_nfse); patch.document_type = 'nfse'; }
+      if (focusData?.numero_nfse || focusData?.numero) { patch.nfse_number = String(focusData.numero_nfse || focusData.numero); patch.document_type = 'nfse'; }
       if (focusData?.codigo_verificacao) patch.verification_code = String(focusData.codigo_verificacao);
       if (newStatus === 'authorized' && !document.authorized_at) {
         patch.authorized_at = new Date().toISOString();
