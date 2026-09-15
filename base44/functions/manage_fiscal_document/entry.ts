@@ -277,8 +277,8 @@ export default async function(req: Request): Promise<Response> {
         status: accepted ? (focusData?.status === 'autorizada' ? 'authorized' : 'processing') : 'error',
         external_protocol: ref,
         attempt_count: Number(document.attempt_count || 0) + 1,
-        last_error_code: accepted ? undefined : String(focusData?.codigo || focusData?.error || httpStatus),
-        last_error_message: accepted ? undefined : JSON.stringify(focusData),
+        last_error_code: accepted ? '' : String(focusData?.codigo || focusData?.error || httpStatus),
+        last_error_message: accepted ? '' : JSON.stringify(focusData),
         metadata: { ...(document.metadata || {}), focusnfe_ref: ref, focusnfe_response: focusData },
       });
 
@@ -325,7 +325,10 @@ export default async function(req: Request): Promise<Response> {
       }
       if (newStatus === 'rejected') {
         patch.last_error_code = 'focusnfe_rejected';
-        patch.last_error_message = JSON.stringify(focusData);
+        patch.last_error_message = (focusData?.erros || []).map((e: any) => `${e.codigo || ''} ${e.mensagem || ''}`.trim()).join(' | ') || JSON.stringify(focusData);
+      } else {
+        patch.last_error_code = '';
+        patch.last_error_message = '';
       }
       const updated = await base44.asServiceRole.entities.FiscalDocument.update(document.id, patch);
       await addEvent(base44, updated, user, requestId, 'submitted', newStatus === 'authorized' ? 'success' : newStatus === 'rejected' ? 'failed' : 'pending', `Consulta Focus NFe: ${focusData?.status || 'sem status'}`, { ref, focusnfe_status: focusData?.status });
