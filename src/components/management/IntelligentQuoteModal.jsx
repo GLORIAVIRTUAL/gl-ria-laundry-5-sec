@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import GarmentReviewCard, { FALLBACK_CATALOG_OPTIONS as FALLBACK_OPTIONS } from '@/components/management/GarmentReviewCard';
+import OrderPaymentActions from '@/components/management/OrderPaymentActions';
 
 function currency(value) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
@@ -294,7 +295,10 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
                   <div className="flex gap-3"><TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" /><div><p className="font-semibold">Nenhuma cobrança foi registrada.</p><p className="mt-1 text-sm text-white/50">Crie o ticket somente quando o cliente aprovar o orçamento. O pagamento continuará sendo uma etapa separada.</p></div></div>
                 </div>
                 {createdOrder ? (
-                  <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-emerald-200">Ticket <strong>{createdOrder.ticket_number}</strong> criado com peças individualizadas.</div>
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-emerald-200">Ticket <strong>{createdOrder.ticket_number}</strong> criado com peças individualizadas.</div>
+                    <OrderPaymentActions orderId={createdOrder.id} />
+                  </div>
                 ) : (
                   <Button onClick={createOrder} disabled={busy} className="bg-gradient-to-r from-emerald-500 to-cyan-500 text-slate-950 hover:from-emerald-400 hover:to-cyan-400">{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Cliente aprovou: criar ticket</Button>
                 )}
