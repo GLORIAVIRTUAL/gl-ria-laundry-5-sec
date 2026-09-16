@@ -11,6 +11,8 @@ import { Label } from '@/components/ui/label';
 const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
 const dateTime = (value) => value ? new Date(value).toLocaleString('pt-BR') : '—';
 const defaultValidity = () => new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
+const localDay = (date = new Date()) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const firstDayOfMonth = () => `${localDay().slice(0, 7)}-01`;
 
 const statusLabel = {
   DRAFT: 'Rascunho', HUMAN_REVIEW: 'Em revisão', APPROVED: 'Aprovado internamente', SENT: 'Enviado',
@@ -20,8 +22,15 @@ const statusLabel = {
 export default function QuoteLifecyclePanel({ quotes = [], customers = [], selectedUnitId, onRefresh }) {
   const [busyId, setBusyId] = useState(null);
   const [dialog, setDialog] = useState(null);
+  const [range, setRange] = useState({ start: firstDayOfMonth(), end: localDay() });
   const customersById = useMemo(() => Object.fromEntries(customers.map((customer) => [customer.id, customer])), [customers]);
-  const scopedQuotes = quotes.filter((quote) => selectedUnitId === 'all' || quote.unit_id === selectedUnitId);
+  const scopedQuotes = useMemo(() => quotes.filter((quote) => {
+    if (selectedUnitId !== 'all' && quote.unit_id !== selectedUnitId) return false;
+    const day = localDay(new Date(quote.created_date));
+    if (range.start && day < range.start) return false;
+    if (range.end && day > range.end) return false;
+    return true;
+  }), [quotes, selectedUnitId, range]);
 
   const run = async (quote, action, payload = {}, success = 'Orçamento atualizado.') => {
     setBusyId(quote.id);
@@ -60,7 +69,16 @@ export default function QuoteLifecyclePanel({ quotes = [], customers = [], selec
 
   return (
     <section className="space-y-5">
-      <div><h2 className="text-xl font-semibold text-white">Ciclo dos orçamentos</h2><p className="text-sm text-white/45">Validade, versões e decisões comerciais sem apagar o histórico.</p></div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div><h2 className="text-xl font-semibold text-white">Ciclo dos orçamentos</h2><p className="text-sm text-white/45">Validade, versões e decisões comerciais sem apagar o histórico.</p></div>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1"><Label className="text-xs text-white/45">De</Label><Input type="date" value={range.start} onChange={(event) => setRange((current) => ({ ...current, start: event.target.value }))} className="h-9 w-[150px] border-white/10 bg-black/25 text-xs" /></div>
+          <div className="space-y-1"><Label className="text-xs text-white/45">Até</Label><Input type="date" value={range.end} onChange={(event) => setRange((current) => ({ ...current, end: event.target.value }))} className="h-9 w-[150px] border-white/10 bg-black/25 text-xs" /></div>
+          <Button size="sm" variant="outline" onClick={() => setRange({ start: localDay(), end: localDay() })} className="h-9 border-white/10 bg-white/5 text-xs">Hoje</Button>
+          <Button size="sm" variant="outline" onClick={() => setRange({ start: firstDayOfMonth(), end: localDay() })} className="h-9 border-white/10 bg-white/5 text-xs">Este mês</Button>
+        </div>
+      </div>
+      <p className="text-xs text-white/35">{scopedQuotes.length} orçamento(s) no período selecionado.</p>
       <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03]"><div className="overflow-x-auto"><table className="w-full min-w-[1040px] text-left text-sm"><thead className="bg-black/15 text-xs uppercase tracking-wide text-white/35"><tr><th className="px-5 py-3">Orçamento</th><th className="px-4 py-3">Cliente</th><th className="px-4 py-3">Versão</th><th className="px-4 py-3">Validade</th><th className="px-4 py-3 text-right">Total</th><th className="px-4 py-3">Situação</th><th className="px-5 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-white/5">{scopedQuotes.slice(0, 100).map((quote) => <tr key={quote.id} className="hover:bg-white/[0.025]"><td className="px-5 py-4"><p className="font-medium text-white">{quote.quote_number || `#${quote.id.slice(0, 8)}`}</p><p className="mt-1 text-xs text-white/30">{quote.origin || 'manual'}</p></td><td className="px-4 py-4 text-white/65">{customersById[quote.customer_id]?.full_name || quote.customer_id}</td><td className="px-4 py-4 text-white/55">v{quote.version_number || 1}</td><td className="px-4 py-4"><span className={quote.valid_until && new Date(quote.valid_until) < new Date() ? 'text-red-300' : 'text-white/55'}>{dateTime(quote.valid_until)}</span></td><td className="px-4 py-4 text-right font-semibold text-white">{money(quote.total)}</td><td className="px-4 py-4"><Badge variant="outline" className={quote.status === 'ACCEPTED' ? 'border-emerald-500/30 text-emerald-300' : quote.status === 'SENT' ? 'border-sky-500/30 text-sky-200' : ['REJECTED', 'EXPIRED', 'CANCELLED'].includes(quote.status) ? 'border-red-500/25 text-red-200' : 'border-white/10 text-white/55'}>{statusLabel[quote.status] || quote.status}</Badge></td><td className="px-5 py-4"><div className="flex justify-end gap-1">{['DRAFT', 'HUMAN_REVIEW', 'SENT', 'REJECTED', 'EXPIRED'].includes(quote.status) && <IconButton title="Ajustar e criar versão" icon={PencilLine} onClick={() => setDialog({ mode: 'revise', quote })} />}{['DRAFT', 'HUMAN_REVIEW'].includes(quote.status) && <IconButton title="Enviar" icon={Send} busy={busyId === quote.id} onClick={() => run(quote, 'send', { valid_until: quote.valid_until || new Date(Date.now() + 7 * 86400000).toISOString() }, 'Orçamento enviado.')} />}{['SENT', 'APPROVED'].includes(quote.status) && <><IconButton title="Aceitar" icon={CheckCircle2} busy={busyId === quote.id} tone="text-emerald-300" onClick={() => run(quote, 'accept', {}, 'Aceite registrado.')} /><IconButton title="Rejeitar" icon={XCircle} tone="text-red-300" onClick={() => setDialog({ mode: 'reject', quote })} /></>}{['REJECTED', 'EXPIRED', 'CANCELLED'].includes(quote.status) && <IconButton title="Reabrir" icon={RotateCcw} onClick={() => setDialog({ mode: 'reopen', quote })} />}{quote.status === 'ACCEPTED' && <IconButton title="Criar pedido" icon={PackageCheck} busy={busyId === quote.id} tone="text-emerald-300" onClick={() => convertToOrder(quote)} />}<IconButton title="Duplicar" icon={Copy} busy={busyId === quote.id} onClick={() => run(quote, 'duplicate', { reason: 'Duplicado pela central de Gestão' }, 'Nova cópia criada.')} />{!['CANCELLED', 'ACCEPTED'].includes(quote.status) && <IconButton title="Cancelar" icon={Ban} tone="text-red-300" onClick={() => setDialog({ mode: 'cancel', quote })} />}</div></td></tr>)}</tbody></table></div>{scopedQuotes.length === 0 && <div className="py-14 text-center"><FileClock className="mx-auto h-8 w-8 text-white/20" /><p className="mt-3 text-sm text-white/40">Nenhum orçamento nesta unidade.</p></div>}</div>
       <LifecycleDialog state={dialog} onClose={() => setDialog(null)} busy={!!busyId} run={run} />
     </section>
