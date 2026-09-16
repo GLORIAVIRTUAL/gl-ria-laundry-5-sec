@@ -106,7 +106,7 @@ export default function ServiceTicketsTable({ orders, customerMap, onEdit, onDel
                 <TableHead className="text-gray-400">Valor</TableHead>
                 <TableHead className="text-gray-400">Pagamento</TableHead>
                 <TableHead className="text-gray-400">Status</TableHead>
-                <TableHead className="text-right text-gray-400">Ações</TableHead>
+                <TableHead className="sticky right-0 bg-[#231145] text-right text-gray-400">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -127,7 +127,7 @@ export default function ServiceTicketsTable({ orders, customerMap, onEdit, onDel
                       <TableCell className="text-[#25D366]">R$ {Number(o.total_amount || 0).toFixed(2)}</TableCell>
                       <TableCell><PaymentStatusBadge status={o.payment_status} /></TableCell>
                       <TableCell><Badge className={`border ${st.cls}`}>{st.label}</Badge></TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="sticky right-0 bg-[#231145] text-right">
                         <div className="flex justify-end gap-1">
                           <Button
                             size="icon"
