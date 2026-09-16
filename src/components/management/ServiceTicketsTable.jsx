@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
-import { Search, Ticket, Download, Printer, Pencil, Trash2 } from 'lucide-react';
+import { Search, Ticket, Download, Printer, Pencil, Trash2, DollarSign } from 'lucide-react';
+import TicketChargeDialog from '@/components/management/TicketChargeDialog';
 import { downloadTicketPdf, printTicket } from '@/components/management/ticketDocument';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
@@ -24,6 +25,7 @@ const fmtDate = (d) => (d ? format(new Date(d), 'dd/MM/yyyy') : '—');
 
 export default function ServiceTicketsTable({ orders, customerMap, onEdit, onDelete }) {
   const [search, setSearch] = useState('');
+  const [chargeOrder, setChargeOrder] = useState(null);
 
   const filtered = orders.filter((o) => {
     const ticket = (o.ticket_number || o.id || '').toString().toLowerCase();
@@ -136,6 +138,17 @@ export default function ServiceTicketsTable({ orders, customerMap, onEdit, onDel
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
+                          {o.payment_status !== 'paid' && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="Gerar Pix / link de cartão"
+                              onClick={() => setChargeOrder(o)}
+                              className="h-8 w-8 text-gray-300 hover:bg-white/10 hover:text-[#25D366]"
+                            >
+                              <DollarSign className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             size="icon"
                             variant="ghost"
@@ -175,6 +188,7 @@ export default function ServiceTicketsTable({ orders, customerMap, onEdit, onDel
           </Table>
         </div>
       </CardContent>
+      <TicketChargeDialog order={chargeOrder} open={Boolean(chargeOrder)} onClose={() => setChargeOrder(null)} />
     </Card>
   );
 }
