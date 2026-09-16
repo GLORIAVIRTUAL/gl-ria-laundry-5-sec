@@ -12,6 +12,7 @@ import ProductIcon from '@/components/ui/ProductIcon';
 import TimeField from '@/components/management/TimeField';
 import { toast } from 'sonner';
 import ManualGarmentCharacteristics from './ManualGarmentCharacteristics';
+import OrderPaymentActions from '@/components/management/OrderPaymentActions';
 
 export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, unitId, onSuccess, skipLinkStep = false }) {
   const [step, setStep] = useState(1);
@@ -890,6 +891,10 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
                             {paymentReceived ? 'Pagamento registrado após confirmação explícita do funcionário.' : 'Pagamento pendente. Gere um link ou receba no caixa quando necessário.'}
                         </p>
                     </div>
+
+                    {!paymentLinkResult && !paymentReceived && createdOrder?.id && (
+                        <div className="w-full max-w-lg"><OrderPaymentActions orderId={createdOrder.id} /></div>
+                    )}
 
                     {paymentLinkResult && (
                         <div className="bg-white/5 rounded-2xl p-6 w-full max-w-lg border border-[#FF6600]/30 space-y-4">
