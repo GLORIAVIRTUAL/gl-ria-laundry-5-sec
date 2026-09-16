@@ -167,6 +167,8 @@ Deno.serve(async (req) => {
             isMoinhos = true;
             senderFn = (conversation.metadata || {}).source === 'whatsapp_moinhos' ? 'whatsapp_moinhos_sender' : 'zapi_moinhos_sender';
         }
+        // Instagram/Messenger respondem pelo sender do próprio canal.
+        if (conversation.channel === 'INSTAGRAM') senderFn = 'instagramSender'; else if (conversation.channel === 'MESSENGER') senderFn = 'messengerSender';
 
         // Agenda automaticamente a coleta pendente (salva via save_pickup_details) após pagamento confirmado.
         // Retorna o texto de confirmação para anexar à mensagem, ou '' se não havia coleta pendente / falhou.

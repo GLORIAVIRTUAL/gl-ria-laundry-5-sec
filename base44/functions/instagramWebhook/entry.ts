@@ -126,8 +126,8 @@ export default async function (req) {
           customer_id: customer.id,
           channel: 'INSTAGRAM',
           status: 'OPEN',
-          // Instagram é atendido por humano no chat (a Glória responde só no WhatsApp).
-          handoff_required: true,
+          // Todo atendimento entra primeiro com a IA (Glória); só vai para humano se pedido.
+          handoff_required: false,
           last_message_at: new Date().toISOString(),
           metadata: { source: 'instagram', instagram_user_id: senderId, instagram_account_id: recipientId },
         });
@@ -140,11 +140,13 @@ export default async function (req) {
         text,
         media_file_id: mediaUrl,
         raw_payload: { ...ev, instagram_message_id: igMessageId },
+        // Marca para a IA responder (o gatilho 'Resposta da Glória' assume daqui).
+        ai_pending: !conversation.handoff_required,
+        ai_source: 'instagram',
       });
 
       await base44.asServiceRole.entities.Conversation.update(conversation.id, {
         status: 'OPEN',
-        handoff_required: true,
         last_message_id: message.id,
         last_message_at: new Date().toISOString(),
       });

@@ -118,7 +118,8 @@ export default async function (req) {
           customer_id: customer.id,
           channel: 'MESSENGER',
           status: 'OPEN',
-          handoff_required: true,
+          // Todo atendimento entra primeiro com a IA (Glória); só vai para humano se pedido.
+          handoff_required: false,
           last_message_at: new Date().toISOString(),
           metadata: { source: 'messenger', messenger_user_id: senderId, messenger_page_id: recipientId },
         });
@@ -131,11 +132,13 @@ export default async function (req) {
         text,
         media_file_id: mediaUrl,
         raw_payload: { ...ev, messenger_message_id: fbMessageId },
+        // Marca para a IA responder (o gatilho 'Resposta da Glória' assume daqui).
+        ai_pending: !conversation.handoff_required,
+        ai_source: 'messenger',
       });
 
       await base44.asServiceRole.entities.Conversation.update(conversation.id, {
         status: 'OPEN',
-        handoff_required: true,
         last_message_id: message.id,
         last_message_at: new Date().toISOString(),
       });
