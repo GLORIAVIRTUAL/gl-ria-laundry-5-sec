@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2 } from 'lucide-react';
 import TimeField from '@/components/management/TimeField';
+import OrderPaymentActions from '@/components/management/OrderPaymentActions';
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pendente' },
@@ -99,6 +100,13 @@ export default function EditTicketModal({ ticket, open, onClose, onSave }) {
             <TimeField label="Tempo de Lavagem a Seco" value={form.dry_clean_time} onChange={(v) => setForm({ ...form, dry_clean_time: v })} />
             <TimeField label="Tempo de Passar" value={form.iron_time} onChange={(v) => setForm({ ...form, iron_time: v })} />
           </div>
+
+          {ticket?.id && ticket?.payment_status !== 'paid' && (
+            <div className="space-y-3 rounded-xl border border-[#FF6600]/30 bg-white/5 p-4">
+              <p className="text-sm font-semibold text-[#FF6600]">Cobrança (Asaas)</p>
+              <OrderPaymentActions orderId={ticket.id} />
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={onClose} className="text-gray-300 hover:bg-white/10">Cancelar</Button>
