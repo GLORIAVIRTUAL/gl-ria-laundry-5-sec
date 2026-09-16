@@ -77,7 +77,8 @@ export function priceGarmentItems({ items, catalog, unitId, priority = 'normal' 
       throw error;
     }
 
-    const requestedServices = Array.isArray(requested.services) ? requested.services : [];
+    // Itens vindos da visão/IA podem trazer serviços sem service_id; nesses casos vale o preço do produto.
+    const requestedServices = (Array.isArray(requested.services) ? requested.services : []).filter((entry) => entry?.service_id);
     const serviceRequests = requestedServices.length > 0
       ? requestedServices
       : (product.default_service_ids || []).map((serviceId) => ({ service_id: serviceId, quantity: 1 }));
