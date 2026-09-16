@@ -23,6 +23,8 @@ import QuoteLifecyclePanel from './QuoteLifecyclePanel';
 import FiscalReadinessPanel from './FiscalReadinessPanel';
 import ProductionOperationsPanel from './ProductionOperationsPanel';
 import OperationsInsightsPanel from './OperationsInsightsPanel';
+import WorkspaceDateFilter from './WorkspaceDateFilter';
+import { defaultDateRange, filterByDateRange } from '@/lib/dateRangeFilter';
 import { useAuth } from '@/lib/AuthContext';
 import { hasPermission } from '@/lib/accessControl';
 
@@ -44,6 +46,7 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
   const [cashOpen, setCashOpen] = useState(false);
   const [inspectionGarment, setInspectionGarment] = useState(null);
   const [workspaceTab, setWorkspaceTab] = useState('operations');
+  const [dateRange, setDateRange] = useState(defaultDateRange);
   const [labelGarments, setLabelGarments] = useState([]);
   const [deliveryGarments, setDeliveryGarments] = useState([]);
   const unitId = selectedUnitId === 'all' ? defaultUnitId : selectedUnitId;
@@ -103,6 +106,30 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
     return { activeGarments: activeGarments.length, overdue, pendingReviews, lowStock, pendingPayables, activeBatches, openAlerts };
   }, [garments, reviews, stockItems, payables, productionBatches, operationalAlerts, selectedUnitId]);
 
+  // Recortes por período aplicados a todas as abas do workspace.
+  const period = useMemo(() => ({
+    garments: filterByDateRange(garments, dateRange),
+    reviews: filterByDateRange(reviews, dateRange),
+    purchaseDocuments: filterByDateRange(purchaseDocuments, dateRange),
+    payables: filterByDateRange(payables, dateRange, ['due_date']),
+    receivables: filterByDateRange(receivables, dateRange, ['due_date']),
+    payments: filterByDateRange(payments, dateRange, ['paid_at']),
+    financialDocuments: filterByDateRange(financialDocuments, dateRange),
+    cashSessions: filterByDateRange(cashSessions, dateRange, ['opened_at']),
+    bankTransactions: filterByDateRange(bankTransactions, dateRange, ['transaction_date']),
+    thirdPartyJobs: filterByDateRange(thirdPartyJobs, dateRange),
+    reworkCases: filterByDateRange(reworkCases, dateRange, ['opened_at']),
+    orders: filterByDateRange(orders, dateRange),
+    quotes: filterByDateRange(quotes, dateRange),
+    billingStatements: filterByDateRange(billingStatements, dateRange),
+    fiscalDocuments: filterByDateRange(fiscalDocuments, dateRange),
+    stockMovements: filterByDateRange(stockMovements, dateRange, ['occurred_at']),
+    inventoryCounts: filterByDateRange(inventoryCounts, dateRange),
+    productionBatches: filterByDateRange(productionBatches, dateRange),
+    laborEntries: filterByDateRange(laborEntries, dateRange, ['started_at']),
+    operationalAlerts: filterByDateRange(operationalAlerts, dateRange, ['last_detected_at']),
+  }), [dateRange, garments, reviews, purchaseDocuments, payables, receivables, payments, financialDocuments, cashSessions, bankTransactions, thirdPartyJobs, reworkCases, orders, quotes, billingStatements, fiscalDocuments, stockMovements, inventoryCounts, productionBatches, laborEntries, operationalAlerts]);
+
   const refreshAll = () => {
     ['command-garments', 'command-reviews', 'command-stock', 'command-purchases', 'command-suppliers', 'command-payables', 'command-receivables', 'command-payments', 'command-financial-documents', 'command-cash-sessions', 'command-bank-transactions', 'command-third-party-jobs', 'command-third-party-partners', 'command-rework-cases', 'command-locations', 'command-orders', 'command-quotes', 'command-billing-agreements', 'command-billing-statements', 'command-fiscal-profiles', 'command-fiscal-documents', 'command-stock-lots', 'command-stock-movements', 'command-inventory-counts', 'command-consumption-recipes', 'command-production-batches', 'command-machine-states', 'command-labor-entries', 'command-operational-alerts', 'command-production-cost-profiles', 'command-laundry-services', 'command-units', 'mgmt-orders', 'mgmt-payments', 'mgmt-finance', 'mgmt-audit'].forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
   };
@@ -143,6 +170,7 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
       </div>
 
       <Tabs id="management-workspace" value={workspaceTab} onValueChange={setWorkspaceTab} className="space-y-5 scroll-mt-6">
+        <WorkspaceDateFilter range={dateRange} onChange={setDateRange} />
         <TabsList className="h-auto w-full justify-start gap-1 overflow-x-auto rounded-2xl bg-white/5 p-1.5">
           <TabsTrigger value="operations" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Gauge className="h-4 w-4" />Operação</TabsTrigger>
           <TabsTrigger value="custody" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><MapPin className="h-4 w-4" />Etiquetas e entrega</TabsTrigger>
@@ -154,15 +182,15 @@ export default function ManagementCommandCenter({ selectedUnitId, defaultUnitId,
           {canManageFiscal && <TabsTrigger value="fiscal" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><Landmark className="h-4 w-4" />Fiscal</TabsTrigger>}
           <TabsTrigger value="reviews" className="gap-2 whitespace-nowrap data-[state=active]:bg-violet-500 data-[state=active]:text-white"><ClipboardCheck className="h-4 w-4" />Revisões {summary.pendingReviews > 0 && <Badge className="ml-1 bg-orange-500 text-white">{summary.pendingReviews}</Badge>}</TabsTrigger>
         </TabsList>
-        <TabsContent value="operations" className="space-y-6"><ProductionBoard garments={garments} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onInspect={setInspectionGarment} /><ExceptionsPanel jobs={thirdPartyJobs} partners={thirdPartyPartners} reworkCases={reworkCases} garments={garments} unitId={unitId} onRefresh={refreshAll} /></TabsContent>
-        <TabsContent value="custody"><GarmentLocationPanel garments={garments} locations={locations} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onPrintLabels={setLabelGarments} onDeliver={setDeliveryGarments} /></TabsContent>
-        {canManageProduction && <TabsContent value="production"><ProductionOperationsPanel batches={productionBatches} machines={machineStates} recipes={consumptionRecipes} garments={garments} customers={customers} laborEntries={laborEntries} stockItems={stockItems} costProfiles={productionCostProfiles} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
-        {canManageInventory && <TabsContent value="inventory"><InventoryPanel stockItems={stockItems} stockLots={stockLots} stockMovements={stockMovements} inventoryCounts={inventoryCounts} recipes={consumptionRecipes} purchaseDocuments={purchaseDocuments} suppliers={suppliers} services={laundryServices} machines={machineStates} batches={productionBatches} units={units} selectedUnitId={selectedUnitId} onNewPurchase={() => setPurchaseOpen(true)} onRefresh={refreshAll} /></TabsContent>}
-        {canViewInsights && <TabsContent value="insights"><OperationsInsightsPanel alerts={operationalAlerts} batches={productionBatches} stockMovements={stockMovements} machines={machineStates} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
-        {canViewFinancial && <TabsContent value="financial"><FinancialOperationsPanel payables={payables} receivables={receivables} payments={payments} financialDocuments={financialDocuments} cashSessions={cashSessions} bankTransactions={bankTransactions} orders={orders} customers={customers} selectedUnitId={selectedUnitId} onNewBill={() => setBillOpen(true)} onCash={() => setCashOpen(true)} onRefresh={refreshAll} /></TabsContent>}
-        {(canManageQuotes || canManageBilling) && <TabsContent value="commercial" className="space-y-8">{canManageQuotes && <QuoteLifecyclePanel quotes={quotes} customers={customers} selectedUnitId={selectedUnitId} onRefresh={refreshAll} />}{canManageBilling && <BillingAgreementsPanel agreements={billingAgreements} statements={billingStatements} customers={customers} orders={orders} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} />}</TabsContent>}
-        {canManageFiscal && <TabsContent value="fiscal"><FiscalReadinessPanel profiles={fiscalProfiles} documents={fiscalDocuments} orders={orders} statements={billingStatements} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
-        <TabsContent value="reviews"><ReviewQueue reviews={reviews} selectedUnitId={selectedUnitId} onRefresh={refreshAll} /></TabsContent>
+        <TabsContent value="operations" className="space-y-6"><ProductionBoard garments={period.garments} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onInspect={setInspectionGarment} /><ExceptionsPanel jobs={period.thirdPartyJobs} partners={thirdPartyPartners} reworkCases={period.reworkCases} garments={period.garments} unitId={unitId} onRefresh={refreshAll} /></TabsContent>
+        <TabsContent value="custody"><GarmentLocationPanel garments={period.garments} locations={locations} customers={customers} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} onPrintLabels={setLabelGarments} onDeliver={setDeliveryGarments} /></TabsContent>
+        {canManageProduction && <TabsContent value="production"><ProductionOperationsPanel batches={period.productionBatches} machines={machineStates} recipes={consumptionRecipes} garments={period.garments} customers={customers} laborEntries={period.laborEntries} stockItems={stockItems} costProfiles={productionCostProfiles} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
+        {canManageInventory && <TabsContent value="inventory"><InventoryPanel stockItems={stockItems} stockLots={stockLots} stockMovements={period.stockMovements} inventoryCounts={period.inventoryCounts} recipes={consumptionRecipes} purchaseDocuments={period.purchaseDocuments} suppliers={suppliers} services={laundryServices} machines={machineStates} batches={period.productionBatches} units={units} selectedUnitId={selectedUnitId} onNewPurchase={() => setPurchaseOpen(true)} onRefresh={refreshAll} /></TabsContent>}
+        {canViewInsights && <TabsContent value="insights"><OperationsInsightsPanel alerts={period.operationalAlerts} batches={period.productionBatches} stockMovements={period.stockMovements} machines={machineStates} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
+        {canViewFinancial && <TabsContent value="financial"><FinancialOperationsPanel payables={period.payables} receivables={period.receivables} payments={period.payments} financialDocuments={period.financialDocuments} cashSessions={period.cashSessions} bankTransactions={period.bankTransactions} orders={period.orders} customers={customers} selectedUnitId={selectedUnitId} onNewBill={() => setBillOpen(true)} onCash={() => setCashOpen(true)} onRefresh={refreshAll} /></TabsContent>}
+        {(canManageQuotes || canManageBilling) && <TabsContent value="commercial" className="space-y-8">{canManageQuotes && <QuoteLifecyclePanel quotes={period.quotes} customers={customers} selectedUnitId={selectedUnitId} onRefresh={refreshAll} />}{canManageBilling && <BillingAgreementsPanel agreements={billingAgreements} statements={period.billingStatements} customers={customers} orders={period.orders} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} />}</TabsContent>}
+        {canManageFiscal && <TabsContent value="fiscal"><FiscalReadinessPanel profiles={fiscalProfiles} documents={period.fiscalDocuments} orders={period.orders} statements={period.billingStatements} selectedUnitId={selectedUnitId} defaultUnitId={defaultUnitId} onRefresh={refreshAll} /></TabsContent>}
+        <TabsContent value="reviews"><ReviewQueue reviews={period.reviews} selectedUnitId={selectedUnitId} onRefresh={refreshAll} /></TabsContent>
       </Tabs>
 
       <IntelligentQuoteModal open={smartQuoteOpen} onOpenChange={setSmartQuoteOpen} customers={customers} defaultUnitId={unitId} onCreated={refreshAll} />
