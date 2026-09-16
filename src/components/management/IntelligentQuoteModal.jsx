@@ -32,6 +32,7 @@ function PreviewCard({ entry, onRemove }) {
 }
 
 export default function IntelligentQuoteModal({ open, onOpenChange, customers = [], defaultUnitId, onCreated }) {
+  const [fallbackCustomers, setFallbackCustomers] = useState([]);
   const [step, setStep] = useState(1);
   const [customerId, setCustomerId] = useState('');
   const [files, setFiles] = useState([]);
@@ -50,7 +51,18 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
     base44.entities.OperationalCatalogEntry.filter({ active: true }, 'sort_order', 2000)
       .then(setCatalogEntries)
       .catch(() => setCatalogEntries([]));
-  }, [open]);
+    // Garante a lista de clientes mesmo se a página ainda não terminou de carregá-la.
+    if (customers.length === 0) {
+      base44.entities.Customer.list('-created_date', 500)
+        .then(setFallbackCustomers)
+        .catch(() => setFallbackCustomers([]));
+    }
+  }, [open, customers.length]);
+
+  const customerOptions = useMemo(() => {
+    const source = customers.length > 0 ? customers : fallbackCustomers;
+    return source.filter((customer) => customer?.id);
+  }, [customers, fallbackCustomers]);
 
   const catalogOptions = useMemo(() => {
     const byType = (type) => {
@@ -67,7 +79,7 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
 
   const total = useMemo(() => items.reduce((sum, item) => sum + Number(item.total_amount ?? Number(item.qty || 1) * Number(item.unit_price || 0)), 0), [items]);
   const unresolved = items.filter((item) => !item.product_id || item.recognition_status !== 'confirmed');
-  const selectedCustomer = customers.find((customer) => customer.id === customerId);
+  const selectedCustomer = customerOptions.find((customer) => customer.id === customerId);
 
   const reset = () => {
     files.forEach((entry) => URL.revokeObjectURL(entry.preview));
@@ -235,7 +247,11 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
                       <Label>Cliente</Label>
                       <Select value={customerId} onValueChange={setCustomerId}>
                         <SelectTrigger className="border-white/10 bg-black/20"><SelectValue placeholder="Selecione o cliente" /></SelectTrigger>
-                        <SelectContent>{customers.map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.full_name}</SelectItem>)}</SelectContent>
+                        <SelectContent className="max-h-72">
+                          {customerOptions.length === 0
+                            ? <div className="px-3 py-2 text-sm text-white/50">Carregando clientes...</div>
+                            : customerOptions.map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.full_name || customer.phones?.[0] || 'Cliente sem nome'}</SelectItem>)}
+                        </SelectContent>
                       </Select>
                     </div>
                     <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-100/80">
