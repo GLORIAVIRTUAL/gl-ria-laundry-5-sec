@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.44';
+import { getPageAccessToken } from '../../shared/metaPageToken.js';
 
 // Envia uma mensagem no Messenger e registra na conversa do chat.
 // Aceita chamada interna (IA/orchestrator) via _internal_token ou usuário logado (atendente).
@@ -18,10 +19,11 @@ export default async function (req) {
       return Response.json({ error: 'conversation_id e message são obrigatórios' }, { status: 400 });
     }
 
-    const pageToken = Deno.env.get('MESSENGER_PAGE_ACCESS_TOKEN') || Deno.env.get('FACEBOOK_PAGE_ACCESS_TOKEN');
-    if (!pageToken) return Response.json({ error: 'MESSENGER_PAGE_ACCESS_TOKEN não configurado' }, { status: 503 });
-
     const conversation = await base44.asServiceRole.entities.Conversation.get(conversationId);
+    const page = await getPageAccessToken((conversation?.metadata || {}).messenger_page_id || Deno.env.get('MESSENGER_PAGE_ID'));
+    if (!page?.token) return Response.json({ error: 'Token da Página do Facebook indisponível' }, { status: 503 });
+    const pageToken = page.token;
+
     const recipientId = (conversation?.metadata || {}).messenger_user_id;
     if (!recipientId) return Response.json({ error: 'Conversa sem usuário do Messenger' }, { status: 409 });
 

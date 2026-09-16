@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.44';
+import { getPageAccessToken } from '../../shared/metaPageToken.js';
 
 // Envia uma DM do Instagram e registra a mensagem na conversa do chat.
 export default async function (req) {
@@ -18,10 +19,11 @@ export default async function (req) {
       return Response.json({ error: 'conversation_id e message são obrigatórios' }, { status: 400 });
     }
 
-    const accessToken = Deno.env.get('INSTAGRAM_ACCESS_TOKEN');
-    if (!accessToken) return Response.json({ error: 'INSTAGRAM_ACCESS_TOKEN não configurado' }, { status: 503 });
-
     const conversation = await base44.asServiceRole.entities.Conversation.get(conversationId);
+    // DMs do Instagram são enviadas com o token da Página vinculada.
+    const page = await getPageAccessToken(Deno.env.get('MESSENGER_PAGE_ID'));
+    if (!page?.token) return Response.json({ error: 'Token da Página do Instagram indisponível' }, { status: 503 });
+
     const recipientId = (conversation?.metadata || {}).instagram_user_id;
     if (!recipientId) return Response.json({ error: 'Conversa sem usuário do Instagram' }, { status: 409 });
 
@@ -29,7 +31,7 @@ export default async function (req) {
       ? { attachment: { type: 'image', payload: { url: mediaUrl } } }
       : { text };
 
-    const res = await fetch(`https://graph.instagram.com/v21.0/me/messages?access_token=${accessToken}`, {
+    const res = await fetch(`https://graph.facebook.com/v21.0/${page.pageId}/messages?access_token=${page.token}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ recipient: { id: recipientId }, message: messagePayload }),
