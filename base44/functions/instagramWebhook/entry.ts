@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.44';
+import { getPageAccessToken } from '../../shared/metaPageToken.js';
 
 // Webhook do Instagram (Meta). Recebe DMs e grava no chat como conversa INSTAGRAM.
 // GET  -> handshake de verificação (hub.verify_token / hub.challenge)
@@ -55,7 +56,24 @@ export default async function (req) {
 
     const payload = JSON.parse(rawBody || '{}');
     const igAccountId = Deno.env.get('INSTAGRAM_ACCOUNT_ID');
-    const accessToken = Deno.env.get('INSTAGRAM_ACCESS_TOKEN');
+    const pageToken = (await getPageAccessToken(Deno.env.get('MESSENGER_PAGE_ID')))?.token || null;
+
+    // Nome/@ do contato do Instagram (Graph da Página resolve o IGSID).
+    const fetchProfileName = async (senderId) => {
+      if (!pageToken) return '';
+      try {
+        const res = await fetch(
+          `https://graph.facebook.com/v21.0/${senderId}?fields=name,username&access_token=${pageToken}`,
+          { signal: AbortSignal.timeout(4000) },
+        );
+        if (!res.ok) return '';
+        const info = await res.json();
+        return info.name || (info.username ? `@${info.username}` : '');
+      } catch {
+        console.warn('Could not fetch Instagram profile name.');
+        return '';
+      }
+    };
 
     // A Meta envia DMs em dois formatos: entry[].messaging[] (produção) e
     // entry[].changes[{field:'messages', value:{...}}] (testes do painel e algumas contas).
@@ -98,27 +116,21 @@ export default async function (req) {
       let customer = conversation ? await base44.asServiceRole.entities.Customer.get(conversation.customer_id) : null;
 
       if (!customer) {
-        let username = '';
-        if (accessToken) {
-          try {
-            const res = await fetch(`https://graph.instagram.com/v21.0/${senderId}?fields=username,name&access_token=${accessToken}`, { signal: AbortSignal.timeout(4000) });
-            if (res.ok) {
-              const info = await res.json();
-              username = info.username || info.name || '';
-            }
-          } catch (err) {
-            console.warn('Could not fetch Instagram profile name.');
-          }
-        }
+        const name = await fetchProfileName(senderId);
         customer = await base44.asServiceRole.entities.Customer.create({
-          full_name: username ? `@${username}` : 'Cliente Instagram',
+          full_name: name || 'Cliente Instagram',
           phones: [],
           status: 'active',
           last_inbound_at: new Date().toISOString(),
           notes: `Contato via Instagram (id ${senderId})`,
         });
       } else {
-        await base44.asServiceRole.entities.Customer.update(customer.id, { last_inbound_at: new Date().toISOString() });
+        const patch = { last_inbound_at: new Date().toISOString() };
+        if (customer.full_name === 'Cliente Instagram') {
+          const name = await fetchProfileName(senderId);
+          if (name) patch.full_name = name;
+        }
+        await base44.asServiceRole.entities.Customer.update(customer.id, patch);
       }
 
       if (!conversation) {
