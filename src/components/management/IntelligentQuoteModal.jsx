@@ -276,7 +276,7 @@ export default function IntelligentQuoteModal({ open, onOpenChange, customers = 
                 {items.map((item, index) => (
                   <div key={item.line_id || index} className="space-y-2">
                     <GarmentReviewCard item={item} index={index} products={products} catalogOptions={catalogOptions} onChange={(next) => setItems((current) => current.map((candidate, itemIndex) => itemIndex === index ? next : candidate))} />
-                    {item.product_id && item.recognition_status !== 'confirmed' && <div className="flex justify-end"><Button size="sm" variant="outline" onClick={() => confirmItem(index)}><Check className="mr-2 h-4 w-4" />Confirmar item</Button></div>}
+                    {item.product_id && item.recognition_status !== 'confirmed' && <div className="flex justify-end"><Button size="sm" variant="outline" onClick={() => confirmItem(index)} className="border-emerald-400/40 bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25 hover:text-white"><Check className="mr-2 h-4 w-4" />Confirmar item</Button></div>}
                   </div>
                 ))}
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
