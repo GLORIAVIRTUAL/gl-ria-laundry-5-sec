@@ -1,4 +1,5 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.44';
+import { getPageAccessToken } from '../../shared/metaPageToken.js';
 
 // Webhook do Messenger (Facebook Pages). Recebe mensagens e grava no chat como conversa MESSENGER.
 // GET  -> handshake de verificação (hub.verify_token / hub.challenge)
@@ -50,7 +51,24 @@ export default async function (req) {
 
     const payload = JSON.parse(rawBody || '{}');
     const pageId = Deno.env.get('MESSENGER_PAGE_ID');
-    const pageToken = Deno.env.get('FACEBOOK_PAGE_ACCESS_TOKEN') || Deno.env.get('MESSENGER_PAGE_ACCESS_TOKEN');
+    const pageToken = (await getPageAccessToken(pageId))?.token || null;
+
+    // Busca o nome do contato no perfil do Messenger (requer token da Página válido).
+    const fetchProfileName = async (senderId) => {
+      if (!pageToken) return '';
+      try {
+        const res = await fetch(
+          `https://graph.facebook.com/v21.0/${senderId}?fields=name,first_name,last_name&access_token=${pageToken}`,
+          { signal: AbortSignal.timeout(4000) },
+        );
+        if (!res.ok) return '';
+        const info = await res.json();
+        return info.name || [info.first_name, info.last_name].filter(Boolean).join(' ');
+      } catch {
+        console.warn('Could not fetch Messenger profile name.');
+        return '';
+      }
+    };
 
     const events = [];
     for (const entry of payload.entry || []) {
@@ -90,18 +108,7 @@ export default async function (req) {
       let customer = conversation ? await base44.asServiceRole.entities.Customer.get(conversation.customer_id) : null;
 
       if (!customer) {
-        let name = '';
-        if (pageToken) {
-          try {
-            const res = await fetch(`https://graph.facebook.com/v21.0/${senderId}?fields=name,first_name,last_name`, { headers: { Authorization: `Bearer ${pageToken}` }, signal: AbortSignal.timeout(4000) });
-            if (res.ok) {
-              const info = await res.json();
-              name = info.name || [info.first_name, info.last_name].filter(Boolean).join(' ');
-            }
-          } catch (err) {
-            console.warn('Could not fetch Messenger profile name.');
-          }
-        }
+        const name = await fetchProfileName(senderId);
         customer = await base44.asServiceRole.entities.Customer.create({
           full_name: name || 'Cliente Messenger',
           phones: [],
@@ -110,7 +117,13 @@ export default async function (req) {
           notes: `Contato via Messenger (id ${senderId})`,
         });
       } else {
-        await base44.asServiceRole.entities.Customer.update(customer.id, { last_inbound_at: new Date().toISOString() });
+        const patch = { last_inbound_at: new Date().toISOString() };
+        // Preenche o nome real caso o contato tenha sido criado sem perfil.
+        if (customer.full_name === 'Cliente Messenger') {
+          const name = await fetchProfileName(senderId);
+          if (name) patch.full_name = name;
+        }
+        await base44.asServiceRole.entities.Customer.update(customer.id, patch);
       }
 
       if (!conversation) {
