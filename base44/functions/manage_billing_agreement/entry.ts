@@ -163,6 +163,56 @@ Deno.serve(async (req) => {
       return Response.json({ order: updatedOrder, exposure: { ...exposure, projected }, request_id: requestId });
     }
 
+    if (action === 'update') {
+      if (!String(body.name || '').trim() || !String(body.code || '').trim()) {
+        return Response.json({ error: 'code_name_and_bill_to_customer_required', request_id: requestId }, { status: 422 });
+      }
+      const code = String(body.code).trim().toUpperCase();
+      if (code !== agreement.code) {
+        const duplicated = await base44.asServiceRole.entities.BillingAgreement.filter({ unit_id: agreement.unit_id, code });
+        if (duplicated.some((item: any) => item.id !== agreement.id)) {
+          return Response.json({ error: 'agreement_code_already_exists', request_id: requestId }, { status: 409 });
+        }
+      }
+      const updated = await base44.asServiceRole.entities.BillingAgreement.update(agreement.id, {
+        code,
+        name: String(body.name).trim(),
+        agreement_type: body.agreement_type || agreement.agreement_type,
+        bill_to_customer_id: body.bill_to_customer_id || agreement.bill_to_customer_id,
+        credit_limit: Math.max(0, Number(body.credit_limit || 0)),
+        payment_term_days: Math.max(0, Number(body.payment_term_days || 0)),
+        billing_cycle: body.billing_cycle || agreement.billing_cycle,
+      });
+      await base44.asServiceRole.entities.AuditLog.create({
+        action: 'update', entity_type: 'billing_agreement', entity_id: agreement.id, item_label: updated.name,
+        reason: 'billing_agreement_updated', user_email: user.email, user_name: user.full_name || user.display_name,
+        user_role: user.role, unit_id: agreement.unit_id, request_id: requestId,
+        before_data: agreement, after_data: updated, success: true,
+      });
+      return Response.json({ billing_agreement: updated, request_id: requestId });
+    }
+
+    if (action === 'delete') {
+      const statements = await base44.asServiceRole.entities.BillingStatement.filter({ billing_agreement_id: agreement.id });
+      if (statements.length > 0) return Response.json({ error: 'agreement_has_statements', request_id: requestId }, { status: 409 });
+      const linkedOrders = await base44.asServiceRole.entities.Order.filter({ billing_agreement_id: agreement.id });
+      if (linkedOrders.length > 0) return Response.json({ error: 'agreement_has_orders', request_id: requestId }, { status: 409 });
+      for (const customerId of agreement.customer_ids || []) {
+        const customer = await base44.asServiceRole.entities.Customer.get(customerId).catch(() => null);
+        if (customer?.billing_agreement_id === agreement.id) {
+          await base44.asServiceRole.entities.Customer.update(customer.id, { billing_agreement_id: '', billing_status: 'cash_only' });
+        }
+      }
+      await base44.asServiceRole.entities.BillingAgreement.delete(agreement.id);
+      await base44.asServiceRole.entities.AuditLog.create({
+        action: 'delete', entity_type: 'billing_agreement', entity_id: agreement.id, item_label: agreement.name,
+        reason: body.reason || 'billing_agreement_deleted', user_email: user.email,
+        user_name: user.full_name || user.display_name, user_role: user.role, unit_id: agreement.unit_id,
+        request_id: requestId, before_data: agreement, success: true,
+      });
+      return Response.json({ deleted: true, request_id: requestId });
+    }
+
     if (action === 'exposure') {
       return Response.json({ exposure: await calculateExposure(base44, agreement), request_id: requestId });
     }
