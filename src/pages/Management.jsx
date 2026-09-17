@@ -237,6 +237,8 @@ export default function ManagementPage() {
     return { customerMap, quoteMap, scopedOrders, movements, totalIncome, totalExpense, totalCardFees, balance, netProfit, avgDeliveryDays, paymentMethodsData, expensesData };
   }, [orders, payments, financeEntries, customers, quotes, dateRange, customStart, customEnd, selectedUnitId, defaultUnitId]);
 
+  const [mainTab, setMainTab] = useState('finance');
+
   if (isLoading) {
     return (
       <div className="flex h-96 flex-col items-center justify-center space-y-4">
@@ -266,6 +268,16 @@ export default function ManagementPage() {
           <Button onClick={() => setModalOpen(true)} className="gap-2 bg-[#FF6600] hover:bg-[#FF6600]/90">
             <Plus className="h-4 w-4" /> Lançamento
           </Button>
+          <Button
+            variant="outline"
+            className="gap-2 border-white/20 bg-white/5 text-white hover:bg-white/10"
+            onClick={() => {
+              setMainTab('tickets');
+              setTimeout(() => document.getElementById('tickets-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+            }}
+          >
+            <Ticket className="h-4 w-4" /> Tickets de Serviço
+          </Button>
         </div>
       </div>
 
@@ -292,7 +304,7 @@ export default function ManagementPage() {
         avgDeliveryDays={data.avgDeliveryDays}
       />
 
-      <Tabs defaultValue="finance" className="w-full">
+      <Tabs id="tickets-section" value={mainTab} onValueChange={setMainTab} className="w-full">
         <TabsList className="bg-white/5">
           <TabsTrigger value="finance" className="gap-2 text-white data-[state=active]:bg-[#4C12A1] data-[state=active]:text-white"><Wallet className="h-4 w-4" /> Financeiro</TabsTrigger>
           <TabsTrigger value="tickets" className="gap-2 text-white data-[state=active]:bg-[#4C12A1] data-[state=active]:text-white"><Ticket className="h-4 w-4" /> Tickets de Serviço</TabsTrigger>
