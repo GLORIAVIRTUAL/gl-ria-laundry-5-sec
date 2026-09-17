@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import DocumentItemsTable from '@/components/management/DocumentItemsTable';
 import DocumentFilePreview from '@/components/management/DocumentFilePreview';
 import PaymentMethodField from '@/components/management/PaymentMethodField';
+import EditableDocumentField from '@/components/management/EditableDocumentField';
 
 const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
 
@@ -66,11 +67,20 @@ export default function ReviewDetailsModal({ review, open, onOpenChange }) {
 
           {document && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Fornecedor</p><p className="mt-1 font-medium">{document.supplier_name || 'Não identificado'}</p></div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Valor</p><p className="mt-1 font-medium text-orange-300">{money(document.total)}</p></div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">CNPJ / CPF do fornecedor</p><p className="mt-1 font-medium">{formatTaxId(document.supplier_tax_id)}</p></div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Documento</p><p className="mt-1 font-medium">{document.document_number || document.document_type || 'Pendente'}</p></div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Data e hora da compra</p><p className="mt-1 font-medium">{formatDateTime(document.issue_date || document.entry_date)}</p></div>
+              <EditableDocumentField document={document} onUpdated={setDocument} field="supplier_name" label="Fornecedor" display={document.supplier_name || 'Não identificado'} />
+              <EditableDocumentField document={document} onUpdated={setDocument} field="total" label="Valor" type="number" parse={(value) => Number(String(value).replace(',', '.')) || 0} display={<span className="text-orange-300">{money(document.total)}</span>} />
+              <EditableDocumentField document={document} onUpdated={setDocument} field="supplier_tax_id" label="CNPJ / CPF do fornecedor" display={formatTaxId(document.supplier_tax_id)} />
+              <EditableDocumentField document={document} onUpdated={setDocument} field="document_number" label="Documento" display={document.document_number || 'Pendente'} />
+              <EditableDocumentField
+                document={document}
+                onUpdated={setDocument}
+                field="issue_date"
+                label="Data e hora da compra"
+                type="datetime-local"
+                toInput={(raw) => (raw ? String(raw).slice(0, 16) : '')}
+                parse={(value) => (value ? new Date(value).toISOString() : null)}
+                display={formatDateTime(document.issue_date || document.entry_date)}
+              />
               <PaymentMethodField document={document} onUpdated={setDocument} />
             </div>
           )}
