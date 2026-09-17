@@ -6,6 +6,7 @@ import { Route, Navigation, GripVertical, CheckCircle2, Loader2, Store, Clock3, 
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 
 function reorder(list, startIndex, endIndex) {
@@ -32,6 +33,7 @@ function buildGoogleMapsUrl(origin, stops) {
 export default function PickupRoutePlanner({ pickups, customers, customerMap, date, onStatusChange }) {
   const [stores, setStores] = useState([]);
   const [selectedStore, setSelectedStore] = useState('');
+  const [originAddress, setOriginAddress] = useState('');
   const [loadingRoute, setLoadingRoute] = useState(false);
   const [routeStops, setRouteStops] = useState([]);
   const [routeSummary, setRouteSummary] = useState(null);
@@ -39,7 +41,7 @@ export default function PickupRoutePlanner({ pickups, customers, customerMap, da
   useEffect(() => {
     base44.entities.Unit.list('name', 100)
       .then((units) => {
-        const mapped = units.map((u) => ({ name: u.name, address: u.address || u.name }));
+        const mapped = units.map((u) => ({ id: u.id, name: u.name, address: u.address || '' }));
         setStores(mapped);
         if (mapped.length > 0 && !selectedStore) setSelectedStore(mapped[0].name);
       })
@@ -53,16 +55,37 @@ export default function PickupRoutePlanner({ pickups, customers, customerMap, da
 
   const selectedStoreData = stores.find((store) => store.name === selectedStore);
 
+  useEffect(() => {
+    if (!selectedStoreData) return;
+    setOriginAddress(selectedStoreData.address || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStoreData?.id]);
+
+  const saveOriginAddress = async () => {
+    const trimmed = originAddress.trim();
+    if (!selectedStoreData?.id || !trimmed || trimmed === selectedStoreData.address) return;
+    await base44.entities.Unit.update(selectedStoreData.id, { address: trimmed });
+    setStores((current) => current.map((store) => (store.id === selectedStoreData.id ? { ...store, address: trimmed } : store)));
+    toast.success('Endereço da loja salvo.');
+  };
+
   const handleOptimizeRoute = async () => {
     if (scheduledPickups.length === 0) {
       toast.error('Não há coletas agendadas para esta data.');
       return;
     }
 
+    if (!originAddress.trim()) {
+      toast.error('Informe o endereço completo da loja de saída.');
+      return;
+    }
+
+    await saveOriginAddress();
+
     setLoadingRoute(true);
     try {
       const response = await base44.functions.invoke('optimizePickupRoute', {
-        origin_address: selectedStoreData.address,
+        origin_address: originAddress.trim(),
         stops: scheduledPickups.map((pickup) => ({
           id: pickup.id,
           address: pickup.address,
@@ -87,7 +110,7 @@ export default function PickupRoutePlanner({ pickups, customers, customerMap, da
   };
 
   const handleOpenNavigation = () => {
-    const url = buildGoogleMapsUrl(selectedStoreData?.address, routeStops);
+    const url = buildGoogleMapsUrl(originAddress.trim(), routeStops);
     if (!url) {
       toast.error('Gere a rota antes de abrir a navegação.');
       return;
@@ -138,6 +161,17 @@ export default function PickupRoutePlanner({ pickups, customers, customerMap, da
             Abrir navegação
           </Button>
         </div>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs text-gray-400">Endereço de saída da loja</label>
+        <Input
+          value={originAddress}
+          onChange={(e) => setOriginAddress(e.target.value)}
+          onBlur={saveOriginAddress}
+          placeholder="Ex: Rua Padre Chagas, 415 - Moinhos de Vento, Porto Alegre - RS"
+          className="bg-white/5 border-white/10 text-white placeholder:text-gray-500"
+        />
       </div>
 
       <div className="flex flex-wrap gap-2">
