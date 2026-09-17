@@ -32,7 +32,8 @@ export default function Dispatches() {
   const [customers, setCustomers] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState('customer');
+  const [category, setCategory] = useState('customer');
+  const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showNewDispatch, setShowNewDispatch] = useState(false);
 
@@ -129,11 +130,8 @@ export default function Dispatches() {
     const matchesSearch = !searchTerm || 
       customer?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.phone?.includes(searchTerm);
-    const matchesType = filterType === 'customer'
-      ? !isManagementDispatch(d.type)
-      : filterType === 'management'
-        ? isManagementDispatch(d.type)
-        : d.type === filterType;
+    const matchesCategory = category === 'management' ? isManagementDispatch(d.type) : !isManagementDispatch(d.type);
+    const matchesType = matchesCategory && (filterType === 'all' || d.type === filterType);
     const matchesStatus = filterStatus === 'all' || d.status === filterStatus;
     
     return matchesSearch && matchesType && matchesStatus;
@@ -231,7 +229,27 @@ export default function Dispatches() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-4">
+      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-4 space-y-4">
+        <div className="flex gap-2">
+          {[
+            { key: 'customer', label: 'Disparos Para Clientes' },
+            { key: 'management', label: 'Disparos Gerenciais' }
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => { setCategory(tab.key); setFilterType('all'); }}
+              className={`px-4 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                category === tab.key
+                  ? 'bg-[#FF6600] border-[#FF6600] text-white'
+                  : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         <div className="flex flex-col md:flex-row gap-4">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -248,12 +266,8 @@ export default function Dispatches() {
               <SelectValue placeholder="Tipo" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="customer">Disparos Para Clientes</SelectItem>
-              {Object.entries(customerDispatchTypes).map(([key, val]) => (
-                <SelectItem key={key} value={key}>{val.label}</SelectItem>
-              ))}
-              <SelectItem value="management">Disparos Gerenciais</SelectItem>
-              {Object.entries(managementDispatchTypes).map(([key, val]) => (
+              <SelectItem value="all">Todos os Tipos</SelectItem>
+              {Object.entries(category === 'management' ? managementDispatchTypes : customerDispatchTypes).map(([key, val]) => (
                 <SelectItem key={key} value={key}>{val.label}</SelectItem>
               ))}
             </SelectContent>
