@@ -1,4 +1,5 @@
 import { authorizeUserOrInternal } from '../../shared/functionSecurity.js';
+import { upsertPaymentCard } from '../../shared/crmPaymentCard.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 
 const DEFAULT_ORIGIN = 'https://lavanderia-5asec-connect-copy-d8ddd176.base44.app';
@@ -396,6 +397,15 @@ Deno.serve(async (req) => {
       notes: result.type === 'direct_pix'
         ? `Pix direto Asaas. request_id=${requestId}`
         : `Checkout Asaas. request_id=${requestId}`,
+    });
+
+    // Espelha a cobrança no pipeline "Pagamentos" do CRM.
+    await upsertPaymentCard(base44, {
+      customerId,
+      unitId: source.unit_id,
+      orderId: order?.id,
+      quoteId: quote?.id,
+      stage: billingType === 'pix' ? 'Aguardando Pix' : 'Link gerado',
     });
 
     // Cobrança gerada: o ticket deixa de ser "só orçamento" e passa a aguardar confirmação.

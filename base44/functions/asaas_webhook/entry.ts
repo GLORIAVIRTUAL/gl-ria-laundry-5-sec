@@ -1,6 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.44';
 import { secrets } from 'base44:runtime';
 import { notifyPaymentConfirmed } from '../../shared/paymentConfirmationNotice.js';
+import { upsertPaymentCard } from '../../shared/crmPaymentCard.js';
 
 // Recebe os eventos do Asaas (via gateway) e confirma o pagamento no sistema.
 // Configure esta URL no painel do Asaas / gateway:
@@ -115,6 +116,14 @@ export default async function (req: Request): Promise<Response> {
           });
         }
 
+        await upsertPaymentCard(base44, {
+          customerId: payment.customer_id,
+          unitId: payment.unit_id,
+          orderId: payment.order_id,
+          quoteId: payment.quote_id,
+          stage: 'Pago',
+        });
+
         applied = 'payment_confirmed';
       } else if (REFUND_EVENTS.has(event)) {
         await db.Payment.update(payment.id, {
@@ -130,6 +139,14 @@ export default async function (req: Request): Promise<Response> {
         if (payment.status === 'pending') {
           await db.Payment.update(payment.id, { status: 'cancelled', external_event_id: String(body?.id || event) });
         }
+        await upsertPaymentCard(base44, {
+          customerId: payment.customer_id,
+          unitId: payment.unit_id,
+          orderId: payment.order_id,
+          quoteId: payment.quote_id,
+          stage: 'Falhou/Expirou',
+        });
+
         applied = 'payment_cancelled';
       } else {
         applied = 'event_ignored';
