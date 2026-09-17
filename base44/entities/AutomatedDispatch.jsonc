@@ -11,13 +11,20 @@
         "inactive_customer",
         "order_reminder",
         "promotional",
-        "follow_up"
+        "follow_up",
+        "daily_sales_summary",
+        "operational_alerts",
+        "cash_closing",
+        "pending_payments",
+        "low_stock",
+        "production_backlog",
+        "overdue_payables"
       ],
-      "description": "Tipo de disparo autom\u00e1tico"
+      "description": "Tipo de disparo autom\u00e1tico (clientes ou gerenciais)"
     },
     "customer_id": {
       "type": "string",
-      "description": "ID do cliente que recebeu"
+      "description": "ID do cliente que recebeu (vazio em disparos gerenciais)"
     },
     "message": {
       "type": "string",
@@ -48,7 +55,6 @@
   },
   "required": [
     "type",
-    "customer_id",
     "message",
     "phone"
   ]

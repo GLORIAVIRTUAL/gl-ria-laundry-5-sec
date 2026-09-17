@@ -25,13 +25,14 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from "sonner";
 import NewDispatchModal from '@/components/dispatches/NewDispatchModal';
+import { allDispatchTypes, customerDispatchTypes, managementDispatchTypes, isManagementDispatch } from '@/components/dispatches/dispatchTypes';
 
 export default function Dispatches() {
   const [dispatches, setDispatches] = useState([]);
   const [customers, setCustomers] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState('all');
+  const [filterType, setFilterType] = useState('customer');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showNewDispatch, setShowNewDispatch] = useState(false);
 
@@ -114,15 +115,7 @@ export default function Dispatches() {
     }
   };
 
-  const typeIcons = {
-    consent_request: { icon: ShieldCheck, label: 'Solicitação de consentimento', color: 'text-emerald-500 bg-emerald-500/10' },
-    birthday: { icon: Calendar, label: 'Aniversariante', color: 'text-pink-500 bg-pink-500/10' },
-    satisfaction_survey: { icon: Star, label: 'Pesquisa de Satisfação', color: 'text-yellow-500 bg-yellow-500/10' },
-    inactive_customer: { icon: UserX, label: 'Cliente Ausente', color: 'text-orange-500 bg-orange-500/10' },
-    order_reminder: { icon: Clock, label: 'Lembrete de Pedido', color: 'text-blue-500 bg-blue-500/10' },
-    promotional: { icon: Gift, label: 'Promocional', color: 'text-purple-500 bg-purple-500/10' },
-    follow_up: { icon: MessageCircle, label: 'Follow-up', color: 'text-green-500 bg-green-500/10' }
-  };
+  const typeIcons = allDispatchTypes;
 
   const statusConfig = {
     sent: { label: 'Enviado', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
@@ -136,7 +129,11 @@ export default function Dispatches() {
     const matchesSearch = !searchTerm || 
       customer?.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       d.phone?.includes(searchTerm);
-    const matchesType = filterType === 'all' || d.type === filterType;
+    const matchesType = filterType === 'customer'
+      ? !isManagementDispatch(d.type)
+      : filterType === 'management'
+        ? isManagementDispatch(d.type)
+        : d.type === filterType;
     const matchesStatus = filterStatus === 'all' || d.status === filterStatus;
     
     return matchesSearch && matchesType && matchesStatus;
@@ -251,8 +248,12 @@ export default function Dispatches() {
               <SelectValue placeholder="Tipo" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos os Tipos</SelectItem>
-              {Object.entries(typeIcons).map(([key, val]) => (
+              <SelectItem value="customer">Disparos Para Clientes</SelectItem>
+              {Object.entries(customerDispatchTypes).map(([key, val]) => (
+                <SelectItem key={key} value={key}>{val.label}</SelectItem>
+              ))}
+              <SelectItem value="management">Disparos Gerenciais</SelectItem>
+              {Object.entries(managementDispatchTypes).map(([key, val]) => (
                 <SelectItem key={key} value={key}>{val.label}</SelectItem>
               ))}
             </SelectContent>
@@ -318,7 +319,11 @@ export default function Dispatches() {
                       </td>
                       <td className="p-4">
                         <div>
-                          <p className="text-white font-medium">{customer?.full_name || 'Desconhecido'}</p>
+                          <p className="text-white font-medium">
+                            {isManagementDispatch(dispatch.type)
+                              ? (dispatch.metadata?.recipient_name || 'Equipe / Gestão')
+                              : (customer?.full_name || 'Desconhecido')}
+                          </p>
                           <p className="text-gray-500 text-xs">{dispatch.phone}</p>
                         </div>
                       </td>
