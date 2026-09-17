@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Badge } from '@/components/ui/badge';
 import DocumentItemsTable from '@/components/management/DocumentItemsTable';
 import DocumentFilePreview from '@/components/management/DocumentFilePreview';
+import PaymentMethodField from '@/components/management/PaymentMethodField';
 
 const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
 
@@ -70,7 +71,7 @@ export default function ReviewDetailsModal({ review, open, onOpenChange }) {
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">CNPJ / CPF do fornecedor</p><p className="mt-1 font-medium">{formatTaxId(document.supplier_tax_id)}</p></div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Documento</p><p className="mt-1 font-medium">{document.document_number || document.document_type || 'Pendente'}</p></div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Data e hora da compra</p><p className="mt-1 font-medium">{formatDateTime(document.issue_date || document.entry_date)}</p></div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Forma de pagamento</p><p className="mt-1 font-medium">{document.metadata?.payment_method || 'Não informada'}</p></div>
+              <PaymentMethodField document={document} onUpdated={setDocument} />
             </div>
           )}
 

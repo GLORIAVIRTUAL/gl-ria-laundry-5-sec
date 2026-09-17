@@ -40,7 +40,12 @@ const extractionSchema = {
     access_key: { type: 'string' },
     issue_date: { type: 'string' },
     due_date: { type: 'string' },
-    payment_method: { type: 'string' },
+    payment_method: {
+      type: 'string',
+      enum: ['dinheiro', 'debito', 'credito_vista', 'credito_parcelado', 'pix', 'boleto', 'transferencia', 'vale', 'outro'],
+      description: 'Forma de pagamento do cupom/nota. Interprete abreviações comuns: "DEB VISTA", "DEBITO", "TEF DEB" = debito; "CRED VISTA", "CARTAO CREDITO A VISTA" = credito_vista; "CRED PARC", "2X", "PARCELADO" = credito_parcelado; "DINHEIRO", "ESPECIE", "TROCO" = dinheiro; "PIX" = pix; "BOLETO", "DUPLICATA" = boleto; "TED", "DOC", "TRANSFERENCIA" = transferencia; "VALE", "VR", "VA" = vale. Use outro apenas se realmente não houver indício.',
+    },
+    payment_method_raw: { type: 'string', description: 'Trecho literal do documento que indica a forma de pagamento (ex: "R$52,70 DEB VISTA NSU/DOC=275174").' },
     subtotal: { type: 'number' },
     discount: { type: 'number' },
     freight: { type: 'number' },
@@ -191,7 +196,12 @@ Deno.serve(async (req) => {
       status: 'received',
       extraction_confidence: confidence,
       ai_job_id: aiJob.id,
-      metadata: { extracted_supplier: extracted?.supplier || {}, payment_method: String(extracted?.payment_method || ''), request_id: requestId },
+      metadata: {
+        extracted_supplier: extracted?.supplier || {},
+        payment_method: String(extracted?.payment_method || ''),
+        payment_method_raw: String(extracted?.payment_method_raw || ''),
+        request_id: requestId,
+      },
     });
 
     const purchaseItems = [];
