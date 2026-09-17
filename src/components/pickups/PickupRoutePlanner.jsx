@@ -73,12 +73,14 @@ export default function PickupRoutePlanner({ pickups, customers, customerMap, da
         }))
       });
 
+      if (response.data?.error) throw new Error(response.data.error);
       setRouteStops(response.data.ordered_stops || []);
       setRouteSummary(response.data);
       toast.success('Rota otimizada com sucesso!');
     } catch (error) {
       console.error(error);
-      toast.error('Não foi possível montar a rota.');
+      const detail = error?.response?.data?.error || error?.message;
+      toast.error(detail ? `Não foi possível montar a rota: ${detail}` : 'Não foi possível montar a rota.');
     } finally {
       setLoadingRoute(false);
     }

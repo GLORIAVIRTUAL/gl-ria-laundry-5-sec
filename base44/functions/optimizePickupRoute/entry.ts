@@ -12,6 +12,11 @@ function formatDistance(totalMeters) {
   return `${(totalMeters / 1000).toFixed(1)} km`;
 }
 
+function secondsFromDuration(value) {
+  if (!value) return 0;
+  return Number(String(value).replace('s', '')) || 0;
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
@@ -40,38 +45,64 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'GOOGLE_MAPS_API_KEY não configurada' }, { status: 500 });
     }
 
-    const directionsUrl = new URL('https://maps.googleapis.com/maps/api/directions/json');
-    directionsUrl.searchParams.set('origin', origin_address);
-    directionsUrl.searchParams.set('destination', origin_address);
-    directionsUrl.searchParams.set('waypoints', `optimize:true|${stops.map((stop) => stop.address).join('|')}`);
-    directionsUrl.searchParams.set('mode', 'driving');
-    directionsUrl.searchParams.set('language', 'pt-BR');
-    directionsUrl.searchParams.set('region', 'br');
-    directionsUrl.searchParams.set('key', apiKey);
+    const validStops = stops.filter((stop) => typeof stop.address === 'string' && stop.address.trim().length > 0);
+    if (validStops.length === 0) {
+      return Response.json({ error: 'Nenhuma parada possui endereço cadastrado.' }, { status: 400 });
+    }
 
-    const response = await fetch(directionsUrl.toString());
+    // Routes API (nova). A API legada de Directions não está habilitada no projeto Google.
+    const body = {
+      origin: { address: origin_address },
+      destination: { address: origin_address },
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_AWARE',
+      languageCode: 'pt-BR',
+      regionCode: 'BR',
+      units: 'METRIC',
+      ...(validStops.length > 1
+        ? {
+            optimizeWaypointOrder: true,
+            intermediates: validStops.map((stop) => ({ address: stop.address }))
+          }
+        : { intermediates: [{ address: validStops[0].address }] })
+    };
+
+    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.optimizedIntermediateWaypointIndex,routes.legs.distanceMeters,routes.legs.duration'
+      },
+      body: JSON.stringify(body)
+    });
+
     const data = await response.json();
 
-    if (!response.ok || data.status !== 'OK' || !data.routes?.[0]) {
+    if (!response.ok || !data.routes?.[0]) {
       return Response.json({
-        error: data.error_message || `Erro ao calcular rota: ${data.status || response.status}`
+        error: data.error?.message || 'Não foi possível calcular a rota no Google Maps.'
       }, { status: 500 });
     }
 
     const route = data.routes[0];
-    const waypointOrder = route.waypoint_order || stops.map((_, index) => index);
-    const orderedStops = waypointOrder.map((index) => stops[index]);
+    const order = route.optimizedIntermediateWaypointIndex || validStops.map((_, index) => index);
+    const orderedStops = order.map((index) => validStops[index]).filter(Boolean);
+    // A última perna é o retorno à loja; considera só as pernas até a última parada.
     const oneWayLegs = (route.legs || []).slice(0, orderedStops.length);
 
-    const enrichedStops = orderedStops.map((stop, index) => ({
-      ...stop,
-      order: index + 1,
-      leg_distance_text: oneWayLegs[index]?.distance?.text || null,
-      leg_duration_text: oneWayLegs[index]?.duration?.text || null
-    }));
+    const enrichedStops = orderedStops.map((stop, index) => {
+      const leg = oneWayLegs[index];
+      return {
+        ...stop,
+        order: index + 1,
+        leg_distance_text: leg?.distanceMeters ? formatDistance(leg.distanceMeters) : null,
+        leg_duration_text: leg?.duration ? formatDuration(secondsFromDuration(leg.duration)) : null
+      };
+    });
 
-    const totalDistanceMeters = oneWayLegs.reduce((sum, leg) => sum + (leg.distance?.value || 0), 0);
-    const totalDurationSeconds = oneWayLegs.reduce((sum, leg) => sum + (leg.duration?.value || 0), 0);
+    const totalDistanceMeters = oneWayLegs.reduce((sum, leg) => sum + (leg.distanceMeters || 0), 0);
+    const totalDurationSeconds = oneWayLegs.reduce((sum, leg) => sum + secondsFromDuration(leg.duration), 0);
 
     return Response.json({
       ordered_stops: enrichedStops,
