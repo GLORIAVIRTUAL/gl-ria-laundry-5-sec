@@ -75,7 +75,7 @@ export default function ReviewQueue({ reviews = [], selectedUnitId, onRefresh })
       </div>
 
       {pending.length === 0 && <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed border-white/10 py-16 text-center"><ShieldCheck className="h-10 w-10 text-emerald-300" /><h3 className="mt-3 font-semibold text-white">Nenhuma revisão pendente</h3><p className="mt-1 text-sm text-white/40">Itens de baixa confiança e exceções aparecerão aqui.</p></div>}
-      <ReviewDetailsModal review={detailReview} open={Boolean(detailReview)} onOpenChange={(next) => !next && setDetailReview(null)} />
+      <ReviewDetailsModal review={detailReview} open={Boolean(detailReview)} onOpenChange={(next) => !next && setDetailReview(null)} onResolved={onRefresh} />
       {pending.some((review) => review.review_type === 'payment_receipt') && <div className="flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm text-amber-200"><CircleAlert className="h-4 w-4" />Comprovantes não confirmam pagamentos sozinhos; valide a liquidação no banco ou adquirente.</div>}
     </section>
   );

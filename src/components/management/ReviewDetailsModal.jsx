@@ -6,6 +6,8 @@ import DocumentItemsTable from '@/components/management/DocumentItemsTable';
 import DocumentFilePreview from '@/components/management/DocumentFilePreview';
 import PaymentMethodField from '@/components/management/PaymentMethodField';
 import EditableDocumentField from '@/components/management/EditableDocumentField';
+import PurchaseApprovalPanel from '@/components/management/PurchaseApprovalPanel';
+import FinancialApprovalButton from '@/components/management/FinancialApprovalButton';
 
 const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
 
@@ -26,7 +28,7 @@ const formatDateTime = (value) => {
     : { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
-export default function ReviewDetailsModal({ review, open, onOpenChange }) {
+export default function ReviewDetailsModal({ review, open, onOpenChange, onResolved }) {
   const [items, setItems] = useState([]);
   const [document, setDocument] = useState(null);
   const [asset, setAsset] = useState(null);
@@ -86,6 +88,22 @@ export default function ReviewDetailsModal({ review, open, onOpenChange }) {
           )}
 
           {items.length > 0 && <DocumentItemsTable items={items} />}
+
+          {document && items.length > 0 && (
+            <PurchaseApprovalPanel
+              document={document}
+              items={items}
+              onItemsChange={setItems}
+              onApproved={() => { onResolved?.(); onOpenChange(false); }}
+            />
+          )}
+
+          {review?.entity_type === 'financial_document' && review?.entity_id && (
+            <FinancialApprovalButton
+              financialDocumentId={review.entity_id}
+              onApproved={() => { onResolved?.(); onOpenChange(false); }}
+            />
+          )}
 
           <DocumentFilePreview asset={asset} />
 
