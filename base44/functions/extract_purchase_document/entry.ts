@@ -188,7 +188,7 @@ Deno.serve(async (req) => {
       freight: Number(extracted?.freight || 0),
       taxes: Number(extracted?.taxes || 0),
       total: Number(extracted?.total || 0),
-      status: needsReview ? 'human_review' : 'received',
+      status: 'received',
       extraction_confidence: confidence,
       ai_job_id: aiJob.id,
       metadata: { extracted_supplier: extracted?.supplier || {}, payment_method: String(extracted?.payment_method || ''), request_id: requestId },
@@ -231,34 +231,15 @@ Deno.serve(async (req) => {
     }
 
     const unmatchedCount = purchaseItems.filter((item: any) => !item.stock_item_id).length;
-    let review = null;
-    if (needsReview || unmatchedCount > 0) {
-      review = await base44.asServiceRole.entities.HumanReview.create({
-        unit_id: asset.unit_id,
-        review_type: 'purchase_document',
-        status: 'pending',
-        priority: unmatchedCount > 0 ? 'high' : 'normal',
-        entity_type: 'purchase_document',
-        entity_id: purchaseDocument.id,
-        ai_job_id: aiJob.id,
-        document_asset_ids: [asset.id],
-        reason_codes: [
-          ...(!supplier ? ['supplier_not_matched'] : []),
-          ...(unmatchedCount > 0 ? ['stock_items_not_matched'] : []),
-          ...(confidence < 1 ? ['required_fields_missing'] : []),
-        ],
-        summary: `Revisar nota ${purchaseDocument.document_number || purchaseDocument.id.slice(0, 8)}`,
-        proposed_data: { header: extracted, unmatched_count: unmatchedCount },
-        request_id: requestId,
-      });
-      await base44.asServiceRole.entities.PurchaseDocument.update(purchaseDocument.id, {
-        status: 'human_review',
-        human_review_id: review.id,
-      });
-    }
+    const reasonCodes = [
+      ...(!supplier ? ['supplier_not_matched'] : []),
+      ...(unmatchedCount > 0 ? ['stock_items_not_matched'] : []),
+      ...(confidence < 1 ? ['required_fields_missing'] : []),
+    ];
+    const requiresReview = needsReview || unmatchedCount > 0;
 
     await base44.asServiceRole.entities.AIJob.update(aiJob.id, {
-      status: review ? 'human_review' : 'completed',
+      status: 'completed',
       entity_type: 'purchase_document',
       entity_id: purchaseDocument.id,
       confidence,
@@ -272,7 +253,16 @@ Deno.serve(async (req) => {
       completed_at: new Date().toISOString(),
     });
 
-    return Response.json({ purchase_document: purchaseDocument, items: purchaseItems, human_review: review, configured: true, request_id: requestId });
+    return Response.json({
+      purchase_document: purchaseDocument,
+      items: purchaseItems,
+      human_review: null,
+      needs_review: requiresReview,
+      reason_codes: reasonCodes,
+      unmatched_count: unmatchedCount,
+      configured: true,
+      request_id: requestId,
+    });
   } catch (error) {
     console.error(`[extract_purchase_document:${requestId}]`, error);
     try {

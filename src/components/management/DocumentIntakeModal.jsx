@@ -44,12 +44,14 @@ export default function DocumentIntakeModal({ open, onOpenChange, mode = 'purcha
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [approved, setApproved] = useState(false);
+  const [sentToReview, setSentToReview] = useState(false);
 
   const reset = () => {
     setFile(null);
     setExpectedType(mode === 'purchase' ? 'nfe' : 'electricity_bill');
     setResult(null);
     setApproved(false);
+    setSentToReview(false);
     setBusy(false);
   };
 
@@ -113,6 +115,34 @@ export default function DocumentIntakeModal({ open, onOpenChange, mode = 'purcha
     }
   };
 
+  const sendToReview = async () => {
+    setBusy(true);
+    try {
+      const doc = result.purchase_document;
+      const review = await base44.entities.HumanReview.create({
+        unit_id: doc.unit_id,
+        review_type: 'purchase_document',
+        status: 'pending',
+        priority: (result.unmatched_count || 0) > 0 ? 'high' : 'normal',
+        entity_type: 'purchase_document',
+        entity_id: doc.id,
+        document_asset_ids: [doc.document_asset_id],
+        reason_codes: result.reason_codes || [],
+        summary: `Revisar nota ${doc.document_number || doc.id.slice(0, 8)}`,
+        proposed_data: { unmatched_count: result.unmatched_count || 0 },
+      });
+      await base44.entities.PurchaseDocument.update(doc.id, { status: 'human_review', human_review_id: review.id });
+      setSentToReview(true);
+      onProcessed?.(result);
+      toast.success('Nota enviada para a fila de revisão.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Não foi possível enviar para revisão.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const entity = result?.purchase_document || result?.financial_document;
   const paymentMethod = entity?.payment_method || entity?.metadata?.payment_method || '';
   const title = mode === 'purchase' ? 'Entrada inteligente de compra' : 'Leitura inteligente de conta';
@@ -152,8 +182,8 @@ export default function DocumentIntakeModal({ open, onOpenChange, mode = 'purcha
         ) : (
           <div className="space-y-5 py-3">
             <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              {result.configured === false || entity?.status === 'human_review' ? <TriangleAlert className="mt-0.5 h-5 w-5 text-amber-300" /> : <ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-300" />}
-              <div className="flex-1"><p className="font-semibold">{entity?.status === 'human_review' ? 'Revisão necessária' : 'Rascunho preparado'}</p><p className="mt-1 text-sm text-white/50">Confiança: {Math.round(Number(entity?.extraction_confidence || 0) * 100)}%. Confira dados e correspondências antes de aprovar.</p></div>
+              {result.configured === false || result.needs_review ? <TriangleAlert className="mt-0.5 h-5 w-5 text-amber-300" /> : <ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-300" />}
+              <div className="flex-1"><p className="font-semibold">{result.needs_review ? 'Revisão recomendada' : 'Rascunho preparado'}</p><p className="mt-1 text-sm text-white/50">Confiança: {Math.round(Number(entity?.extraction_confidence || 0) * 100)}%. Confira dados e correspondências antes de aprovar.</p></div>
               <Badge variant="outline">{entity?.status}</Badge>
             </div>
 
@@ -176,10 +206,15 @@ export default function DocumentIntakeModal({ open, onOpenChange, mode = 'purcha
 
             {approved ? (
               <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-emerald-200"><Check className="h-5 w-5" />Documento aprovado e registrado.</div>
+            ) : sentToReview ? (
+              <div className="flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-200"><TriangleAlert className="h-5 w-5" />Nota enviada para a fila de revisão.</div>
             ) : (
               <div className="flex flex-wrap justify-end gap-3">
                 <Button variant="outline" onClick={() => setResult(null)} disabled={busy} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">Enviar outro</Button>
-                <Button onClick={approve} disabled={busy || entity?.status === 'human_review'} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Aprovar lançamento</Button>
+                {mode === 'purchase' && result.needs_review && (
+                  <Button variant="outline" onClick={sendToReview} disabled={busy} className="border-amber-400/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 hover:text-amber-100">Enviar para revisão</Button>
+                )}
+                <Button onClick={approve} disabled={busy} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Aprovar lançamento</Button>
               </div>
             )}
           </div>
