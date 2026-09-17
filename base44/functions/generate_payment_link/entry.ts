@@ -398,6 +398,11 @@ Deno.serve(async (req) => {
         : `Checkout Asaas. request_id=${requestId}`,
     });
 
+    // Cobrança gerada: o ticket deixa de ser "só orçamento" e passa a aguardar confirmação.
+    if (order?.id && (!order.payment_status || order.payment_status === 'unpaid')) {
+      await base44.asServiceRole.entities.Order.update(order.id, { payment_status: 'pending_confirmation' });
+    }
+
     await base44.asServiceRole.entities.AuditLog.create({
       action: 'create',
       entity_type: 'payment',
