@@ -40,6 +40,7 @@ const extractionSchema = {
     access_key: { type: 'string' },
     issue_date: { type: 'string' },
     due_date: { type: 'string' },
+    payment_method: { type: 'string' },
     subtotal: { type: 'number' },
     discount: { type: 'number' },
     freight: { type: 'number' },
@@ -190,7 +191,7 @@ Deno.serve(async (req) => {
       status: needsReview ? 'human_review' : 'received',
       extraction_confidence: confidence,
       ai_job_id: aiJob.id,
-      metadata: { extracted_supplier: extracted?.supplier || {}, request_id: requestId },
+      metadata: { extracted_supplier: extracted?.supplier || {}, payment_method: String(extracted?.payment_method || ''), request_id: requestId },
     });
 
     const purchaseItems = [];

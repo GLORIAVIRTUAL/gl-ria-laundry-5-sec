@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import DocumentItemsTable from '@/components/management/DocumentItemsTable';
 
 const FINANCIAL_TYPES = [
   ['electricity_bill', 'Conta de energia'],
@@ -22,6 +23,20 @@ const FINANCIAL_TYPES = [
 ];
 
 const money = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
+
+const formatTaxId = (value) => {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length === 14) return digits.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+  if (digits.length === 11) return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+  return digits || 'Não identificado';
+};
+
+const formatDateTime = (value) => {
+  if (!value) return 'Revisar';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Revisar';
+  return date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+};
 
 export default function DocumentIntakeModal({ open, onOpenChange, mode = 'purchase', unitId, onProcessed }) {
   const [file, setFile] = useState(null);
@@ -99,6 +114,7 @@ export default function DocumentIntakeModal({ open, onOpenChange, mode = 'purcha
   };
 
   const entity = result?.purchase_document || result?.financial_document;
+  const paymentMethod = entity?.payment_method || entity?.metadata?.payment_method || '';
   const title = mode === 'purchase' ? 'Entrada inteligente de compra' : 'Leitura inteligente de conta';
 
   return (
@@ -143,18 +159,26 @@ export default function DocumentIntakeModal({ open, onOpenChange, mode = 'purcha
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Emissor / fornecedor</p><p className="mt-1 font-medium">{entity?.supplier_name || entity?.issuer_name || 'Não identificado'}</p></div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">CNPJ do vendedor</p><p className="mt-1 font-medium">{formatTaxId(entity?.supplier_tax_id || entity?.issuer_tax_id)}</p></div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Valor</p><p className="mt-1 text-xl font-bold text-orange-300">{money(entity?.total ?? entity?.amount)}</p></div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Forma de pagamento</p><p className="mt-1 font-medium">{paymentMethod || 'Não informada'}</p></div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Documento</p><p className="mt-1 font-medium">{entity?.document_number || entity?.document_type || 'Pendente'}</p></div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Data e hora da compra</p><p className="mt-1 font-medium">{formatDateTime(entity?.issue_date || entity?.issued_at || entity?.entry_date)}</p></div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4"><p className="text-xs uppercase tracking-wide text-white/35">Vencimento</p><p className="mt-1 font-medium">{entity?.due_date ? new Date(entity.due_date).toLocaleDateString('pt-BR') : 'Revisar'}</p></div>
             </div>
 
-            {mode === 'purchase' && <p className="text-sm text-white/50">{result.items?.length || 0} linha(s) extraída(s). Itens sem correspondência entram na fila de revisão de estoque.</p>}
+            {mode === 'purchase' && (
+              <>
+                <DocumentItemsTable items={result.items || []} />
+                <p className="text-sm text-white/50">{result.items?.length || 0} linha(s) extraída(s). Itens sem correspondência entram na fila de revisão de estoque.</p>
+              </>
+            )}
 
             {approved ? (
               <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-emerald-200"><Check className="h-5 w-5" />Documento aprovado e registrado.</div>
             ) : (
               <div className="flex flex-wrap justify-end gap-3">
-                <Button variant="outline" onClick={() => setResult(null)} disabled={busy}>Enviar outro</Button>
+                <Button variant="outline" onClick={() => setResult(null)} disabled={busy} className="border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white">Enviar outro</Button>
                 <Button onClick={approve} disabled={busy || entity?.status === 'human_review'} className="bg-emerald-500 text-slate-950 hover:bg-emerald-400">{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Aprovar lançamento</Button>
               </div>
             )}
