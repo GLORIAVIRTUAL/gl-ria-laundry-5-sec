@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.44';
 import { getPageAccessToken } from '../../shared/metaPageToken.js';
+import { resolveChannelCustomer } from '../../shared/channelCustomer.js';
 
 // Webhook do Instagram (Meta). Recebe DMs e grava no chat como conversa INSTAGRAM.
 // GET  -> handshake de verificação (hub.verify_token / hub.challenge)
@@ -113,19 +114,25 @@ export default async function (req) {
       // Conversa existente deste usuário do Instagram
       const igConversations = await base44.asServiceRole.entities.Conversation.filter({ channel: 'INSTAGRAM' }, '-last_message_at', 500);
       let conversation = igConversations.find((c) => String((c.metadata || {}).instagram_user_id) === senderId);
-      let customer = conversation ? await base44.asServiceRole.entities.Customer.get(conversation.customer_id) : null;
+      let customer = conversation ? await base44.asServiceRole.entities.Customer.get(conversation.customer_id).catch(() => null) : null;
 
       if (!customer) {
+        // Chave única do canal: nunca cria um segundo cliente para o mesmo IGSID.
         const name = await fetchProfileName(senderId);
-        customer = await base44.asServiceRole.entities.Customer.create({
-          full_name: name || 'Cliente Instagram',
-          phones: [],
-          status: 'active',
-          last_inbound_at: new Date().toISOString(),
-          notes: `Contato via Instagram (id ${senderId})`,
+        const resolved = await resolveChannelCustomer(base44, {
+          field: 'instagram_user_id',
+          externalId: senderId,
+          name,
+          createData: {
+            full_name: name || 'Cliente Instagram',
+            phones: [],
+            notes: `Contato via Instagram (id ${senderId})`,
+          },
         });
+        customer = resolved.customer;
       } else {
         const patch = { last_inbound_at: new Date().toISOString() };
+        if (String(customer.instagram_user_id || '') !== senderId) patch.instagram_user_id = senderId;
         if (customer.full_name === 'Cliente Instagram') {
           const name = await fetchProfileName(senderId);
           if (name) patch.full_name = name;

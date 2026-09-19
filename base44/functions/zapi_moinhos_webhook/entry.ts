@@ -4,6 +4,7 @@ import { classifyConsentResponse, hasActiveConsentRequest } from '../../shared/w
 import { buildPromotionsOfferMessage, getActivePromotions } from '../../shared/promotionFlow.js';
 import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../../shared/dispatchReplyPolicy.js';
 import { hasRecentHumanReply } from '../../shared/humanActivity.js';
+import { findCustomerByChannelId } from '../../shared/channelCustomer.js';
 
 // ============================================================================
 // WEBHOOK EXCLUSIVO DA 2ª CONEXÃO Z-API (Loja Moinhos Shopping).
@@ -156,6 +157,12 @@ export default async function(req) {
             customer = recentCustomers.find(c => (c.phones || []).some(p => canonicalPhone(p) === canonPhone));
         }
 
+        // Chave única do LID gravada no cliente: reusa o MESMO cliente deste @lid.
+        const lidKey = phoneIsLid ? String(payload.phone || '').replace(/@.*/, '').trim() : '';
+        if (!customer && lidKey) {
+            customer = await findCustomerByChannelId(base44, 'whatsapp_lid', lidKey);
+        }
+
         // LID: tenta casar por nome, senão reconecta pela conversa anterior com o mesmo LID
         if (!customer && phoneIsLid && !isInvalidName) {
             const recentCustomers = await base44.asServiceRole.entities.Customer.list('-created_date', 400);
@@ -191,7 +198,8 @@ export default async function(req) {
                 last_inbound_at: new Date().toISOString(),
                 status: 'active',
                 unit_id: MOINHOS_UNIT_ID,
-                preferred_unit_name: MOINHOS_UNIT_NAME
+                preferred_unit_name: MOINHOS_UNIT_NAME,
+                ...(lidKey ? { whatsapp_lid: lidKey } : {})
             });
             try {
                 await base44.asServiceRole.entities.CrmCard.create({
@@ -215,6 +223,7 @@ export default async function(req) {
                 unit_id: MOINHOS_UNIT_ID,
                 preferred_unit_name: MOINHOS_UNIT_NAME
             };
+            if (lidKey && String(customer.whatsapp_lid || '') !== lidKey) updatePayload.whatsapp_lid = lidKey;
             if (isPlaceholder && !isInvalidName) updatePayload.full_name = senderName;
             if (!phoneIsLid && canonPhone) {
                 const alreadyHas = (customer.phones || []).some(p => canonicalPhone(p) === canonPhone);

@@ -1,5 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.44';
 import { getPageAccessToken } from '../../shared/metaPageToken.js';
+import { resolveChannelCustomer } from '../../shared/channelCustomer.js';
 
 // Webhook do Messenger (Facebook Pages). Recebe mensagens e grava no chat como conversa MESSENGER.
 // GET  -> handshake de verificação (hub.verify_token / hub.challenge)
@@ -105,19 +106,25 @@ export default async function (req) {
 
       const fbConversations = await base44.asServiceRole.entities.Conversation.filter({ channel: 'MESSENGER' }, '-last_message_at', 500);
       let conversation = fbConversations.find((c) => String((c.metadata || {}).messenger_user_id) === senderId);
-      let customer = conversation ? await base44.asServiceRole.entities.Customer.get(conversation.customer_id) : null;
+      let customer = conversation ? await base44.asServiceRole.entities.Customer.get(conversation.customer_id).catch(() => null) : null;
 
       if (!customer) {
+        // Chave única do canal: nunca cria um segundo cliente para o mesmo PSID.
         const name = await fetchProfileName(senderId);
-        customer = await base44.asServiceRole.entities.Customer.create({
-          full_name: name || 'Cliente Messenger',
-          phones: [],
-          status: 'active',
-          last_inbound_at: new Date().toISOString(),
-          notes: `Contato via Messenger (id ${senderId})`,
+        const resolved = await resolveChannelCustomer(base44, {
+          field: 'messenger_user_id',
+          externalId: senderId,
+          name,
+          createData: {
+            full_name: name || 'Cliente Messenger',
+            phones: [],
+            notes: `Contato via Messenger (id ${senderId})`,
+          },
         });
+        customer = resolved.customer;
       } else {
         const patch = { last_inbound_at: new Date().toISOString() };
+        if (String(customer.messenger_user_id || '') !== senderId) patch.messenger_user_id = senderId;
         // Preenche o nome real caso o contato tenha sido criado sem perfil.
         if (customer.full_name === 'Cliente Messenger') {
           const name = await fetchProfileName(senderId);

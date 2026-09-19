@@ -5,6 +5,7 @@ import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../..
 import { hasRecentHumanReply } from '../../shared/humanActivity.js';
 import { canonicalPhone } from '../../shared/customerPhone.js';
 import { CUSTOMER_SOURCES, ensureCustomerSourceCard } from '../../shared/customerSource.js';
+import { findCustomerByChannelId } from '../../shared/channelCustomer.js';
 
 Deno.serve(async (req) => {
     // Helper: mantém o trabalho em background VIVO após o retorno do 200.
@@ -252,6 +253,12 @@ Deno.serve(async (req) => {
             );
         }
 
+        // Chave única do LID gravada no cliente: se este @lid já foi visto, reusa o MESMO cliente.
+        const lidKey = phoneIsLid ? String(payload.phone || '').replace(/@.*/, '').trim() : '';
+        if (!customer && lidKey) {
+            customer = await findCustomerByChannelId(base44, 'whatsapp_lid', lidKey);
+        }
+
         // Strategy E: If the phone is an unrecoverable LID, NEVER create a duplicate by the @lid id.
         // Instead, try to match an existing customer by their real WhatsApp name (senderName).
         // This is the main fix for "cliente novo entra e fica duplicado / sem nome".
@@ -309,7 +316,8 @@ Deno.serve(async (req) => {
                 opt_in_whatsapp: false,
                 whatsapp_consent_status: 'unknown',
                 last_inbound_at: new Date().toISOString(),
-                status: 'active'
+                status: 'active',
+                ...(lidKey ? { whatsapp_lid: lidKey } : {})
             });
 
         } else {
@@ -325,6 +333,7 @@ Deno.serve(async (req) => {
             const updatePayload = {
                 last_inbound_at: new Date().toISOString()
             };
+            if (lidKey && String(customer.whatsapp_lid || '') !== lidKey) updatePayload.whatsapp_lid = lidKey;
             if (isPlaceholder && !isInvalidName) {
                 updatePayload.full_name = senderName;
             }

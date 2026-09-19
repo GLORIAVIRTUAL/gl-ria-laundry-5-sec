@@ -14,6 +14,18 @@
         "type": "string"
       }
     },
+    "instagram_user_id": {
+      "type": "string",
+      "description": "IGSID do contato no Instagram (chave \u00fanica do canal)"
+    },
+    "messenger_user_id": {
+      "type": "string",
+      "description": "PSID do contato no Messenger (chave \u00fanica do canal)"
+    },
+    "whatsapp_lid": {
+      "type": "string",
+      "description": "Identificador interno @lid do WhatsApp quando o n\u00famero real n\u00e3o \u00e9 revelado"
+    },
     "preferred_language": {
       "type": "string",
       "enum": [
