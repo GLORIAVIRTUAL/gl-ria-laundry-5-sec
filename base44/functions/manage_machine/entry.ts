@@ -35,6 +35,26 @@ Deno.serve(async (req) => {
       return Response.json({ machine, request_id: requestId });
     }
 
+    if (action === 'seed_legacy') {
+      if (!MANAGER_ROLES.has(user.role || '')) return Response.json({ error: 'manager_permission_required', request_id: requestId }, { status: 403 });
+      const unitId = String(input.unit_id || '');
+      if (!unitId || !canAccessUnit(user, unitId)) return Response.json({ error: 'forbidden_unit', request_id: requestId }, { status: 403 });
+      const defaults = [
+        ['WSH-9001', 'Lavar 1', 'wash'], ['WSH-9002', 'Lavar 2', 'wash'], ['WSH-9003', 'Lavar 3', 'wash'],
+        ['DRY-7000', 'Secar 1', 'dry'], ['DRC-5000', 'Lavagem a seco 1', 'dry_clean'], ['PRS-X1', 'Passar 1', 'iron'], ['PRS-X2', 'Passar 2', 'iron'],
+      ];
+      const created = [];
+      for (const [id, name, type] of defaults) {
+        const existing = await base44.asServiceRole.entities.MachineState.filter({ machine_id: id });
+        if (existing[0]) {
+          if (!existing[0].unit_id) await base44.asServiceRole.entities.MachineState.update(existing[0].id, { unit_id: unitId, name, active: true, operational_status: existing[0].finished ? 'finished' : existing[0].ends_at > Date.now() ? 'running' : 'idle' });
+          continue;
+        }
+        created.push(await base44.asServiceRole.entities.MachineState.create({ unit_id: unitId, name, machine_id: id, machine_type: type, active: true, operational_status: 'idle', minutes: 0, ends_at: 0, finished: false, maximum_load_percent: 100 }));
+      }
+      return Response.json({ created_count: created.length, machines: created, request_id: requestId });
+    }
+
     const machineId = String(input.machine_id || '');
     const records = machineId ? await base44.asServiceRole.entities.MachineState.filter({ machine_id: machineId }) : [];
     const machine = records[0];
@@ -69,26 +89,6 @@ Deno.serve(async (req) => {
       const updated = await base44.asServiceRole.entities.MachineState.update(machine.id, patch);
       await base44.asServiceRole.entities.AuditLog.create({ action: 'status_change', entity_type: 'machine_state', entity_id: machine.id, item_label: machine.name || machine.machine_id, reason: String(input.reason || `machine_${status}`), user_email: user.email, user_name: user.full_name, user_role: user.role, unit_id: machine.unit_id, request_id: requestId, before_data: { operational_status: machine.operational_status }, after_data: { operational_status: status }, success: true });
       return Response.json({ machine: updated, request_id: requestId });
-    }
-
-    if (action === 'seed_legacy') {
-      if (!MANAGER_ROLES.has(user.role || '')) return Response.json({ error: 'manager_permission_required', request_id: requestId }, { status: 403 });
-      const unitId = String(input.unit_id || '');
-      if (!unitId || !canAccessUnit(user, unitId)) return Response.json({ error: 'forbidden_unit', request_id: requestId }, { status: 403 });
-      const defaults = [
-        ['WSH-9001', 'Lavar 1', 'wash'], ['WSH-9002', 'Lavar 2', 'wash'], ['WSH-9003', 'Lavar 3', 'wash'],
-        ['DRY-7000', 'Secar 1', 'dry'], ['DRC-5000', 'Lavagem a seco 1', 'dry_clean'], ['PRS-X1', 'Passar 1', 'iron'], ['PRS-X2', 'Passar 2', 'iron'],
-      ];
-      const created = [];
-      for (const [id, name, type] of defaults) {
-        const existing = await base44.asServiceRole.entities.MachineState.filter({ machine_id: id });
-        if (existing[0]) {
-          if (!existing[0].unit_id) await base44.asServiceRole.entities.MachineState.update(existing[0].id, { unit_id: unitId, name, active: true, operational_status: existing[0].finished ? 'finished' : existing[0].ends_at > Date.now() ? 'running' : 'idle' });
-          continue;
-        }
-        created.push(await base44.asServiceRole.entities.MachineState.create({ unit_id: unitId, name, machine_id: id, machine_type: type, active: true, operational_status: 'idle', minutes: 0, ends_at: 0, finished: false, maximum_load_percent: 100 }));
-      }
-      return Response.json({ created_count: created.length, machines: created, request_id: requestId });
     }
 
     return Response.json({ error: 'unsupported_action', request_id: requestId }, { status: 400 });
