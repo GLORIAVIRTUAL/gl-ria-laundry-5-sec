@@ -8,7 +8,7 @@ Deno.serve(async (req) => {
     const user = await base44.auth.me();
     await enforceExistingUserSecurity(base44, req, user, { source: 'pickupsReportPdf' });
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    if (user.role !== 'admin') return Response.json({ error: 'Forbidden' }, { status: 403 });
+    if (!['admin', 'super_admin', 'manager'].includes(user.role)) return Response.json({ error: 'Forbidden' }, { status: 403 });
 
     const fetchAll = async (entityName) => {
       const all = [];

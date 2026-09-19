@@ -10,6 +10,7 @@ import { Loader2, TrendingUp, Truck, Package, DollarSign, Filter, Download, File
 import PickupsTable from '@/components/reports/PickupsTable';
 import DRESection from '@/components/reports/DRESection';
 import { jsPDF } from 'jspdf';
+import { toast } from 'sonner';
 import useUnitAccess, { filterRecordsByUnit, getUnitLabel } from '@/components/units/useUnitAccess';
 import UnitFilterSelect from '@/components/units/UnitFilterSelect';
 import SpecializedReportsPanel from '@/components/reports/SpecializedReportsPanel';
@@ -55,6 +56,8 @@ export default function ReportsPage() {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
+    } catch (error) {
+      toast.error('Não foi possível gerar o PDF', { description: error?.message || 'Tente novamente em instantes.' });
     } finally {
       setLoading(false);
     }
