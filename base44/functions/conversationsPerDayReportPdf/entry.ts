@@ -1,4 +1,5 @@
 import { enforceExistingUserSecurity } from '../../shared/functionSecurity.js';
+import { authorizeReportAccess } from '../../shared/reportAccess.js';
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 import { jsPDF } from 'npm:jspdf@4.0.0';
 
@@ -7,8 +8,8 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
     await enforceExistingUserSecurity(base44, req, user, { source: 'conversationsPerDayReportPdf' });
-    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    if (!['admin', 'super_admin', 'manager'].includes(user.role)) return Response.json({ error: 'Forbidden' }, { status: 403 });
+    const denied = await authorizeReportAccess(base44, user);
+    if (denied) return denied;
 
     const DAYS = 70;
     const TZ = 'America/Sao_Paulo';
