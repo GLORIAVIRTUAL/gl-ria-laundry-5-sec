@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
       user_role: user.role,
       unit_id: unitId,
       request_id: requestId,
-      before_data: garments.map((garment) => ({ id: garment.id, location_id: garment.location_id })),
+      before_data: { garments: garments.map((garment) => ({ id: garment.id, location_id: garment.location_id })) },
       after_data: { location_id: locationId, location_label: location ? `${location.code} · ${location.name}` : null },
       success: true,
     });
