@@ -60,7 +60,7 @@ export default function EditAgreementDialog({ agreement, customers = [], onOpenC
               <div className="space-y-2"><Label>Responsável financeiro</Label>
                 <select value={form.bill_to_customer_id} onChange={(event) => setForm((current) => ({ ...current, bill_to_customer_id: event.target.value }))} className="h-10 w-full rounded-md border border-white/10 bg-black/25 px-3 text-sm text-white">
                   <option value="">Selecione</option>
-                  {customers.filter((customer) => customer.unit_id === agreement.unit_id).slice(0, 1000).map((customer) => <option key={customer.id} value={customer.id}>{customer.full_name}</option>)}
+                  {customers.filter((customer) => customer && customer.unit_id === agreement?.unit_id).slice(0, 1000).map((customer) => <option key={customer.id} value={customer.id}>{customer.full_name}</option>)}
                 </select>
               </div>
               <div className="space-y-2"><Label>Tipo</Label>
