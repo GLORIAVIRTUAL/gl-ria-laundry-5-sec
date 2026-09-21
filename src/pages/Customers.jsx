@@ -208,10 +208,16 @@ export default function Customers() {
   };
 
   const handleDelete = async (id) => {
-      if (confirm("Tem certeza que deseja excluir este cliente?")) {
+      if (!confirm("Tem certeza que deseja excluir este cliente?")) return;
+      try {
           await base44.entities.Customer.delete(id);
-          loadCustomers();
+      } catch (err) {
+          if (!String(err?.message || '').includes('not found')) {
+              alert("Erro ao excluir cliente: " + (err.message || err));
+              return;
+          }
       }
+      loadCustomers();
   };
 
   const openEdit = (customer) => {
