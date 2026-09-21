@@ -76,24 +76,29 @@ export default function Campanhas() {
       const result = await base44.integrations.Core.InvokeLLM({
         prompt: `Você é um diretor de criação da 5àsec.
 
-Sua tarefa é gerar UM PROMPT de campanha publicitária baseado no TEMA/TÍTULO informado abaixo, mantendo a mesma estrutura, nível de detalhe, posicionamento visual premium e lógica de composição do prompt-base de referência.
+As DIRETRIZES GERAIS de qualidade já existem e não devem ser reescritas. Sua tarefa é escrever APENAS o conteúdo do PROMPT COMPLEMENTAR, ou seja, os elementos específicos desta campanha.
 
-TEMA / TÍTULO DA CAMPANHA (use isso como ponto de partida obrigatório do conceito criativo, da oferta destacada e do texto integrado na arte):
+TEMA / TÍTULO DA CAMPANHA (ponto de partida obrigatório do conceito criativo, da oferta destacada e do texto integrado na arte):
 "${campaignName.trim()}"
 
-PROMPT-BASE (use só como referência de estrutura, NÃO copie o tema dele):
+DIRETRIZES GERAIS (apenas contexto, NÃO repita nada disso na resposta):
 ${campaignDefaultPrompt}
 
+O PROMPT COMPLEMENTAR deve definir, de forma objetiva e detalhada:
+- marca 5àsec e paleta roxo + laranja
+- personagem e ação
+- cenário/ambiente
+- figurino e objetos
+- atmosfera e mensagem
+- texto exato que deve aparecer na arte (derivado do tema, entre aspas)
+- posição dos elementos e áreas livres
+- formato: vertical 9:16
+
 Regras obrigatórias:
-- o conceito, personagem, cena, oferta e o texto destacado na arte DEVEM refletir diretamente o tema "${campaignName.trim()}"
-- manter a estrutura geral do prompt-base (personagem e ação, ambiente, iluminação, composição, diretrizes de texto)
-- manter estética premium, fotografia hiper-realista e linguagem publicitária sofisticada
-- manter proporção vertical 9:16
-- manter a marca 5àsec e a paleta roxo + laranja
-- manter a lógica de espaço negativo e hierarquia visual
-- o prompt deve em algum momento citar EXPLICITAMENTE o texto principal a aparecer na arte, derivado do tema (ex: chamada da promoção)
-- prompt em português do Brasil
-- devolver apenas o novo prompt final, sem explicações, sem título e sem aspas`,
+- tudo deve refletir diretamente o tema "${campaignName.trim()}"
+- não repetir as diretrizes gerais de qualidade, iluminação, texturas ou proibições
+- português do Brasil
+- devolver apenas o texto do PROMPT COMPLEMENTAR, sem título, sem explicações e sem aspas envolvendo o todo`,
         response_json_schema: {
           type: 'object',
           properties: {
@@ -103,7 +108,7 @@ Regras obrigatórias:
         }
       });
 
-      setPrompt(result.prompt);
+      setPrompt(`${campaignDefaultPrompt}\n\nPROMPT COMPLEMENTAR\n\n${result.prompt}`);
       toast.success('Novo prompt gerado!');
     } catch (error) {
       toast.error('Erro ao gerar novo prompt.');
