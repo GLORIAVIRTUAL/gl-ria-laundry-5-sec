@@ -1,6 +1,6 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-const GOOGLE_ADS_API_VERSION = 'v21';
+const GOOGLE_ADS_API_VERSION = 'v25';
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const ADS_API_BASE = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}`;
 
@@ -269,8 +269,6 @@ async function listCampaigns() {
       campaign.name,
       campaign.status,
       campaign.advertising_channel_type,
-      campaign.start_date,
-      campaign.end_date,
       campaign_budget.amount_micros
     FROM campaign
     ORDER BY campaign.id DESC
