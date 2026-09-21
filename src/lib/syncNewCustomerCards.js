@@ -27,7 +27,7 @@ export default async function syncNewCustomerCards(customers, fallbackUnitId) {
     });
   }
 
-  const missing = customers.filter((customer) => customer.id && !withCard.has(customer.id));
+  const missing = customers.filter((customer) => customer.id && !withCard.has(customer.id) && !(customer.tags || []).includes('crm_card_hidden'));
   if (missing.length === 0) return existing;
 
   const created = [];

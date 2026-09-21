@@ -127,6 +127,14 @@ export default function Orders() {
   const handleDeleteCard = async (cardId) => {
     if (!window.confirm('Tem certeza que deseja excluir este card?')) return;
     try {
+      const card = cards.find((item) => item.id === cardId);
+      if (activePipeline === 'NEW_CUSTOMER' && card?.customer_id) {
+        const customer = customers[card.customer_id];
+        const tags = customer?.tags || [];
+        if (!tags.includes('crm_card_hidden')) {
+          await base44.entities.Customer.update(card.customer_id, { tags: [...tags, 'crm_card_hidden'] });
+        }
+      }
       await base44.entities.CrmCard.delete(cardId);
       fetchData();
     } catch (error) {
