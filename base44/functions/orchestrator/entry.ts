@@ -10,7 +10,7 @@ import { handlePromotionToolCall, promotionAiTools } from '../../shared/promotio
 import { handlePaymentChargeToolCall } from '../../shared/paymentChargeTool.js';
 import { handleChatPaymentRequest } from '../../shared/chatPaymentFlow.js';
 import { acceptChatQuote } from '../../shared/chatQuoteAcceptance.js';
-import { finalizeChatPhotoQuote } from '../../shared/chatPhotoQuote.js';
+import { finalizeChatPhotoQuote, isFinalizeChatQuoteCommand } from '../../shared/chatPhotoQuote.js';
 import { explicitFulfillment, inspectionNotice, normalizePhotoItems, planLabel, quoteLines } from '../../shared/chatQuotePresentation.js';
 import { isPickupProcessActive, separateChatProcesses } from '../../shared/chatProcessSeparation.js';
 import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../../shared/dispatchReplyPolicy.js';
@@ -822,7 +822,7 @@ Deno.serve(async (req) => {
 
                 return Response.json({ action: "quote_images_analyzed", count: visionResults.length });
 
-            } else if (textLower.includes("finalizar") || textLower.includes("pode fechar") || /\b(fechar|fechado|fecha)\b/.test(textLower)) {
+            } else if (isFinalizeChatQuoteCommand(message.text || '')) {
                 const finalized = await finalizeChatPhotoQuote({ base44, customer, conversation, currentState, unitId: activeUnitId });
                 await invokeSender({ phone: customer.phones[0], message: finalized.message, conversation_id: conversation.id });
                 if (finalized.options.length) await invokeSender({ phone: customer.phones[0], type: 'OPTION_LIST', message: 'Escolha uma opção abaixo:', optionList: { title: 'Orçamento e ofertas', buttonLabel: 'Abrir opções', options: finalized.options }, conversation_id: conversation.id });

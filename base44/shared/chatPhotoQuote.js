@@ -1,4 +1,25 @@
-import { normalizePhotoItems, quoteLines, brl, inspectionNotice, planLabel } from './chatQuotePresentation.js';
+import { normalizePhotoItems, quoteLines, brl, inspectionNotice, planLabel, normalizeChatText } from './chatQuotePresentation.js';
+
+const editDistance = (left, right) => {
+  const rows = Array.from({ length: left.length + 1 }, (_, index) => [index]);
+  for (let column = 1; column <= right.length; column += 1) rows[0][column] = column;
+  for (let row = 1; row <= left.length; row += 1) {
+    for (let column = 1; column <= right.length; column += 1) {
+      rows[row][column] = Math.min(
+        rows[row - 1][column] + 1,
+        rows[row][column - 1] + 1,
+        rows[row - 1][column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1)
+      );
+    }
+  }
+  return rows[left.length][right.length];
+};
+
+export function isFinalizeChatQuoteCommand(text = '') {
+  const value = normalizeChatText(text).replace(/[^a-z]/g, '');
+  return ['podefechar', 'fechar', 'fechado', 'fecha', 'finishquote'].includes(value)
+    || (value.length >= 7 && value.length <= 10 && editDistance(value, 'finalizar') <= 2);
+}
 
 export async function finalizeChatPhotoQuote({ base44, customer, conversation, currentState, unitId }) {
   const db = base44.asServiceRole.entities;
@@ -11,8 +32,9 @@ export async function finalizeChatPhotoQuote({ base44, customer, conversation, c
   const cardData = { stage: needsReview ? 'Em análise humana' : 'Enviado ao cliente', linked_quote_id: quote.id, due_at: quote.review_deadline_at };
   if (cards[0]) await db.CrmCard.update(cards[0].id, cardData);
   else await db.CrmCard.create({ ...cardData, pipeline_type: 'QUOTE', priority: 'HIGH', customer_id: customer.id, unit_id: unitId });
-  Object.assign(currentState, { active_quote_id: quote.id, flow: needsReview ? 'HANDOFF_QUOTE_REVIEW' : 'AWAITING_QUOTE_APPROVAL', temp_items: items });
-  await db.Conversation.update(conversation.id, { metadata: { ...currentState }, ...(needsReview ? { handoff_required: true } : {}) });
+  const nextFlow = needsReview ? 'HANDOFF_QUOTE_REVIEW' : 'AWAITING_QUOTE_APPROVAL';
+  Object.assign(currentState, { active_quote_id: quote.id, flow: nextFlow, step: nextFlow, temp_items: items });
+  await db.Conversation.update(conversation.id, { metadata: { ...currentState }, handoff_required: needsReview });
   await db.StaffNotification.create({ type: 'NEW_QUOTE', target_team: 'sales', payload: { conversation_id: conversation.id, customer_name: customer.full_name, quote_id: quote.id, summary: needsReview ? 'Conferir identificação, quantidade ou preço das peças antes de enviar a cobrança.' : 'Orçamento por fotos enviado para aprovação.' }, sent_at: new Date().toISOString() });
   if (needsReview) return { quote_id: quote.id, message: `Recebi suas peças:\n${quoteLines(items)}\n\nEncaminhei as fotos à equipe para conferir os itens e as quantidades antes de fechar o total. Nenhuma cobrança foi emitida.`, options: [] };
   const plans = await db.Product.filter({ active: true, category: 'Planos' }, 'price');
