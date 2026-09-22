@@ -3,8 +3,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CatalogMultiField, CatalogSelectField } from '@/components/management/CatalogChoiceFields';
+import SearchableProductSelect from '@/components/management/SearchableProductSelect';
 
 export const FALLBACK_CATALOG_OPTIONS = {
   size: ['PP', 'P', 'M', 'G', 'GG', 'XG', 'Único'],
@@ -98,10 +98,7 @@ export default function GarmentReviewCard({ item, index, products, onChange, cat
           <div className="grid gap-3 md:grid-cols-[1fr_110px_140px]">
             <div className="space-y-1.5">
               <Label>Item do catálogo</Label>
-              <Select value={selectedProduct?.id || ''} onValueChange={updateProduct}>
-                <SelectTrigger className="border-white/10 bg-black/20"><SelectValue placeholder="Selecione a peça" /></SelectTrigger>
-                <SelectContent>{products.map((product) => <SelectItem key={product.id} value={product.id}>{product.name} · {currency(product.price)}</SelectItem>)}</SelectContent>
-              </Select>
+              <SearchableProductSelect products={products} selectedProduct={selectedProduct} onSelect={updateProduct} />
             </div>
             <div className="space-y-1.5">
               <Label>Quantidade</Label>
