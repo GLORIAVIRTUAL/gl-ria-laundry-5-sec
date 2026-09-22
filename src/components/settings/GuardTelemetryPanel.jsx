@@ -13,7 +13,9 @@ const GUARD_LABELS = {
   approve_quote_price_correction: 'Preço divergente do catálogo',
   enforceVariableQuoteSafety: 'Faltou aviso de inspeção/menor valor',
   enforceDeliveryFeeNotice: 'Faltou taxa de R$ 15,00',
-  empty_response: 'Resposta vazia da IA'
+  empty_response: 'Resposta vazia da IA',
+  unanswered_message_recovered: 'Mensagem sem resposta recuperada automaticamente',
+  stalled_conversation: 'Conversa parada (cliente ou processo sem avanço)'
 };
 
 const PERIODS = [
