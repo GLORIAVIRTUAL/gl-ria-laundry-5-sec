@@ -6,7 +6,7 @@ export const inspectionNotice = 'Estimativa sujeita à inspeção das peças pel
 export function explicitFulfillment(text) {
   const value = normalizeChatText(text);
   if (/\?|\bnao\b/.test(value)) return null;
-  if (/^(quero coleta|acrescentar coleta|adicionar coleta|want_pickup|add_pickup)[.! ]*$/.test(value) || /(?:quero|preciso|prefiro|pode|podem)\s+(?:que\s+)?(?:voces\s+)?(?:buscar|busquem|coletar|retirar)/.test(value)) return 'pickup';
+  if (/^(quero coleta|acrescentar coleta|adicionar coleta|want_pickup|add_pickup)[.! ]*$/.test(value) || /\b(?:quero|prefiro|preciso)(?:\s+de)?\s+coleta\b/.test(value) || /(?:quero|preciso|prefiro|pode|podem)\s+(?:que\s+)?(?:voces\s+)?(?:buscar|busquem|coletar|retirar)/.test(value)) return 'pickup';
   if (/^(vou levar na loja|store_dropoff)[.! ]*$/.test(value) || /(?:vou|prefiro|quero)\s+(?:levar|deixar).{0,25}\bloja\b/.test(value)) return 'store';
   return null;
 }

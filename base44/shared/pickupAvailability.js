@@ -7,9 +7,9 @@ const normalize = (value = '') => value
 
 const toDateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
-export function resolvePickupAvailabilityRequest(text = '', now = new Date()) {
+export function resolvePickupAvailabilityRequest(text = '', now = new Date(), options = {}) {
   const value = normalize(text);
-  const asksPickup = /\b(coleta|coletar|recolher|recolhe|buscar|retirar|retirada)\b/.test(value);
+  const asksPickup = options.pickupProcessActive === true || /\b(coleta|coletar|recolher|recolhe|buscar|retirar|retirada)\b/.test(value);
   const asksAvailability = /\b(hoje|amanha|consegue|conseguem|pode|podem|disponibilidade|vaga|tem coleta|vai ter coleta)\b/.test(value);
   if (!asksPickup || !asksAvailability) return null;
 

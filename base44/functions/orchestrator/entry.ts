@@ -12,6 +12,7 @@ import { handleChatPaymentRequest } from '../../shared/chatPaymentFlow.js';
 import { acceptChatQuote } from '../../shared/chatQuoteAcceptance.js';
 import { finalizeChatPhotoQuote } from '../../shared/chatPhotoQuote.js';
 import { explicitFulfillment, inspectionNotice, normalizePhotoItems, planLabel, quoteLines } from '../../shared/chatQuotePresentation.js';
+import { isPickupProcessActive, separateChatProcesses } from '../../shared/chatProcessSeparation.js';
 import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../../shared/dispatchReplyPolicy.js';
 import { buildStainReply, detectStainInquiry, looksLikeDetailPhotos } from '../../shared/stainInquiry.js';
 import { getAiSettings } from '../../shared/aiSettings.js';
@@ -363,6 +364,16 @@ Deno.serve(async (req) => {
             Object.assign(currentState, { fulfillment_choice: fulfillmentChoice, delivery_requested: fulfillmentChoice === 'pickup' });
             await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
         }
+        // Coleta e pagamento nunca avançam juntos. Se vierem na mesma frase,
+        // registra a forma de pagamento para depois e conduz somente a coleta agora.
+        if ((message.type === 'TEXT' || message.type === 'AUDIO') && currentState.active_quote_id) {
+            const separated = await separateChatProcesses({ base44, conversation, currentState, text: message.text || '' });
+            if (separated?.handled) {
+                await invokeSender({ phone: customer.phones[0], message: separated.message, conversation_id: conversation.id });
+                return Response.json({ action: 'fulfillment_process_replied' });
+            }
+        }
+
         // Pagamento explícito não depende da IA gerar texto ou escolher uma ferramenta.
         if (message.type === 'TEXT' || message.type === 'AUDIO') {
             const paymentReply = await handleChatPaymentRequest({ base44, customer, conversation, currentState, text: message.text || '' });
@@ -835,7 +846,7 @@ Deno.serve(async (req) => {
             // Isso impede a IA de oferecer sábado à tarde antes de consultar a agenda real.
             // EXCEÇÃO: quando payment_confirmed=true, a coleta é encaixe automático —
             // não interceptar, deixar a IA chamar schedule_pickup com encaixe=true.
-            const pickupAvailabilityRequest = !currentState.payment_confirmed ? resolvePickupAvailabilityRequest(message.text || '') : null;
+            const pickupAvailabilityRequest = !currentState.payment_confirmed ? resolvePickupAvailabilityRequest(message.text || '', new Date(), { pickupProcessActive: isPickupProcessActive(currentState) }) : null;
             if (pickupAvailabilityRequest) {
                 const schedule = getPickupScheduleForDate(pickupAvailabilityRequest.date);
                 let dayPickups = [];
@@ -847,10 +858,9 @@ Deno.serve(async (req) => {
                     });
                 }
                 const availability = buildPickupAvailabilityResponse({ request: pickupAvailabilityRequest, schedule, pickups: dayPickups });
-                if (availability.period) {
-                    currentState.pending_pickup = { ...(currentState.pending_pickup || {}), date: pickupAvailabilityRequest.date, period: availability.period };
-                    await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
-                }
+                currentState.pending_pickup = { ...(currentState.pending_pickup || {}), date: pickupAvailabilityRequest.date, ...(availability.period ? { period: availability.period } : {}) };
+                currentState.flow = availability.period ? 'AWAITING_PICKUP_CONFIRMATION' : 'AWAITING_PICKUP_PERIOD';
+                await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
                 await invokeSender({
                     phone: customer.phones[0],
                     message: availability.message,

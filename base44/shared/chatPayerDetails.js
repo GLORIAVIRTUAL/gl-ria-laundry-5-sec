@@ -27,6 +27,14 @@ export function parsePayerField(field, text) {
   return value.length >= 3 ? value : null;
 }
 
+export function affirmativePaymentMethod(text) {
+  const value = normalizeChatText(text);
+  if (/\?|\b(nao|depois|paguei|pago|comprovante|estorno|cancelar|aceita|aceitam|como|qual|quanto)\b/.test(value)) return null;
+  if (/\b(?:quero|vou|prefiro)(?:\s+pagar)?(?:\s+(?:por|via|no|com))?\s+pix(?:\s+(?:agora|antecipado))?\b/.test(value) || /\bpix\s+antecipado\b/.test(value)) return 'pix';
+  if (/\b(?:quero|vou|prefiro)(?:\s+pagar)?(?:\s+(?:por|no|com))?\s+cartao(?:\s+de\s+credito)?(?:\s+(?:agora|online|antecipado))?\b/.test(value)) return 'credit_card';
+  return null;
+}
+
 export function immediatePaymentMethod(text) {
   const value = normalizeChatText(text).replace(/[.!]+$/g, '');
   if (/\?|\b(nao|depois|paguei|pago|comprovante|estorno|cancelar|aceita|aceitam|pode ser|como|qual|quanto)\b/.test(value)) return null;

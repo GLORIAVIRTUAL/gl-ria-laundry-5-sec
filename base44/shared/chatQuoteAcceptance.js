@@ -4,7 +4,15 @@ import { explicitFulfillment, normalizePhotoItems, brl } from './chatQuotePresen
 export async function acceptChatQuote({ base44, quote, conversation, currentState, latestText, activePickups = [] }) {
   if (quote.customer_id !== conversation.customer_id) throw new Error('quote_customer_mismatch');
   if (!['SENT', 'ACCEPTED'].includes(quote.status)) return { success: false, message: 'Este orçamento precisa ser revisado antes de seguir com o pagamento.' };
-  if (quote.status === 'ACCEPTED') return { success: true, message: 'Este orçamento já foi aceito. Você prefere Pix ou cartão de crédito antecipado, ou pagamento presencial?' };
+  if (quote.status === 'ACCEPTED') {
+    const acceptedChoice = explicitFulfillment(latestText);
+    if (acceptedChoice) {
+      Object.assign(currentState, { fulfillment_choice: acceptedChoice, delivery_requested: acceptedChoice === 'pickup', flow: acceptedChoice === 'pickup' ? 'AWAITING_PICKUP_DATE' : 'AWAITING_PAYMENT_METHOD' });
+      await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
+      return { success: true, message: acceptedChoice === 'pickup' ? 'Coleta escolhida. Qual data você prefere?' : 'Combinado, você levará as peças na loja.' };
+    }
+    return { success: true, message: 'Este orçamento já foi aceito. Você prefere Pix ou cartão de crédito antecipado, ou pagamento presencial?' };
+  }
   const items = normalizePhotoItems(quote.items || []);
   if (!items.length || items.some((item) => item.needs_review)) return { success: false, message: 'Precisamos conferir os itens e as quantidades deste orçamento com a equipe antes de cobrar.' };
   const choice = explicitFulfillment(latestText) || currentState.fulfillment_choice || (currentState.delivery_requested === true || activePickups.length ? 'pickup' : null);
