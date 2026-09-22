@@ -61,7 +61,11 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
         base44.entities.OperationalCatalogEntry.filter({ active: true }, 'sort_order', 2000).catch(() => [])
       ]);
       setQuote(quoteData);
-      setItems(quoteData.items || []);
+      setItems((quoteData.items || []).map((item) => {
+        const product = productsData.find((candidate) => candidate.id === item.product_id)
+          || productsData.find((candidate) => candidate.name === (item.product_name || item.garment_type));
+        return product ? { ...item, product_id: product.id, unit_price: item.unit_price ?? product.price } : item;
+      }));
       setProducts(productsData);
       setCatalogEntries(catalogData);
       setDiscount(quoteData.discount || 0);
@@ -109,6 +113,11 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
     if (!quote) return;
     const discountValue = Number(discount || 0);
     const additionValue = Number(addition || 0);
+    const pendingReview = items.find((item) => !item.product_id || item.recognition_status !== 'confirmed' || Number(item.unit_price || 0) <= 0);
+    if (pendingReview) {
+      alert('Revise todos os itens: selecione o item do catálogo, confira quantidade e preço e clique em “Item revisado”.');
+      return;
+    }
     if ((discountValue > 0 || additionValue > 0) && adjustmentReason.trim().length < 8) {
       alert('Informe uma justificativa com pelo menos 8 caracteres para o ajuste comercial.');
       return;
@@ -185,6 +194,9 @@ ${customMessage ? `${customMessage}\n\n` : ''}Para aprovar, responda "Aprovar".`
         adjustment_reason_required: 'Informe uma justificativa válida para o ajuste.',
         commercial_approval_required: 'O ajuste excede sua alçada comercial.',
         mfa_required_for_adjustment: 'Este ajuste exige MFA verificado.',
+        product_not_found: 'Há um item sem vínculo com o catálogo. Selecione o item correto e marque-o como revisado.',
+        service_not_found: 'O serviço selecionado não foi encontrado no catálogo.',
+        service_not_compatible: 'O serviço selecionado não é compatível com este item.',
       };
       alert(messages[code] || 'Não foi possível revisar e enviar o orçamento.');
     } finally {
@@ -319,7 +331,7 @@ ${customMessage ? `${customMessage}\n\n` : ''}Para aprovar, responda "Aprovar".`
           <Button variant="ghost" onClick={onClose} className="hover:bg-white/10 text-white">Cancelar</Button>
           <Button 
             onClick={handleSendQuote} 
-            disabled={loading || sending || !quote}
+            disabled={loading || sending || !quote || items.some((item) => !item.product_id || item.recognition_status !== 'confirmed' || Number(item.unit_price || 0) <= 0)}
             className="bg-[#4C12A1] hover:bg-[#5d1dbf] text-white"
           >
             {sending ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <Send className="w-4 h-4 mr-2" />}

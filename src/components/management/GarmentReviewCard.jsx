@@ -2,6 +2,7 @@ import { Check, FileImage } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CatalogMultiField, CatalogSelectField } from '@/components/management/CatalogChoiceFields';
 
@@ -58,6 +59,13 @@ export default function GarmentReviewCard({ item, index, products, onChange, cat
     onChange({ ...item, attributes: { ...EMPTY_ATTRIBUTES, ...(item.attributes || {}), [field]: value } });
   };
 
+  const confirmReview = () => {
+    if (!selectedProduct || Number(item.unit_price ?? selectedProduct.price) <= 0) return;
+    const unitPrice = Number(item.unit_price ?? selectedProduct.price);
+    const subtotal = unitPrice * Number(item.qty || 1);
+    onChange({ ...item, product_id: selectedProduct.id, garment_type: selectedProduct.name, unit_price: unitPrice, subtotal, total_amount: subtotal, recognition_status: 'confirmed', needs_review: false, review_reason: null });
+  };
+
   return (
     <article className={`rounded-2xl border p-4 ${needsAttention ? 'border-amber-400/40 bg-amber-400/5' : 'border-white/10 bg-white/[0.04]'}`}>
       <div className="grid gap-4 lg:grid-cols-[150px_1fr]">
@@ -76,6 +84,14 @@ export default function GarmentReviewCard({ item, index, products, onChange, cat
             <Badge variant="outline" className={confidenceTone(confidence)}>{Math.round(confidence * 100)}% confiança</Badge>
             {needsAttention ? <Badge variant="outline" className="border-amber-400/30 text-amber-200">revisar</Badge> : <Badge variant="outline" className="border-emerald-500/30 text-emerald-300"><Check className="mr-1 h-3 w-3" />confirmado</Badge>}
           </div>
+          {needsAttention && (
+            <div className="mt-3 space-y-2">
+              <Button type="button" size="sm" onClick={confirmReview} disabled={!selectedProduct || Number(item.unit_price ?? selectedProduct?.price) <= 0} className="w-full bg-emerald-600 text-white hover:bg-emerald-500 disabled:bg-white/10">
+                <Check className="mr-1 h-4 w-4" /> Item revisado
+              </Button>
+              {!selectedProduct && <p className="text-xs text-amber-200">Selecione o item específico do catálogo.</p>}
+            </div>
+          )}
         </div>
 
         <div className="space-y-4">
