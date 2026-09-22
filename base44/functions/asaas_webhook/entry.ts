@@ -110,7 +110,7 @@ export default async function (req: Request): Promise<Response> {
 
         // Avisa o cliente no WhatsApp e agenda a coleta como encaixe imediatamente.
         if (payment.customer_id) {
-          await notifyPaymentConfirmed(base44, payment.customer_id).catch((err) => {
+          await notifyPaymentConfirmed(base44, payment.customer_id, payment).catch((err) => {
             console.error(`[asaas_webhook:${requestId}] notify_failed`, err?.message);
             return null;
           });

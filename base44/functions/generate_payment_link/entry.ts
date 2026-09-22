@@ -157,7 +157,7 @@ async function createDirectPixPayment(
         || (json && JSON.stringify(json))
         || `HTTP ${resp.status}: ${text.slice(0, 200)}`;
       console.error('[generate_payment_link] Direct PIX error', resp.status);
-      return { data: null, error: errMsg, status: 'error' };
+      return { data: null, error: errMsg, status: resp.status >= 500 || resp.status === 408 ? 'inconclusive' : 'error' };
     }
     if (!json) {
       // Resposta não-JSON: inconclusiva — não repetir POST.
@@ -222,7 +222,7 @@ async function createCheckoutSession(
         || (json && JSON.stringify(json))
         || `HTTP ${resp.status}: ${text.slice(0, 200)}`;
       console.error('[generate_payment_link] Checkout error', resp.status);
-      return { data: null, error: errMsg, status: 'error' };
+      return { data: null, error: errMsg, status: resp.status >= 500 || resp.status === 408 ? 'inconclusive' : 'error' };
     }
     if (!json) {
       return { data: null, error: 'Resposta não-JSON do gateway', status: 'inconclusive' };
@@ -331,7 +331,8 @@ Deno.serve(async (req) => {
           // Cobrança PODE ter sido criada — não repetir, não criar checkout.
           inconclusive = true;
           lastError = pixResult.error;
-        } else if (pixResult.data?.pixQrCode) {
+        } else if (pixResult.data?.id) {
+          // Um pagamento já foi criado: nunca abrir outro checkout só porque faltou QR.
           result = {
             type: 'direct_pix',
             asaasId: pixResult.data.id,
@@ -339,7 +340,13 @@ Deno.serve(async (req) => {
             pixQrCode: pixResult.data.pixQrCode,
             pixCopyPasteKey: pixResult.data.pixCopyPasteKey,
           };
+          if (!result.url && !result.pixCopyPasteKey) {
+            result = null;
+            inconclusive = true;
+            lastError = 'Pagamento criado sem instruções de pagamento; conferir antes de emitir outro.';
+          }
         } else {
+          inconclusive = pixResult.status === 'ok';
           lastError = pixResult.error;
         }
       } else {

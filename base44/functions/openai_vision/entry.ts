@@ -131,6 +131,9 @@ Responda APENAS JSON com:
 - catalog_product_id: ID exato do catálogo ou null;
 - garment_type: nome curto ou "desconhecido";
 - confidence: número de 0 a 1;
+- quantity: quantidade de unidades COBRÁVEIS do mesmo produto visíveis (inteiro positivo); biquíni POR PEÇA com parte superior e inferior = 2; produtos cobrados por PAR contam o par como 1;
+- quantity_uncertain: true se a quantidade não puder ser determinada;
+- multiple_product_types: true se a foto mostrar produtos diferentes que não cabem em uma única linha do catálogo; nesse caso exige revisão, não escolha apenas um e ignore os outros;
 - attributes: objeto com color, pattern, brand, size e material quando visíveis;
 - damages: array de avarias visíveis, sem inventar;
 - notes: observação objetiva;
@@ -160,6 +163,9 @@ Nunca estime preço. Se houver dúvida entre itens, use catalog_product_id null 
       garment_type: matchedProduct?.name || rawResult?.garment_type || 'desconhecido',
       estimated_price: matchedProduct ? Number(matchedProduct.price || 0) : null,
       confidence,
+      quantity: Number.isInteger(rawResult?.quantity) && rawResult.quantity > 0 && rawResult.quantity <= 100 ? rawResult.quantity : null,
+      quantity_uncertain: rawResult?.quantity_uncertain === true || !Number.isInteger(rawResult?.quantity) || rawResult.quantity < 1 || rawResult.quantity > 100,
+      multiple_product_types: rawResult?.multiple_product_types === true,
       attributes: rawResult?.attributes || {},
       damages: Array.isArray(rawResult?.damages) ? rawResult.damages : [],
       notes: rawResult?.notes || '',

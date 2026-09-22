@@ -8,6 +8,10 @@ import { buildConversationContinuityFacts, isExplicitNewQuoteIntent } from '../.
 import { buildDeliveryPriceResponse, detectDeliveryIntent, enforceDeliveryFeeNotice, enforceVariableQuoteSafety, isDeliveryPriceQuestion, resolveKnownDeliveryTotal } from '../../shared/quoteSafety.js';
 import { handlePromotionToolCall, promotionAiTools } from '../../shared/promotionOrchestrator.js';
 import { handlePaymentChargeToolCall } from '../../shared/paymentChargeTool.js';
+import { handleChatPaymentRequest } from '../../shared/chatPaymentFlow.js';
+import { acceptChatQuote } from '../../shared/chatQuoteAcceptance.js';
+import { finalizeChatPhotoQuote } from '../../shared/chatPhotoQuote.js';
+import { explicitFulfillment, inspectionNotice, normalizePhotoItems, planLabel, quoteLines } from '../../shared/chatQuotePresentation.js';
 import { clearDispatchGeneratedHandoff, isDispatchGeneratedHandoff } from '../../shared/dispatchReplyPolicy.js';
 import { buildStainReply, detectStainInquiry, looksLikeDetailPhotos } from '../../shared/stainInquiry.js';
 import { getAiSettings } from '../../shared/aiSettings.js';
@@ -323,7 +327,9 @@ Deno.serve(async (req) => {
                 pending_pickup: null,
                 delivery_requested: false,
                 new_quote_message_id: message.id,
-                new_quote_started_at: new Date().toISOString()
+                new_quote_started_at: new Date().toISOString(),
+                active_quote_id: null, active_order_id: null, payment_charge: null,
+                payment_method: null, payer_field: null, fulfillment_choice: null
             });
             await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
         }
@@ -352,10 +358,31 @@ Deno.serve(async (req) => {
             return Response.json({ action: "handoff" });
         }
 
+        const fulfillmentChoice = explicitFulfillment(message.text || '');
+        if (fulfillmentChoice) {
+            Object.assign(currentState, { fulfillment_choice: fulfillmentChoice, delivery_requested: fulfillmentChoice === 'pickup' });
+            await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
+        }
+        // Pagamento explícito não depende da IA gerar texto ou escolher uma ferramenta.
+        if (message.type === 'TEXT' || message.type === 'AUDIO') {
+            const paymentReply = await handleChatPaymentRequest({ base44, customer, conversation, currentState, text: message.text || '' });
+            if (paymentReply?.handled) {
+                await invokeSender({ phone: customer.phones[0], message: paymentReply.message, conversation_id: conversation.id });
+                return Response.json({ action: 'payment_flow_replied' });
+            }
+        }
+
+        if (!currentState.payment_confirmed && currentState.active_quote_id && (/^(quero este or[cç]amento|aprovar|aprovado|aceito|follow_quote|approve_quote)[.! ]*$/i.test(message.text || '') || (currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' && fulfillmentChoice))) {
+            const quote = await base44.asServiceRole.entities.Quote.get(currentState.active_quote_id);
+            const acceptance = await acceptChatQuote({ base44, quote, conversation, currentState, latestText: message.text || '' });
+            await invokeSender({ phone: customer.phones[0], message: acceptance.message, conversation_id: conversation.id });
+            return Response.json({ action: acceptance.success ? 'quote_accepted' : 'quote_needs_confirmation' });
+        }
+
         // 3. State Machine
         
         // Comprovantes são evidência pendente: nunca confirmam pagamento apenas pela imagem.
-        if ((message.type === 'IMAGE' || message.type === 'DOC') && currentState.flow === 'WAITING_RECEIPT') {
+        if ((message.type === 'IMAGE' || message.type === 'DOC') && ['WAITING_RECEIPT', 'AWAITING_PAYMENT_CONFIRMATION'].includes(currentState.flow)) {
             const receiptUrl = downloaded_file_url || message.media_file_id || (payload.image && payload.image.imageUrl) || (payload.document && payload.document.documentUrl);
 
             if (receiptUrl) {
@@ -446,7 +473,7 @@ Deno.serve(async (req) => {
 
         // Um novo atendimento em outro dia deve gerar um novo card no CRM.
         // Evita reutilizar indefinidamente um card antigo que ficou em "Coletando itens".
-        if (message.type === 'IMAGE' && currentState.flow !== 'WAITING_RECEIPT') {
+        if (message.type === 'IMAGE' && !['WAITING_RECEIPT', 'AWAITING_PAYMENT_CONFIRMATION', 'GENERATING_PAYMENT', 'PAYMENT_NEEDS_REVIEW'].includes(currentState.flow)) {
             const collectingCards = await base44.asServiceRole.entities.CrmCard.filter({
                 pipeline_type: 'QUOTE',
                 customer_id: customer.id,
@@ -486,7 +513,7 @@ Deno.serve(async (req) => {
         }
 
         // Auto-start quote flow if an image is sent outside of QUOTE flow and not WAITING_RECEIPT
-        if (message.type === 'IMAGE' && currentState.flow !== 'QUOTE' && currentState.flow !== 'WAITING_RECEIPT') {
+        if (message.type === 'IMAGE' && currentState.flow !== 'QUOTE' && !['WAITING_RECEIPT', 'AWAITING_PAYMENT_CONFIRMATION', 'GENERATING_PAYMENT', 'PAYMENT_NEEDS_REVIEW'].includes(currentState.flow)) {
             await base44.asServiceRole.entities.Conversation.update(conversation.id, {
                 metadata: { ...currentState, flow: 'QUOTE', step: 'COLLECTING_IMAGES' }
             });
@@ -541,6 +568,8 @@ Deno.serve(async (req) => {
                     return Response.json({ action: "already_processed" });
                 }
 
+                await invokeSender({ phone: customer.phones[0], message: `Recebi ${unprocessedImages.length} foto(s). Estou conferindo as peças e as quantidades; envio o resumo assim que terminar.`, conversation_id: conversation.id });
+
                 // 2. Process all unprocessed images concurrently
                 const visionPromises = unprocessedImages.map(async (imgMsg) => {
                     let imgUrl = null;
@@ -552,7 +581,7 @@ Deno.serve(async (req) => {
                         imgUrl = imgMsg.raw_payload.image.imageUrl;
                     }
 
-                    if (!imgUrl) return null;
+                    if (!imgUrl) return { message_id: imgMsg.id, garment_type: 'Foto indisponível', unit_price: null, qty: null, quantity_uncertain: true, confidence: 0, needs_review: true };
 
                     try {
                         const visionResult = await base44.asServiceRole.functions.invoke('openai_vision', {
@@ -565,14 +594,20 @@ Deno.serve(async (req) => {
                             message_id: imgMsg.id,
                             garment_type: visionResult.garment_type || "Peça desconhecida",
                             confidence: visionResult.confidence || 0,
-                            unit_price: visionResult.estimated_price || null,
+                            unit_price: visionResult.estimated_price ?? null,
+                            product_id: visionResult.catalog_product_id || undefined,
+                            qty: visionResult.quantity,
+                            quantity_uncertain: visionResult.quantity_uncertain,
+                            multiple_product_types: visionResult.multiple_product_types,
+                            attributes: visionResult.attributes || {},
+                            damages: visionResult.damages || [],
                             image_url: imgUrl,
                             notes: visionResult.notes || "",
                             is_receipt: visionResult.is_receipt || false
                         };
                     } catch (e) {
                         console.error("Vision error for img", imgMsg.id, e);
-                        return null;
+                        return { message_id: imgMsg.id, garment_type: 'Peça a conferir', image_url: imgUrl, unit_price: null, qty: null, quantity_uncertain: true, confidence: 0, needs_review: true };
                     }
                 });
 
@@ -733,7 +768,7 @@ Deno.serve(async (req) => {
                 currentItems.push(...visionResults);
 
                 await base44.asServiceRole.entities.Conversation.update(conversation.id, {
-                    metadata: { ...currentState, temp_items: currentItems }
+                    metadata: { ...currentState, temp_items: normalizePhotoItems(currentItems) }
                 });
 
                 // Notify Staff about new images
@@ -744,77 +779,11 @@ Deno.serve(async (req) => {
                     sent_at: new Date().toISOString()
                 });
 
-                // Generate response message
-                // Catálogo necessário para montar as variações de preço (era a causa do crash "products is not defined")
-                const products = await base44.asServiceRole.entities.Product.filter({ active: true });
-                const allRecognized = visionResults.every(r => r.garment_type.toLowerCase() !== 'desconhecido' && r.confidence >= 0.6);
-                
-                // Para uma peça identificada, busca TODAS as variações relacionadas no catálogo
-                // (ex: casaco normal R$54, casaco especial R$88, sobretudo R$100) para nunca cravar
-                // um valor único quando existem versões comum/especial.
-                const buildVariationLines = (garmentType) => {
-                    const { relatedMatches } = findRelatedCatalogProducts(products, garmentType);
-                    if (!relatedMatches || relatedMatches.length <= 1) return null;
-                    return relatedMatches.map(p => `   • ${p.name}: R$ ${p.price.toFixed(2)}`).join('\n');
-                };
-                const AVALIACAO_HUMANA = `\n\n⚠️ *Este valor é uma estimativa para peça comum.* As fotos serão avaliadas pela nossa equipe e, caso seja uma peça especial (tecido, marca ou detalhes que exijam cuidado extra), o valor pode mudar — nesse caso entraremos em contato antes.`;
-
-                let msg = '';
-                if (visionResults.length === 1) {
-                    const r = visionResults[0];
-                    if (r.garment_type.toLowerCase() === 'desconhecido' || r.confidence < 0.6) {
-                        msg = `🤔 Não consegui identificar essa peça com certeza. Qual é a roupa? (Digite o nome)`;
-                    } else {
-                        msg = `✅ Identifiquei: *${r.garment_type}*`;
-                        const variationLines = buildVariationLines(r.garment_type);
-                        if (variationLines) {
-                            msg += `\n\n💰 Para esse tipo de peça temos as seguintes opções de valor:\n${variationLines}`;
-                        } else if (r.unit_price) {
-                            msg += `\n💰 Valor estimado: R$ ${r.unit_price.toFixed(2)}`;
-                        }
-                        msg += AVALIACAO_HUMANA;
-                        
-                        const garmentLower = r.garment_type.toLowerCase();
-                        if (garmentLower.includes('edredom') || garmentLower.includes('cobertor')) {
-                            msg += `\n💡 *Dica:* Sugerimos o serviço *Bactericida* (+R$ 40,00) para higienização profunda (99,9%).`;
-                        } else if (garmentLower.includes('casaco') || garmentLower.includes('jaqueta')) {
-                            msg += `\n💡 *Dica:* Sugerimos *Impermeabilização* (+R$ 21,00) contra líquidos/manchas ou *Bactericida* (+R$ 26,00).`;
-                        } else if (garmentLower.includes('cortina')) {
-                            msg += `\n💡 *Dica:* Sugerimos o *Bactericida* (+R$ 25,00) para eliminar ácaros e odores.`;
-                        } else if (garmentLower.includes('tapete')) {
-                            msg += `\n💡 *Dica:* Para tapetes, temos o *Bactericida* (+R$ 27,00/m²).`;
-                        } else if (garmentLower.includes('vestido')) {
-                            msg += `\n💡 *Dica:* Sugerimos *Revitalizante/Engomagem* (+R$ 17,00) para recuperar o brilho e dar acabamento perfeito.`;
-                        } else if (garmentLower.includes('macacão') || garmentLower.includes('macacao')) {
-                            msg += `\n💡 *Dica:* Sugerimos *Revitalizante/Engomagem* (+R$ 15,00).`;
-                        }
-
-                        msg += `\n\n📸 Envie a próxima foto ou digite *'Finalizar'* para fechar o orçamento.`;
-                    }
-                } else {
-                    const listable = visionResults.filter(r => {
-                        const g = (r.garment_type || '').toLowerCase();
-                        return g !== 'desconhecido' && g !== 'peça desconhecida' && (r.confidence || 0) >= 0.6;
-                    });
-                    msg = `✅ Identifiquei ${listable.length} peça(s):\n`;
-                    listable.forEach(r => {
-                        const variationLines = buildVariationLines(r.garment_type);
-                        if (variationLines) {
-                            msg += `\n- *${r.garment_type}* — opções de valor:\n${variationLines}\n`;
-                        } else {
-                            msg += `- ${r.garment_type} ${r.unit_price ? `(R$ ${r.unit_price.toFixed(2)})` : ''}\n`;
-                        }
-                    });
-
-                    msg += AVALIACAO_HUMANA;
-
-                    if (!allRecognized) {
-                        msg += `\n\n🤔 Algumas peças não consegui identificar bem. Você pode confirmar quais são através de texto?`;
-                    } else {
-                        msg += `\n\n📸 Envie mais fotos ou digite *'Finalizar'* para fechar o orçamento.`;
-                    }
-                }
-
+                // Apresenta somente os itens identificados, com quantidade e preço do catálogo.
+                const normalizedItems = normalizePhotoItems(currentItems);
+                const allRecognized = normalizedItems.length > 0 && normalizedItems.every((item) => !item.needs_review);
+                const count = normalizedItems.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+                const msg = `Analisei as fotos: ${count} peça(s) identificada(s).\n${quoteLines(normalizedItems)}\n\n${inspectionNotice}\n\n${allRecognized ? 'Envie mais fotos ou digite Finalizar para conferir o orçamento.' : 'Há itens ou quantidades que precisam de conferência. Digite Finalizar para encaminhar a revisão à equipe.'}`;
                 const shouldShowQuoteButtons = allRecognized;
 
                 await invokeSender({
@@ -843,108 +812,10 @@ Deno.serve(async (req) => {
                 return Response.json({ action: "quote_images_analyzed", count: visionResults.length });
 
             } else if (textLower.includes("finalizar") || textLower.includes("pode fechar") || /\b(fechar|fechado|fecha)\b/.test(textLower)) {
-                // Finish quote
-                const currentItems = currentState.temp_items || [];
-                const total = currentItems.reduce((acc, item) => acc + (item.unit_price || 0), 0);
-
-                await base44.asServiceRole.entities.Conversation.update(conversation.id, {
-                    metadata: { ...currentState, flow: null } // Reset
-                });
-                
-                let finalMessage = `✅ *Orçamento Finalizado*\n\n*Resumo das peças:*\n`;
-                currentItems.forEach(item => {
-                    const priceText = item.unit_price ? `R$ ${item.unit_price.toFixed(2)}` : 'A definir';
-                    finalMessage += `- ${item.garment_type}: ${priceText}\n`;
-                });
-                finalMessage += `\n💰 *Valor Total Estimado: R$ ${total.toFixed(2)}*\n\n*Esse orçamento é para peças comuns. As imagens das peças serao avaliadas por nossa equipe e caso haja alguma peça especial entraremos em contato para informar algum acrescimo ou desconto que possa ocorrer. Pode efetuar o pagamento desse orçamento sem problemas*\n\n`;
-                const hasForbiddenBagItems = currentItems.some(item => {
-                    const garment = normalizeText(item.garment_type);
-                    return garment.includes('edredom') || garment.includes('cobert') || garment.includes('manta') || garment.includes('tapete') || garment.includes('cortina') || garment.includes('terno') || garment.includes('vestido') || garment.includes('casaco') || garment.includes('jaqueta') || garment.includes('sofa') || garment.includes('sofá');
-                });
-
-                finalMessage += `💡 *Dica:* Se preferir, temos opções de planos pré-pagos que podem ser mais vantajosas:\n\n`;
-                
-                if (!hasForbiddenBagItems) {
-                    finalMessage += `*Bags (Pacotes de peças):*\n- Minha Bag (até 18 peças): R$ 90,00\n- Bag (até 35 peças): R$ 160,00\n- Bag Família (até 50 peças): R$ 185,00\n\n`;
-                }
-
-                const planProducts = await base44.asServiceRole.entities.Product.filter({
-                    active: true,
-                    category: 'Planos'
-                }, 'price');
-                const plansText = planProducts.length > 0
-                    ? planProducts.map((product) => `- ${product.name}: ${product.description || `Pague R$ ${product.price.toFixed(2)} e receba créditos para usar na lavanderia.`}`).join('\n')
-                    : '- Planos disponíveis mediante consulta na loja';
-
-                finalMessage += `*Planos Pré-pagos:*\n${plansText}\n\n`;
-                finalMessage += `Você prefere seguir com este orçamento ou tem interesse em adquirir um de nossos planos${!hasForbiddenBagItems ? ' ou bags' : ''}?`;
-
-                await invokeSender({
-                    phone: customer.phones[0],
-                    message: finalMessage,
-                    conversation_id: conversation.id
-                });
-
-                await invokeSender({
-                    phone: customer.phones[0],
-                    type: 'OPTION_LIST',
-                    message: 'Escolha uma opção abaixo:',
-                    optionList: {
-                        title: 'Orçamento e ofertas',
-                        buttonLabel: 'Abrir opções',
-                        options: [
-                            { id: 'follow_quote', title: 'Quero este orçamento', description: 'Seguir com este valor' },
-                            { id: 'see_plans', title: 'Quero ver planos', description: 'Ver os planos pré-pagos' },
-                            { id: 'see_bags', title: 'Quero ver bags', description: 'Ver os pacotes de peças' }
-                        ]
-                    },
-                    conversation_id: conversation.id
-                });
-                
-                // Create Quote entity here
-                const newQuote = await base44.asServiceRole.entities.Quote.create({
-                    customer_id: customer.id,
-                    unit_id: activeUnitId,
-                    status: 'SENT',
-                    review_deadline_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), // 1h SLA
-                    items: currentItems,
-                    subtotal: total,
-                    total: total
-                });
-
-                const existingQuoteCards = await base44.asServiceRole.entities.CrmCard.filter({
-                    pipeline_type: 'QUOTE',
-                    customer_id: customer.id,
-                    stage: 'Coletando itens'
-                });
-                
-                if (existingQuoteCards.length > 0) {
-                    await base44.asServiceRole.entities.CrmCard.update(existingQuoteCards[0].id, {
-                        stage: 'Enviado ao cliente',
-                        linked_quote_id: newQuote.id,
-                        due_at: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-                    });
-                } else {
-                    await base44.asServiceRole.entities.CrmCard.create({
-                        pipeline_type: 'QUOTE',
-                        stage: 'Enviado ao cliente',
-                        priority: 'HIGH',
-                        customer_id: customer.id,
-                        unit_id: activeUnitId,
-                        linked_quote_id: newQuote.id,
-                        due_at: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-                    });
-                }
-
-                // Notify Staff
-                await base44.asServiceRole.entities.StaffNotification.create({
-                    type: 'NEW_QUOTE',
-                    target_team: 'sales',
-                    payload: { customer: customer.full_name, items_count: (currentState.temp_items || []).length },
-                    sent_at: new Date().toISOString()
-                });
-
-                return Response.json({ action: "quote_finished" });
+                const finalized = await finalizeChatPhotoQuote({ base44, customer, conversation, currentState, unitId: activeUnitId });
+                await invokeSender({ phone: customer.phones[0], message: finalized.message, conversation_id: conversation.id });
+                if (finalized.options.length) await invokeSender({ phone: customer.phones[0], type: 'OPTION_LIST', message: 'Escolha uma opção abaixo:', optionList: { title: 'Orçamento e ofertas', buttonLabel: 'Abrir opções', options: finalized.options }, conversation_id: conversation.id });
+                return Response.json({ action: 'quote_finished', quote_id: finalized.quote_id });
             }
         }
 
@@ -1077,7 +948,7 @@ Deno.serve(async (req) => {
                 return Response.json({ status: "ignored_ack" });
             }
 
-            const catalogContext = products.map((p) => `- ${p.name} | família: ${p.family || 'Geral'} | categoria: ${p.category || 'Sem categoria'} | descrição: ${p.description || 'Sem descrição'} | preço: R$ ${p.price.toFixed(2)}`).join("\n");
+            const catalogContext = products.map((p) => `- ${p.category === 'Planos' || p.family === 'Planos' ? planLabel(p) : p.name} | família: ${p.family || 'Geral'} | categoria: ${p.category || 'Sem categoria'} | descrição: ${p.description || 'Sem descrição'} | preço: R$ ${p.price.toFixed(2)}`).join("\n");
 
             // Agrupa produtos que compartilham a primeira palavra do nome (ex: todos os "EDREDOM").
             // Isso é injetado no prompt para que a IA NUNCA esconda variações nem invente preços.
@@ -1105,7 +976,7 @@ Deno.serve(async (req) => {
                 .filter((p) => p.category === 'Planos' || p.family === 'Planos')
                 .sort((a, b) => a.price - b.price);
             const plansContext = planProducts.length > 0
-                ? planProducts.map((p) => `- ${p.name}: ${p.description || `Pague R$ ${p.price.toFixed(2)} e receba créditos para usar na lavanderia.`}`).join("\n")
+                ? planProducts.map((p) => `- ${planLabel(p)}: ${p.description || `Pague R$ ${p.price.toFixed(2)} e receba créditos para usar na lavanderia.`}`).join("\n")
                 : "- Planos pré-pagos disponíveis mediante consulta na loja.";
 
             const statusMap = {
@@ -1122,11 +993,11 @@ Deno.serve(async (req) => {
             // Fetch current quote context (building)
             const currentItems = currentState.temp_items || [];
             const quoteContext = currentItems.length > 0 ?
-                `Itens no orçamento que está sendo montado: ${currentItems.map(i => i.garment_type).join(", ")}. Valor parcial: R$ ${currentItems.reduce((acc, item) => acc + (item.unit_price || 0), 0).toFixed(2)}.` :
+                `Itens no orçamento que está sendo montado: ${currentItems.map(i => i.garment_type).join(", ")}. Valor parcial: R$ ${currentItems.reduce((acc, item) => acc + Number(item.unit_price || 0) * Number(item.qty || 1), 0).toFixed(2)}.` :
                 "Nenhum item no orçamento em rascunho.";
 
             const pendingQuoteContext = pendingQuotes.length > 0 ?
-                `O cliente possui um orçamento ENVIADO aguardando aprovação no valor de R$ ${pendingQuotes[0].total.toFixed(2)}. IMPORTANTE: Se o cliente aceitar/aprovar este orçamento agora, você DEVE chamar a ferramenta 'approve_quote'. Depois informe apenas a chave Pix e peça o comprovante.` :
+                `O cliente possui um orçamento ENVIADO aguardando aprovação no valor de R$ ${pendingQuotes[0].total.toFixed(2)}. IMPORTANTE: Se o cliente aceitar/aprovar este orçamento agora, você DEVE chamar a ferramenta 'approve_quote'. Depois pergunte a forma de pagamento, sem informar chave manual e sem pedir comprovante.` :
                 "Nenhum orçamento aguardando aprovação no momento.";
 
             history.sort((a, b) => new Date(a.created_date).getTime() - new Date(b.created_date).getTime());
@@ -1249,7 +1120,7 @@ Deno.serve(async (req) => {
             }
 
             // Pagamento antecipado confirmado via Pix (Asaas) → coleta como encaixe
-            if (currentState.payment_confirmed) {
+            if (currentState.payment_confirmed && (currentState.fulfillment_choice === 'pickup' || currentState.delivery_requested === true)) {
                 chatMessages.push({
                     role: 'system',
                     content: `🚨🚨🚨 PAGAMENTO JÁ CONFIRMADO PELO SISTEMA (ASAAS) — ESTA REGRA SOBREPOE TODAS AS DEMAIS:\n` +
@@ -1422,7 +1293,7 @@ Deno.serve(async (req) => {
                         type: "function",
                         function: {
                             name: "sell_package",
-                            description: "Vende uma Bag ou um Plano para o cliente, registra no CRM e prepara o fluxo para informar a chave Pix e aguardar o comprovante.",
+                            description: "Vende uma Bag ou um Plano para o cliente, registra no CRM e pergunta a forma de pagamento. Cobranças são geradas por generate_payment_charge; nunca informar chave manual.",
                             parameters: {
                                 type: "object",
                                 properties: {
@@ -1654,70 +1525,13 @@ Deno.serve(async (req) => {
                             }
 
                             if (quoteToApprove) {
-                                const activePickups = await base44.asServiceRole.entities.Pickup.filter({
-                                    customer_id: customer.id,
-                                    status: 'scheduled'
-                                });
-                                const choseStoreDropoff = /(?:levar|deixar).{0,30}loja|loja.{0,30}(?:levar|deixar)/i.test(message.text || '');
-                                // 🚨 REGRA DE OURO DA TAXA (decidida AQUI, nunca pela IA): a referência
-                                // é o TOTAL FINAL DAS PEÇAS (subtotal - desconto). Como o desconto de
-                                // promoção é aplicado pela equipe no pagamento (nunca no orçamento),
-                                // o discount aqui é normalmente 0.
-                                const piecesTotal = Number(quoteToApprove.subtotal ?? quoteToApprove.total ?? 0) - Number(quoteToApprove.discount || 0);
-                                if (piecesTotal > 150) include_delivery_fee = false;
-                                else if ((currentState.delivery_requested || activePickups.length > 0) && !choseStoreDropoff) include_delivery_fee = true;
-
-                                let finalAmount = quoteToApprove.total;
-                                let currentAddition = quoteToApprove.addition || 0;
-                                
-                                if (include_delivery_fee) {
-                                    finalAmount += 15;
-                                    currentAddition += 15;
-                                    await base44.asServiceRole.entities.Quote.update(quoteToApprove.id, { 
-                                        status: 'ACCEPTED',
-                                        addition: currentAddition,
-                                        total: finalAmount
-                                    });
-                                    await Promise.all(activePickups.map((pickup) =>
-                                        base44.asServiceRole.entities.Pickup.update(pickup.id, {
-                                            fee: 15,
-                                            notes: [pickup.notes, 'Taxa fixa de coleta + entrega: R$ 15,00.'].filter(Boolean).join(' ')
-                                        })
-                                    ));
-                                } else {
-                                    await base44.asServiceRole.entities.Quote.update(quoteToApprove.id, { status: 'ACCEPTED' });
-                                }
-
-                                const crmCards = await base44.asServiceRole.entities.CrmCard.filter({ linked_quote_id: quoteToApprove.id });
-                                if (crmCards.length > 0) {
-                                    await base44.asServiceRole.entities.CrmCard.update(crmCards[0].id, { stage: 'Aprovado' });
-                                }
-
-                                await base44.asServiceRole.entities.CrmCard.create({
-                                    pipeline_type: 'PAYMENT',
-                                    stage: 'Aguardando Pix',
-                                    priority: 'HIGH',
-                                    customer_id: customer.id,
-                                    unit_id: activeUnitId,
-                                    linked_quote_id: quoteToApprove.id
-                                });
-
-                                await base44.asServiceRole.entities.Conversation.update(conversation.id, {
-                                    metadata: { ...currentState, flow: 'WAITING_RECEIPT', delivery_requested: include_delivery_fee }
-                                });
-
-                                const nextStepMsg = include_delivery_fee ? "Depois disso puxe o assunto de agendar a coleta." : "Como ele vai levar na loja, agradeça e liste OBRIGATORIAMENTE TODOS OS 5 ENDEREÇOS das nossas lojas em Porto Alegre para ele escolher qual fica melhor.";
-                                chatMessages.push({
-                                    role: "tool",
-                                    tool_call_id: toolCall.id,
-                                    content: JSON.stringify({ success: true, pieces_total: piecesTotal, delivery_fee: include_delivery_fee ? 15 : 0, final_total: finalAmount, message: `Orçamento aprovado no sistema! Total final das peças (sem desconto): R$ ${piecesTotal.toFixed(2)}. Taxa de coleta/entrega: ${include_delivery_fee ? 'R$ 15,00 (total final ≤ R$ 150)' : 'GRÁTIS (total final > R$ 150)'}. Total a cobrar: R$ ${finalAmount.toFixed(2)}.${priceCorrectionNote} OBRIGATÓRIO: pergunte ao cliente se ele prefere pagar por Pix ou cartão de crédito e chame a ferramenta 'generate_payment_charge' para gerar a cobrança real — é PROIBIDO informar chave Pix manual. ${nextStepMsg}` })
-                                });
+                                const activePickups = await base44.asServiceRole.entities.Pickup.filter({ customer_id: customer.id, status: 'scheduled' });
+                                const acceptance = await acceptChatQuote({ base44, quote: quoteToApprove, conversation, currentState, latestText: message.text || '', activePickups });
+                                // Resposta baseada no resultado persistido, sem inventar logística/pagamento.
+                                await invokeSender({ phone: customer.phones[0], message: acceptance.message, conversation_id: conversation.id });
+                                return Response.json({ action: acceptance.success ? 'quote_accepted' : 'quote_needs_confirmation' });
                             } else {
-                                chatMessages.push({
-                                    role: "tool",
-                                    tool_call_id: toolCall.id,
-                                    content: JSON.stringify({ error: "Nenhum orçamento pendente encontrado e nenhum item foi fornecido para criar um novo." })
-                                });
+                                chatMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ error: 'Nenhum orçamento pendente encontrado e nenhum item foi fornecido para criar um novo.' }) });
                             }
                         } catch (e) {
                             console.error("Error approving quote", e);
@@ -1732,7 +1546,7 @@ Deno.serve(async (req) => {
                     if (toolCall.function.name === 'sell_package') {
                         const args = JSON.parse(toolCall.function.arguments);
                         try {
-                            const products = await base44.asServiceRole.entities.Product.filter({ name: args.package_name });
+                            const products = (await base44.asServiceRole.entities.Product.filter({ active: true })).filter((p) => p.name === args.package_name || ((p.category === 'Planos' || p.family === 'Planos') && planLabel(p) === args.package_name));
                             if (products.length === 0) {
                                 chatMessages.push({
                                     role: "tool",
@@ -1758,18 +1572,8 @@ Deno.serve(async (req) => {
                                     linked_order_id: order.id
                                 });
 
-                                await base44.asServiceRole.entities.CrmCard.create({
-                                    pipeline_type: 'PAYMENT',
-                                    stage: 'Aguardando Pix',
-                                    priority: 'HIGH',
-                                    customer_id: customer.id,
-                                    unit_id: activeUnitId,
-                                    linked_order_id: order.id
-                                });
-
-                                await base44.asServiceRole.entities.Conversation.update(conversation.id, {
-                                    metadata: { ...currentState, flow: 'WAITING_RECEIPT' }
-                                });
+                                Object.assign(currentState, { flow: 'AWAITING_PAYMENT_METHOD', active_order_id: order.id, active_quote_id: null, payment_charge: null, payment_method: null, payer_field: null });
+                                await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
 
                                 chatMessages.push({
                                     role: "tool",
@@ -1867,10 +1671,10 @@ Deno.serve(async (req) => {
                         }
                     }
 
-                    const chargeResult = await handlePaymentChargeToolCall({ toolCall, base44, customer });
+                    const chargeResult = await handlePaymentChargeToolCall({ toolCall, base44, customer, conversation, currentState });
                     if (chargeResult) {
-                        chatMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: chargeResult.content });
-                        continue;
+                        await invokeSender({ phone: customer.phones[0], message: chargeResult.customer_message, conversation_id: conversation.id });
+                        return Response.json({ action: 'payment_flow_replied' });
                     }
 
                     if (toolCall.function.name === 'transfer_to_human') {
@@ -2181,7 +1985,7 @@ Deno.serve(async (req) => {
                     detail: 'A IA não gerou texto após o ciclo de ferramentas; aplicado fallback.',
                     excerpt: (message.text || '').slice(0, 300)
                 });
-                aiResponseText = "Desculpe, não entendi sua pergunta. Pode reformular, por favor?";
+                aiResponseText = 'Não consegui concluir esta etapa agora. Você não precisa repetir os dados enviados; se precisar de ajuda da equipe, escreva Atendente.';
             }
 
             // 🚨 PROTEÇÃO ANTI-ALUCINAÇÃO DE AGENDAMENTO:
@@ -2486,7 +2290,7 @@ Deno.serve(async (req) => {
             try {
                 await invokeSender({
                     phone: customer.phones[0],
-                    message: 'Desculpe, não entendi sua pergunta. Pode reformular, por favor?',
+                    message: 'Não consegui concluir esta etapa agora. Você não precisa repetir os dados enviados; se precisar de ajuda da equipe, escreva Atendente.',
                     conversation_id: conversation.id
                 });
             } catch (fallbackError) {

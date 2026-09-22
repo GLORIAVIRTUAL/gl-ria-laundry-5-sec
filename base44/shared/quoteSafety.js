@@ -1,3 +1,5 @@
+import { explicitFulfillment } from './chatQuotePresentation.js';
+
 const normalize = (value = '') => value
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -6,12 +8,15 @@ const normalize = (value = '') => value
 const DELIVERY_TERMS = ['coleta', 'retirar', 'retirem', 'buscar', 'busquem', 'portaria', 'tele', 'tele entrega', 'frete'];
 
 export function detectDeliveryIntent(messages = [], state = {}) {
-  if (state.delivery_requested) return true;
-  return messages.some((message) => {
-    if (message.direction !== 'IN') return false;
-    const text = normalize(message.text || '');
-    return DELIVERY_TERMS.some((term) => text.includes(term));
-  });
+  if (state.fulfillment_choice) return state.fulfillment_choice === 'pickup';
+  if (state.delivery_requested === true) return true;
+  for (const message of [...messages].reverse()) {
+    if (message.direction !== 'IN') continue;
+    if (state.new_quote_started_at && new Date(message.created_date) < new Date(state.new_quote_started_at)) continue;
+    const choice = explicitFulfillment(message.text || '');
+    if (choice) return choice === 'pickup';
+  }
+  return false;
 }
 
 export function isDeliveryPriceQuestion(value = '') {
