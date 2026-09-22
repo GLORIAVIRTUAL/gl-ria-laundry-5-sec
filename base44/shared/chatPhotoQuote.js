@@ -8,7 +8,7 @@ export async function finalizeChatPhotoQuote({ base44, customer, conversation, c
   const total = Math.round(items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0) * 100) / 100;
   const quote = await db.Quote.create({ customer_id: customer.id, unit_id: unitId, origin: 'whatsapp', status: needsReview ? 'HUMAN_REVIEW' : 'SENT', review_deadline_at: new Date(Date.now() + 3600000).toISOString(), items, subtotal: total, total, metadata: { conversation_id: conversation.id, photo_review_required: needsReview } });
   const cards = await db.CrmCard.filter({ pipeline_type: 'QUOTE', customer_id: customer.id, stage: 'Coletando itens' });
-  const cardData = { stage: needsReview ? 'Coletando itens' : 'Enviado ao cliente', linked_quote_id: quote.id, due_at: quote.review_deadline_at };
+  const cardData = { stage: needsReview ? 'Em análise humana' : 'Enviado ao cliente', linked_quote_id: quote.id, due_at: quote.review_deadline_at };
   if (cards[0]) await db.CrmCard.update(cards[0].id, cardData);
   else await db.CrmCard.create({ ...cardData, pipeline_type: 'QUOTE', priority: 'HIGH', customer_id: customer.id, unit_id: unitId });
   Object.assign(currentState, { active_quote_id: quote.id, flow: needsReview ? 'HANDOFF_QUOTE_REVIEW' : 'AWAITING_QUOTE_APPROVAL', temp_items: items });
