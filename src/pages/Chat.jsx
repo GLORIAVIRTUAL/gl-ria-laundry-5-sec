@@ -111,6 +111,8 @@ export default function Chat() {
                setCustomers(prev => ({ ...prev, [customerId]: cust }));
           }
           
+          await loadMessages(targetConv);
+          activeConvIdRef.current = targetConv.id;
           setActiveConversation(targetConv);
       } catch (err) {
           console.error("Error init chat:", err);
@@ -225,6 +227,9 @@ export default function Chat() {
 
        // Cliente novo pode não estar no mapa carregado — busca o nome real do WhatsApp
        ensureCustomerLoaded(event.data.customer_id);
+       setActiveConversation(prev => prev?.id === event.data.id
+         ? { ...prev, ...event.data, related_conv_ids: prev.related_conv_ids }
+         : prev);
 
        setConversations(prev => {
          // Find by direct id OR by related_conv_ids (unified contact)

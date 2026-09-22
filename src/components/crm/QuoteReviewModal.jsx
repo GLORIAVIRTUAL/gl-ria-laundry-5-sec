@@ -143,18 +143,19 @@ export default function QuoteReviewModal({ isOpen, onClose, card, customer }) {
         priority: 'MEDIUM',
       });
 
+      const formatCurrency = (value) => Number(value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const pricedItems = updatedQuote?.items || items;
-      const itemsList = pricedItems.map(i => `• ${i.qty ?? 1}x ${i.garment_type}: R$ ${Number(i.unit_price || 0).toFixed(2)}`).join('\n');
-      let breakdown = `Subtotal: R$ ${Number(updatedQuote?.subtotal || 0).toFixed(2)}`;
-      if (Number(updatedQuote?.discount || 0) > 0) breakdown += `\nDesconto: R$ ${Number(updatedQuote.discount).toFixed(2)}`;
-      if (Number(updatedQuote?.addition || 0) > 0) breakdown += `\nAcréscimo: R$ ${Number(updatedQuote.addition).toFixed(2)}`;
+      const itemsList = pricedItems.map(i => `• ${i.qty ?? 1}x ${i.garment_type}: R$ ${formatCurrency(i.unit_price)}`).join('\n');
+      let breakdown = `Subtotal: R$ ${formatCurrency(updatedQuote?.subtotal)}`;
+      if (Number(updatedQuote?.discount || 0) > 0) breakdown += `\nDesconto: R$ ${formatCurrency(updatedQuote.discount)}`;
+      if (Number(updatedQuote?.addition || 0) > 0) breakdown += `\nAcréscimo: R$ ${formatCurrency(updatedQuote.addition)}`;
 
       const message = `Olá ${customer.full_name}! Seu orçamento está pronto:
 
 ${itemsList}
 
 ${breakdown}
-*Total: R$ ${Number(updatedQuote?.total || 0).toFixed(2)}*
+*Total: R$ ${formatCurrency(updatedQuote?.total)}*
 
 ${customMessage ? `${customMessage}\n\n` : ''}Para aprovar, responda "Aprovar".`;
 

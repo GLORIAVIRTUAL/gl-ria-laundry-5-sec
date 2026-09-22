@@ -495,10 +495,10 @@ export default function AdvancedQuoteModal({ isOpen, onClose, pipeline, stage, u
             </div>
             <div className="hidden items-center gap-2 sm:flex">
                 {[1, 2, 3, 4].map((number, index) => (
-                    <React.Fragment key={number}>
+                    <div className="contents" key={number}>
                         {index > 0 && <div className={`h-0.5 w-8 ${step >= number ? 'bg-[#FF6600]' : 'bg-gray-600'}`} />}
                         <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${step >= number ? 'bg-[#FF6600] text-white' : 'bg-gray-700 text-gray-400'}`}>{number}</div>
-                    </React.Fragment>
+                    </div>
                 ))}
             </div>
         </div>

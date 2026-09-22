@@ -175,6 +175,22 @@ Deno.serve(async (req) => {
       const validUntil = body.valid_until || quote.valid_until || new Date(Date.now() + 7 * 86400000).toISOString();
       const updated = await base44.asServiceRole.entities.Quote.update(quote.id, { status: 'SENT', sent_at: now, issued_at: quote.issued_at || now, valid_until: validUntil, status_reason: 'quote_sent' });
       const version = await createVersion(base44, updated, user, 'sent', 'Orçamento enviado ao cliente', requestId);
+      const conversationId = updated.metadata?.conversation_id;
+      if (conversationId) {
+        const conversation = await base44.asServiceRole.entities.Conversation.get(conversationId).catch(() => null);
+        if (conversation) {
+          await base44.asServiceRole.entities.Conversation.update(conversation.id, {
+            handoff_required: false,
+            metadata: {
+              ...(conversation.metadata || {}),
+              active_quote_id: updated.id,
+              flow: 'AWAITING_QUOTE_APPROVAL',
+              step: 'AWAITING_QUOTE_APPROVAL',
+              ai_resumed_at: now,
+            },
+          });
+        }
+      }
       return Response.json({ quote: { ...updated, current_version_id: version.id }, quote_version: version, request_id: requestId });
     }
 
