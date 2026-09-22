@@ -126,19 +126,39 @@ export const geminiChat = async ({ model, temperature, messages, tools, response
     if (responseJson && !geminiTools) body.generationConfig.responseMimeType = 'application/json';
 
     const url = `${API_BASE}/${model || DEFAULT_GEMINI_MODEL}:generateContent?key=${apiKey()}`;
-    const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    });
-
-    if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Gemini API error ${res.status}: ${errText.slice(0, 500)}`);
-    }
-
-    const data = await res.json();
+    const data = await fetchGeminiWithRetry(url, body);
     return { choices: [{ message: extractMessage(data) }] };
+};
+
+// Timeout por chamada + UMA retentativa apenas para erros transitórios (429/5xx/timeout),
+// com backoff e jitter. Erros permanentes (4xx) não são repetidos.
+const GEMINI_TIMEOUT_MS = 45_000;
+const TRANSIENT_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+const fetchGeminiWithRetry = async (url, body, attempt = 0) => {
+    let res;
+    try {
+        res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS)
+        });
+    } catch (error) {
+        if (attempt === 0) {
+            console.warn(JSON.stringify({ stage: 'llm_retry', reason: error?.name || 'network_error', attempt: attempt + 1 }));
+            await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 700));
+            return fetchGeminiWithRetry(url, body, attempt + 1);
+        }
+        throw new Error(`Gemini API unreachable (${error?.name || 'network_error'})`);
+    }
+    if (res.ok) return res.json();
+    const errText = await res.text();
+    if (attempt === 0 && TRANSIENT_STATUS.has(res.status)) {
+        console.warn(JSON.stringify({ stage: 'llm_retry', reason: `http_${res.status}`, attempt: attempt + 1 }));
+        await new Promise((resolve) => setTimeout(resolve, 800 + Math.random() * 700));
+        return fetchGeminiWithRetry(url, body, attempt + 1);
+    }
+    throw new Error(`Gemini API error ${res.status}: ${errText.slice(0, 500)}`);
 };
 
 // Cliente com a mesma assinatura usada antes (openai.chat.completions.create).

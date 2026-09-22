@@ -6,8 +6,10 @@ import { hasRecentHumanReply } from '../../shared/humanActivity.js';
 import { canonicalPhone } from '../../shared/customerPhone.js';
 import { CUSTOMER_SOURCES, ensureCustomerSourceCard } from '../../shared/customerSource.js';
 import { findCustomerByChannelId } from '../../shared/channelCustomer.js';
+import { newTraceId, traceLog } from '../../shared/chatTurnGuard.js';
 
 Deno.serve(async (req) => {
+    const traceId = newTraceId();
     // Helper: mantém o trabalho em background VIVO após o retorno do 200.
     // Sem isto, o runtime encerra a função assim que respondemos e o debounce/
     // orchestrator são MORTOS antes de rodar — causa real da resposta só sair no
@@ -36,8 +38,7 @@ Deno.serve(async (req) => {
             }
         }
         
-        console.log("Webhook received payload keys:", JSON.stringify(Object.keys(payload)));
-        console.log('Webhook message received.', { has_message_id: Boolean(payload.messageId), from_me: Boolean(payload.fromMe) });
+        traceLog('inbound_received', { trace_id: traceId, provider_message_id: payload.messageId || null, from_me: Boolean(payload.fromMe), payload_keys: Object.keys(payload) });
         
         // Basic validation of Z-API payload
         if (!payload.phone || !payload.messageId) {
@@ -103,8 +104,8 @@ Deno.serve(async (req) => {
         });
 
         if (duplicate) {
-            console.log("Duplicate webhook detected (messageId already exists):", payload.messageId);
-            return Response.json({ status: "ignored_duplicate" });
+            traceLog('message_deduplicated', { trace_id: traceId, provider_message_id: payload.messageId, existing_message_id: duplicate.id, existing_trace_id: duplicate.trace_id || null });
+            return Response.json({ status: "ignored_duplicate", trace_id: traceId });
         }
 
         // If it's NOT a duplicate and it is 'fromMe', it means it was sent from the Phone/Web directly
@@ -476,7 +477,9 @@ Deno.serve(async (req) => {
             text: text,
             raw_payload: payload, // Store raw for debugging
             media_file_id: mediaUrl, // Set initial URL (external) so it shows up immediately
+            trace_id: traceId,
         });
+        traceLog('message_persisted', { trace_id: traceId, message_id: message.id, conversation_id: conversation.id, customer_id: customer.id, type });
 
         // Update conversation reference
         await base44.asServiceRole.entities.Conversation.update(conversation.id, {
@@ -597,7 +600,8 @@ Deno.serve(async (req) => {
         // 'aiReplyTrigger' assume o debounce e chama a Glória em seu próprio ciclo.
         if (!payload.fromMe && (type === 'IMAGE' || type === 'TEXT' || type === 'AUDIO' || type === 'DOC')) {
             await base44.asServiceRole.entities.Message.update(message.id, { ai_pending: true });
-            return Response.json({ status: "success", messageId: message.id, note: "ai_queued" });
+            traceLog('ai_queued', { trace_id: traceId, message_id: message.id, conversation_id: conversation.id });
+            return Response.json({ status: "success", messageId: message.id, note: "ai_queued", trace_id: traceId });
         }
 
         // Para outros tipos (ex: fromMe), dispara orchestrator direto em background.
@@ -608,6 +612,7 @@ Deno.serve(async (req) => {
                 customer_id: customer.id,
                 payload: payload,
                 downloaded_file_url: downloadedFileUrl,
+                trace_id: traceId,
                 _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
             }).catch((orchError) => {
                 console.error("Orchestrator failed (background):", orchError);
@@ -617,7 +622,7 @@ Deno.serve(async (req) => {
         return Response.json({ status: "success", messageId: message.id });
 
     } catch (error) {
-        console.error("Error in zapi_webhook_receiver:", error?.code || error?.message || error);
+        console.error("Error in zapi_webhook_receiver:", { trace_id: traceId, code: error?.code, message: error?.message || String(error) });
         return securityErrorResponse(error);
     }
 });

@@ -24,6 +24,7 @@ import { buildMainPrompt } from '../../shared/gloriaPrompt.js';
 import { loadIroningSettings, IRONING_RULE } from '../../shared/ironingSettings.js';
 import { shouldIncludeInAiHistory } from '../../shared/messageOrigin.js';
 import { findNextEncaixeSlot, formatEncaixeDate } from '../../shared/encaixeScheduler.js';
+import { acquireConversationLock, releaseConversationLock, idempotentWrite, traceLog } from '../../shared/chatTurnGuard.js';
 // Handoffs automáticos de disparo/campanha nunca bloqueiam a IA (ver dispatchReplyPolicy).
 
 const normalizeText = (value = '') => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -118,16 +119,26 @@ Deno.serve(async (req) => {
     let customer = null;
     let senderFn = 'zapi_sender';
     let invokeSender = null;
+    let traceId = requestId;
+    let lockHeld = false;
+    // Chave de idempotência por turno: mesma conversa + mesma mensagem nunca gravam duas vezes.
+    let turnKey = (op) => `turn:${requestId}:${op}`;
 
     try {
         if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed', request_id: requestId }, { status: 405 });
         base44 = createClientFromRequest(req);
         const inputBody = await req.json();
         requireInternalRequest(req, inputBody);
-        invokeSender = (payload) => base44.asServiceRole.functions.invoke(senderFn, {
-            ...payload,
-            _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
-        });
+        if (inputBody.trace_id) traceId = inputBody.trace_id;
+        invokeSender = async (payload) => {
+            const sent = await base44.asServiceRole.functions.invoke(senderFn, {
+                ...payload,
+                trace_id: traceId,
+                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
+            });
+            traceLog('outbound_sent', { trace_id: traceId, conversation_id: payload.conversation_id, sender: senderFn, type: payload.type || 'TEXT', out_message_id: sent?.data?.id || null });
+            return sent;
+        };
         
         const updateNewCustomerStage = async (customerId, newStage) => {
             const cards = await base44.asServiceRole.entities.CrmCard.filter({ 
@@ -184,6 +195,8 @@ Deno.serve(async (req) => {
                 const r = await base44.asServiceRole.functions.invoke('schedulePickupTool', {
                     ...pp,
                     customer_id: customer.id,
+                    idempotency_key: turnKey('pickup_create'),
+                    trace_id: traceId,
                     _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 });
                 if (r.data?.success) {
@@ -207,9 +220,20 @@ Deno.serve(async (req) => {
         // caminho (gatilho da IA + rede de segurança). Sem esta trava a Glória responde
         // duas vezes a mesma pergunta.
         if (message.ai_answered) {
+            traceLog('turn_already_answered', { trace_id: traceId, message_id: message.id });
             return Response.json({ status: "already_answered" });
         }
         await base44.asServiceRole.entities.Message.update(message.id, { ai_answered: true });
+        if (message.trace_id && !inputBody.trace_id) traceId = message.trace_id;
+        turnKey = (op) => `${conversation.id}:${message.id}:${op}`;
+
+        // TRAVA POR CONVERSA: dois turnos da mesma conversa nunca rodam em paralelo
+        // (rajada + rede de segurança). Após a trava, recarrega o estado mais recente.
+        const lock = await acquireConversationLock(base44, conversation.id, traceId);
+        lockHeld = lock.acquired;
+        if (lock.conversation) conversation = lock.conversation;
+        traceLog(lock.acquired ? 'conversation_locked' : 'conversation_lock_timeout', { trace_id: traceId, conversation_id: conversation.id, message_id: message.id, waited_ms: lock.waited_ms });
+        traceLog('state_loaded', { trace_id: traceId, conversation_id: conversation.id, flow: conversation.metadata?.flow || null, step: conversation.metadata?.step || null, handoff_required: Boolean(conversation.handoff_required) });
 
         if (message.type === 'AUDIO' && !message.text) {
             let audioUrl = downloaded_file_url || message.media_file_id || (payload.audio && payload.audio.audioUrl);
@@ -314,13 +338,13 @@ Deno.serve(async (req) => {
             await Promise.all(staleCollectingCards.map((card) =>
                 base44.asServiceRole.entities.CrmCard.update(card.id, { stage: 'Expirado' })
             ));
-            await base44.asServiceRole.entities.CrmCard.create({
+            await idempotentWrite(base44, { key: turnKey('crm_card_new_quote'), entityType: 'CrmCard', unitId: activeUnitId, traceId, run: () => base44.asServiceRole.entities.CrmCard.create({
                 pipeline_type: 'QUOTE',
                 stage: 'Coletando itens',
                 priority: 'MEDIUM',
                 customer_id: customer.id,
                 unit_id: activeUnitId
-            });
+            }) });
             Object.assign(currentState, {
                 flow: 'TEXT_QUOTE',
                 step: 'COLLECTING_ITEMS_TEXT',
@@ -501,25 +525,25 @@ Deno.serve(async (req) => {
 
             if (isCardFromPreviousDay) {
                 await base44.asServiceRole.entities.CrmCard.update(latestCollectingCard.id, { stage: 'Expirado' });
-                await base44.asServiceRole.entities.CrmCard.create({
+                await idempotentWrite(base44, { key: turnKey('crm_card_quote_renew'), entityType: 'CrmCard', unitId: activeUnitId, traceId, run: () => base44.asServiceRole.entities.CrmCard.create({
                     pipeline_type: 'QUOTE',
                     stage: 'Coletando itens',
                     priority: 'MEDIUM',
                     customer_id: customer.id,
                     unit_id: activeUnitId
-                });
+                }) });
                 currentState.flow = 'QUOTE';
                 currentState.step = 'COLLECTING_IMAGES';
                 currentState.temp_items = [];
                 await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
             } else if (!latestCollectingCard && currentState.flow === 'QUOTE') {
-                await base44.asServiceRole.entities.CrmCard.create({
+                await idempotentWrite(base44, { key: turnKey('crm_card_quote_collecting'), entityType: 'CrmCard', unitId: activeUnitId, traceId, run: () => base44.asServiceRole.entities.CrmCard.create({
                     pipeline_type: 'QUOTE',
                     stage: 'Coletando itens',
                     priority: 'MEDIUM',
                     customer_id: customer.id,
                     unit_id: activeUnitId
-                });
+                }) });
             }
         }
 
@@ -539,13 +563,13 @@ Deno.serve(async (req) => {
                 stage: 'Coletando itens'
             });
             if (existingQuoteCards.length === 0) {
-                await base44.asServiceRole.entities.CrmCard.create({
+                await idempotentWrite(base44, { key: turnKey('crm_card_quote_start'), entityType: 'CrmCard', unitId: activeUnitId, traceId, run: () => base44.asServiceRole.entities.CrmCard.create({
                     pipeline_type: 'QUOTE',
                     stage: 'Coletando itens',
                     priority: 'MEDIUM',
                     customer_id: customer.id,
                     unit_id: activeUnitId
-                });
+                }) });
             }
         }
 
@@ -882,7 +906,7 @@ Deno.serve(async (req) => {
                         for (const op of oldPickups) await base44.asServiceRole.entities.Pickup.update(op.id, { status: 'cancelled' });
 
                         const fullAddress = `${customerRecord.address}, ${customerRecord.address_number}${customerRecord.address_complement ? `, ${customerRecord.address_complement}` : ''}${customerRecord.neighborhood ? ` — ${customerRecord.neighborhood}` : ''}`;
-                        await base44.asServiceRole.entities.Pickup.create({
+                        await idempotentWrite(base44, { key: turnKey('pickup_create'), entityType: 'Pickup', unitId: currentState.unit_id || activeUnitId, traceId, run: () => base44.asServiceRole.entities.Pickup.create({
                             customer_id: customer.id,
                             unit_id: currentState.unit_id || '6a99e42ee48200f5d8ddd176',
                             scheduled_at: encaixe.slotIso,
@@ -893,8 +917,8 @@ Deno.serve(async (req) => {
                             notes: 'ENCAIXE — pagamento antecipado via Pix confirmado',
                             source: 'ai',
                             created_by_name: 'Glória (IA)',
-                            metadata: { encaixe: true, payment_confirmed: true }
-                        });
+                            metadata: { encaixe: true, payment_confirmed: true, trace_id: traceId }
+                        }) });
                         currentState.payment_confirmed = false;
                         currentState.flow = null;
                         currentState.pending_pickup = null;
@@ -1388,6 +1412,8 @@ Deno.serve(async (req) => {
                 ];
 
             const { model: AI_MODEL, temperature: AI_TEMP } = await getAiSettings(base44);
+            traceLog('llm_started', { trace_id: traceId, model: AI_MODEL, temperature: AI_TEMP, history_messages: history.length, tools: aiTools.length });
+            const llmStartedAt = Date.now();
             const completion = await openai.chat.completions.create({
                 model: AI_MODEL, temperature: AI_TEMP,
                 messages: chatMessages,
@@ -1396,6 +1422,7 @@ Deno.serve(async (req) => {
 
             let aiResponseText = completion.choices[0].message.content;
             const responseMessage = completion.choices[0].message;
+            traceLog('llm_finished', { trace_id: traceId, model: AI_MODEL, latency_ms: Date.now() - llmStartedAt, tool_calls: (responseMessage.tool_calls || []).map((call) => call.function.name), has_text: Boolean(aiResponseText) });
 
             let pickupScheduledOk = false;
             let availabilityChecked = false;
@@ -1406,6 +1433,7 @@ Deno.serve(async (req) => {
                 chatMessages.push(responseMessage);
                 
                 for (const toolCall of responseMessage.tool_calls) {
+                    traceLog('tool_started', { trace_id: traceId, tool: toolCall.function.name });
                     const promotionResult = await handlePromotionToolCall({
                         toolCall, base44, customer, conversation, currentState, activePromotions, activeUnitId, isMoinhos
                     });
@@ -1514,16 +1542,17 @@ Deno.serve(async (req) => {
                                         excerpt: JSON.stringify(items).slice(0, 400)
                                     });
                                 }
-                                quoteToApprove = await base44.asServiceRole.entities.Quote.create({
+                                quoteToApprove = (await idempotentWrite(base44, { key: turnKey('quote_create'), entityType: 'Quote', unitId: activeUnitId, traceId, run: () => base44.asServiceRole.entities.Quote.create({
                                     customer_id: customer.id,
                                     unit_id: activeUnitId,
                                     status: 'SENT',
                                     items: pricedItems,
                                     subtotal: pricedQuote.subtotal,
-                                    total: pricedQuote.subtotal
-                                });
+                                    total: pricedQuote.subtotal,
+                                    metadata: { conversation_id: conversation.id, trace_id: traceId }
+                                }) })).record;
                                 
-                                await base44.asServiceRole.entities.CrmCard.create({
+                                await idempotentWrite(base44, { key: turnKey('crm_card_quote_sent'), entityType: 'CrmCard', unitId: activeUnitId, traceId, run: () => base44.asServiceRole.entities.CrmCard.create({
                                     pipeline_type: 'QUOTE',
                                     stage: 'Enviado ao cliente',
                                     priority: 'HIGH',
@@ -1531,7 +1560,7 @@ Deno.serve(async (req) => {
                                     unit_id: activeUnitId,
                                     linked_quote_id: quoteToApprove.id,
                                     due_at: new Date(Date.now() + 60 * 60 * 1000).toISOString()
-                                });
+                                }) });
                             }
 
                             if (quoteToApprove) {
@@ -1566,21 +1595,22 @@ Deno.serve(async (req) => {
                             } else {
                                 const product = products[0];
                                 
-                                const order = await base44.asServiceRole.entities.Order.create({
+                                const order = (await idempotentWrite(base44, { key: turnKey('order_create'), entityType: 'Order', unitId: activeUnitId, traceId, run: () => base44.asServiceRole.entities.Order.create({
                                     customer_id: customer.id,
                                     unit_id: activeUnitId,
                                     status: 'pending',
-                                    total_amount: product.price
-                                });
+                                    total_amount: product.price,
+                                    metadata: { conversation_id: conversation.id, trace_id: traceId, package_name: product.name }
+                                }) })).record;
                                 
-                                await base44.asServiceRole.entities.CrmCard.create({
+                                await idempotentWrite(base44, { key: turnKey('crm_card_order'), entityType: 'CrmCard', unitId: activeUnitId, traceId, run: () => base44.asServiceRole.entities.CrmCard.create({
                                     pipeline_type: product.family === 'Planos' ? 'PLAN' : 'ORDER',
                                     stage: product.family === 'Planos' ? 'Oferta enviada' : 'Recebido',
                                     priority: 'HIGH',
                                     customer_id: customer.id,
                                     unit_id: activeUnitId,
                                     linked_order_id: order.id
-                                });
+                                }) });
 
                                 Object.assign(currentState, { flow: 'AWAITING_PAYMENT_METHOD', active_order_id: order.id, active_quote_id: null, payment_charge: null, payment_method: null, payer_field: null });
                                 await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
@@ -1916,15 +1946,17 @@ Deno.serve(async (req) => {
 
                             if (selectedSlot) {
                                 const finalDate = getPickupSlotIso(args.date, selectedSlot);
-                                await base44.asServiceRole.entities.Pickup.create({
+                                await idempotentWrite(base44, { key: turnKey('pickup_create'), entityType: 'Pickup', unitId: activeUnitId, traceId, run: () => base44.asServiceRole.entities.Pickup.create({
                                     customer_id: customer.id,
+                                    unit_id: activeUnitId,
                                     scheduled_at: finalDate,
                                     status: 'scheduled',
                                     address: args.address,
                                     notes: args.notes || '',
                                     source: 'ai',
-                                    created_by_name: 'Glória (IA)'
-                                });
+                                    created_by_name: 'Glória (IA)',
+                                    metadata: { trace_id: traceId }
+                                }) });
                                 
                                 const shiftInfo = args.period === 'morning' ? `(turno manhã) das ${schedule.isSaturday ? '9h' : '8h'} às 12h` : '(turno tarde) das 13h às 16h';
                                 pickupScheduledOk = true;
@@ -2032,6 +2064,8 @@ Deno.serve(async (req) => {
                         const r = await base44.asServiceRole.functions.invoke('schedulePickupTool', {
                             ...JSON.parse(scheduleCall.function.arguments),
                             customer_id: customer.id,
+                            idempotency_key: turnKey('pickup_create'),
+                            trace_id: traceId,
                             _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                         });
                         if (r.data?.success) pickupScheduledOk = true;
@@ -2287,7 +2321,7 @@ Deno.serve(async (req) => {
 
     } catch (error) {
         if (error?.name === 'SecurityError') return securityErrorResponse(error, requestId);
-        console.error("Error in orchestrator:", error);
+        console.error("Error in orchestrator:", { trace_id: traceId, message: error?.message || String(error) });
         if (base44 && conversation?.id) {
             try { await logGuardEvent(base44, { guard: 'orchestrator_error', conversation_id: conversation.id, customer_name: customer?.full_name, detail: `Falha na execução da IA: ${error?.message || error}`, excerpt: String(error?.stack || '').slice(0, 400) }); } catch { /* nunca bloqueia o fallback */ }
         }
@@ -2308,6 +2342,11 @@ Deno.serve(async (req) => {
             }
         }
 
-        return Response.json({ error: error.message }, { status: 500 });
+        return Response.json({ error: error.message, trace_id: traceId }, { status: 500 });
+    } finally {
+        if (lockHeld && base44 && conversation?.id) {
+            await releaseConversationLock(base44, conversation.id, traceId).catch(() => {});
+            traceLog('conversation_unlocked', { trace_id: traceId, conversation_id: conversation.id });
+        }
     }
 });

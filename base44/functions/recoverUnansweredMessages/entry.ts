@@ -1,5 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
+import { logGuardEvent } from '../../shared/guardTelemetry.js';
+import { traceLog } from '../../shared/chatTurnGuard.js';
 
 // ============================================================================
 // REDE DE SEGURANÇA: recupera mensagens de clientes que ficaram SEM resposta.
@@ -65,17 +67,26 @@ Deno.serve(async (req) => {
             const customer = await base44.asServiceRole.entities.Customer.get(conv.customer_id).catch(() => null);
             if (!customer) continue;
 
+            // Alerta obrigatório do guia: conversa recebida sem resposta após o prazo.
+            await logGuardEvent(base44, {
+                guard: 'unanswered_message_recovered',
+                conversation_id: conv.id,
+                customer_name: customer.full_name,
+                detail: `Mensagem do cliente ficou ${Math.round(lastMsgAge / 1000)}s sem resposta; recuperação automática acionada. trace_id=${last.trace_id || 'n/a'}`,
+                excerpt: (last.text || '').slice(0, 300)
+            });
             try {
+                traceLog('recovery_started', { trace_id: last.trace_id || null, message_id: last.id, conversation_id: conv.id, unanswered_ms: lastMsgAge });
                 await base44.asServiceRole.functions.invoke('orchestrator', {
                     conversation_id: conv.id,
                     message_id: last.id,
                     customer_id: customer.id,
                     payload: last.raw_payload || { text: { message: last.text || '' } },
                     downloaded_file_url: null,
+                    trace_id: last.trace_id || null,
                     _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 });
-                recovered.push({ conversation_id: conv.id, message_id: last.id });
-                console.log(`Recovered unanswered message ${last.id} in conversation ${conv.id}`);
+                recovered.push({ conversation_id: conv.id, message_id: last.id, trace_id: last.trace_id || null });
             } catch (err) {
                 console.error(`Failed to recover conversation ${conv.id}:`, err.message);
             }

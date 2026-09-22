@@ -50,6 +50,10 @@
       "type": "boolean",
       "default": false,
       "description": "Trava de idempot\u00eancia: marcado quando a IA j\u00e1 processou esta mensagem. Impede resposta duplicada."
+    },
+    "trace_id": {
+      "type": "string",
+      "description": "Identificador de correla\u00e7\u00e3o do turno (webhook \u2192 gatilho \u2192 orquestrador \u2192 envio). Respostas OUT carregam o trace_id da mensagem IN que as originou."
     }
   },
   "required": [

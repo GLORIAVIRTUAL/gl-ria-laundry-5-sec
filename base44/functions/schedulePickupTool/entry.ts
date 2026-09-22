@@ -1,6 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 import { getPickupDateRange, getPickupLocalHour, getPickupScheduleForDate, getPickupSlotIso } from '../../shared/pickupSchedule.js';
 import { requireInternalRequest, securityErrorResponse } from '../../shared/functionSecurity.js';
+import { idempotentWrite } from '../../shared/chatTurnGuard.js';
 
 // Cria de fato uma coleta (Pickup) no calendário. Reutilizada pela proteção anti-alucinação
 // do orchestrator para garantir que toda confirmação de coleta gere um registro real.
@@ -10,7 +11,7 @@ Deno.serve(async (req) => {
         const base44 = createClientFromRequest(req);
         const body = await req.json();
         requireInternalRequest(req, body);
-        const { date, period, address, notes, customer_id, weekday } = body;
+        const { date, period, address, notes, customer_id, weekday, idempotency_key = null, trace_id = null } = body;
         if (!date || !period || !customer_id) {
             return Response.json({ error: 'Faltam dados (date, period, customer_id).' }, { status: 400 });
         }
@@ -108,7 +109,7 @@ Deno.serve(async (req) => {
         }
 
         const finalDate = getPickupSlotIso(date, selectedSlot);
-        await base44.asServiceRole.entities.Pickup.create({
+        const createPickup = () => base44.asServiceRole.entities.Pickup.create({
             customer_id,
             unit_id: customer?.unit_id,
             scheduled_at: finalDate,
@@ -118,6 +119,12 @@ Deno.serve(async (req) => {
             source: 'ai',
             created_by_name: 'Glória (IA)'
         });
+        // Idempotência: a mesma chave (conversa+mensagem) nunca cria duas coletas.
+        if (idempotency_key) {
+            await idempotentWrite(base44, { key: idempotency_key, entityType: 'Pickup', unitId: customer?.unit_id, traceId: trace_id, run: createPickup });
+        } else {
+            await createPickup();
+        }
 
         const shiftInfo = period === 'morning' ? `(turno manhã) das ${schedule.isSaturday ? '9h' : '8h'} às 12h` : '(turno tarde) das 13h às 16h';
         const [yy, mm, dd] = date.split('-');

@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
             roles: ['super_admin', 'admin', 'manager', 'attendant', 'cashier', 'finance'],
             source: 'zapi_sender',
         });
-        const { phone, message, type = 'TEXT', mediaUrl, conversation_id, customer_id, unit_id, buttons = [], optionList = null, sent_by = null } = body;
+        const { phone, message, type = 'TEXT', mediaUrl, conversation_id, customer_id, unit_id, buttons = [], optionList = null, sent_by = null, trace_id = null } = body;
 
         // SEGURANÇA: nunca enviar para um ID de grupo de WhatsApp.
         // Grupos têm formato "...@g.us", terminam em "-group" ou contêm "-" no id.
@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
         // 3. Enviar à Z-API sem registrar URL com token nem conteúdo/telefone do cliente.
         let zapiResponseData = null;
         {
-            console.log('Sending via Z-API', { type, has_conversation: Boolean(finalConversationId), unit_id: targetUnitId });
+            console.log(JSON.stringify({ stage: 'outbound_sending', at: new Date().toISOString(), trace_id, type, conversation_id: finalConversationId, unit_id: targetUnitId }));
 
             const sendRequest = async (url, requestPayload) => {
                 const response = await fetch(url, {
@@ -182,8 +182,10 @@ Deno.serve(async (req) => {
                 text: message || (type === 'IMAGE' ? 'Imagem enviada' : 'Áudio enviado'),
                 media_file_id: mediaUrl,
                 sent_by: sent_by || null,
-                raw_payload: zapiResponseData
+                raw_payload: zapiResponseData,
+                trace_id: trace_id || undefined
              });
+            console.log(JSON.stringify({ stage: 'outbound_acknowledged', at: new Date().toISOString(), trace_id, message_id: newMessage.id, provider_message_id: zapiResponseData?.messageId || zapiResponseData?.zaapId || null }));
             
             await base44.asServiceRole.entities.Conversation.update(finalConversationId, {
                 last_message_at: new Date().toISOString(),

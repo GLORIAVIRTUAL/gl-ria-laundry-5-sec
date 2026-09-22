@@ -1,6 +1,7 @@
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 import { hasRecentHumanReply } from '../../shared/humanActivity.js';
 import { requireInternalRequest, securityErrorResponse } from '../../shared/functionSecurity.js';
+import { traceLog } from '../../shared/chatTurnGuard.js';
 
 // ============================================================================
 // GATILHO DA IA (automação de entidade em Message).
@@ -29,6 +30,8 @@ Deno.serve(async (req) => {
 
     // Consome a marca imediatamente (evita disparo duplicado).
     await base44.asServiceRole.entities.Message.update(message.id, { ai_pending: false });
+    const traceId = message.trace_id || requestId;
+    traceLog('queue_started', { trace_id: traceId, message_id: message.id, conversation_id: message.conversation_id, request_id: requestId });
 
     // Janela curta para agrupar rajadas de mensagens do cliente (mantida baixa
     // para a Glória responder em segundos).
@@ -49,7 +52,8 @@ Deno.serve(async (req) => {
         3
     );
     if (inMessages[0] && inMessages[0].id !== message.id) {
-        return Response.json({ status: 'superseded_by_newer' });
+        traceLog('superseded_by_newer', { trace_id: traceId, message_id: message.id, newer_message_id: inMessages[0].id });
+        return Response.json({ status: 'superseded_by_newer', trace_id: traceId });
     }
 
     const source = message.ai_source || (conversation.metadata || {}).source || null;
@@ -57,6 +61,7 @@ Deno.serve(async (req) => {
         conversation_id: conversation.id,
         message_id: message.id,
         payload: source ? { source } : {},
+        trace_id: traceId,
         _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
     };
 
@@ -81,6 +86,7 @@ Deno.serve(async (req) => {
         source,
         payload: source ? { ...(message.raw_payload || {}), source } : (message.raw_payload || { text: { message: message.text || '' } }),
         downloaded_file_url: null,
+        trace_id: traceId,
         _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
     };
 
@@ -91,7 +97,7 @@ Deno.serve(async (req) => {
     try {
         result = await base44.asServiceRole.functions.invoke('orchestrator', args);
     } catch (firstError) {
-        console.warn('Orchestrator falhou na 1ª tentativa, repetindo imediatamente:', firstError?.message);
+        traceLog('orchestrator_retry', { trace_id: traceId, message_id: message.id, error: firstError?.message });
         result = await base44.asServiceRole.functions.invoke('orchestrator', args);
     }
 
