@@ -236,6 +236,13 @@ Deno.serve(async (req) => {
         lockHeld = lock.acquired;
         if (lock.conversation) conversation = lock.conversation;
         traceLog(lock.acquired ? 'conversation_locked' : 'conversation_lock_timeout', { trace_id: traceId, conversation_id: conversation.id, message_id: message.id, waited_ms: lock.waited_ms });
+        // Sem a trava, outro turno DESTA conversa ainda está rodando: responder agora
+        // geraria duas respostas para o mesmo contexto. Abandonamos este turno — a rede
+        // de segurança (recoverUnansweredMessages) reprocessa se ficar sem resposta.
+        if (!lock.acquired) {
+            await base44.asServiceRole.entities.Message.update(message.id, { ai_answered: false }).catch(() => {});
+            return Response.json({ status: 'lock_timeout', trace_id: traceId });
+        }
         traceLog('state_loaded', { trace_id: traceId, conversation_id: conversation.id, flow: conversation.metadata?.flow || null, step: conversation.metadata?.step || null, handoff_required: Boolean(conversation.handoff_required) });
 
         if (message.type === 'AUDIO' && !message.text) {
@@ -2349,7 +2356,7 @@ Deno.serve(async (req) => {
                 await invokeSender(interactivePayload);
             }
 
-            traceLog('turn_finished', { trace_id: traceId, conversation_id: conversation.id, message_id: message.id, total_ms: Date.now() - turnStartedAt, action: 'chatgpt_replied', pickup_scheduled: pickupScheduledOk });
+            traceLog('turn_finished', { trace_id: traceId, conversation_id: conversation.id, message_id: message.id, total_ms: Date.now() - turnStartedAt, action: 'chatgpt_replied' });
             return Response.json({ action: "chatgpt_replied" });
         }
 
