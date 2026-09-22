@@ -1,0 +1,44 @@
+{
+  "description": "A cada hora, procura conversas encalhadas (cliente sem resposta ou processo aberto sem avan\u00e7o) e gera alerta no painel de qualidade da IA.",
+  "trigger": {
+    "condition": null,
+    "config": {
+      "trigger_type": "scheduled",
+      "events": [],
+      "schedule_mode": "recurring",
+      "cron_expression": "0 * * * *",
+      "one_time_date": null,
+      "timezone": "America/Sao_Paulo",
+      "interval_value": null,
+      "interval_unit": null,
+      "interval_anchor": null,
+      "ends_type": "never",
+      "ends_on_date": null,
+      "ends_after_count": null
+    }
+  },
+  "definition": {
+    "document": {
+      "dsl": "1.0.0",
+      "name": "alerta_conversas_paradas",
+      "version": "1.0",
+      "namespace": "base44"
+    },
+    "do": [
+      {
+        "detectar_conversas_paradas": {
+          "call": "invoke_backend_function",
+          "with": {
+            "function_name": "detectStalledConversations"
+          },
+          "then": "end",
+          "x-base44": {
+            "title": "Procurar conversas paradas",
+            "description": "Gera alerta no painel"
+          }
+        }
+      }
+    ]
+  },
+  "name": "Alerta de Conversas Paradas"
+}

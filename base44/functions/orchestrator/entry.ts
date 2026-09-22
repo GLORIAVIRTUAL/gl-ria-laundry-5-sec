@@ -122,6 +122,7 @@ Deno.serve(async (req) => {
     let invokeSender = null;
     let traceId = requestId;
     let lockHeld = false;
+    const turnStartedAt = Date.now();
     // Chave de idempotência por turno: mesma conversa + mesma mensagem nunca gravam duas vezes.
     let turnKey = (op) => `turn:${requestId}:${op}`;
 
@@ -2348,6 +2349,7 @@ Deno.serve(async (req) => {
                 await invokeSender(interactivePayload);
             }
 
+            traceLog('turn_finished', { trace_id: traceId, conversation_id: conversation.id, message_id: message.id, total_ms: Date.now() - turnStartedAt, action: 'chatgpt_replied', pickup_scheduled: pickupScheduledOk });
             return Response.json({ action: "chatgpt_replied" });
         }
 
