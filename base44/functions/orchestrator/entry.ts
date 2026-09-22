@@ -25,6 +25,7 @@ import { loadIroningSettings, IRONING_RULE } from '../../shared/ironingSettings.
 import { shouldIncludeInAiHistory } from '../../shared/messageOrigin.js';
 import { findNextEncaixeSlot, formatEncaixeDate } from '../../shared/encaixeScheduler.js';
 import { acquireConversationLock, releaseConversationLock, idempotentWrite, traceLog } from '../../shared/chatTurnGuard.js';
+import { migrateState, recordSuccessfulAction, lastActionFact, filterToolsForState, toolBlockReason, STATE_SCHEMA_VERSION } from '../../shared/chatStateMachine.js';
 // Handoffs automáticos de disparo/campanha nunca bloqueiam a IA (ver dispatchReplyPolicy).
 
 const normalizeText = (value = '') => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -200,6 +201,7 @@ Deno.serve(async (req) => {
                     _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                 });
                 if (r.data?.success) {
+                    await recordSuccessfulAction(base44, conversation, state, 'pickup_scheduled', { date: pp.date, period: pp.period, trace_id: traceId }).catch(() => {});
                     const shiftInfo = pp.period === 'morning' ? 'Manhã (das 8h às 12h)' : 'Tarde (das 13h às 16h)';
                     const [, mo, d] = pp.date.split('-');
                     return `\n\n🚚 *Coleta confirmada!* Dia ${d}/${mo}, turno da ${shiftInfo}${pp.address ? `, no endereço: ${pp.address}` : ''}. Pagamento confirmado via Pix ✅`;
@@ -284,7 +286,14 @@ Deno.serve(async (req) => {
 
         const textLower = (message.text || "").trim().toLowerCase();
         const cleanText = textLower.replace(/[^a-z0-9]/g, '');
-        const currentState = conversation.metadata || {};
+        // VERSÃO DO ESTADO: estados antigos são migrados num único ponto, nunca no meio do fluxo.
+        const migration = migrateState(conversation.metadata || {});
+        const currentState = migration.state;
+        if (migration.migrated) {
+            await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
+            traceLog('state_migrated', { trace_id: traceId, conversation_id: conversation.id, from_version: migration.from, to_version: STATE_SCHEMA_VERSION });
+        }
+        traceLog('state_version', { trace_id: traceId, conversation_id: conversation.id, state_version: currentState.state_version, last_successful_action: currentState.last_successful_action?.action || null });
 
         if (message.type === 'TEXT' && shouldIgnoreSoloMessage(message.text || '') && !currentState.flow) {
              console.log(`Skipping orchestrator due to ignored solo text: ${message.text}`);
@@ -1132,6 +1141,10 @@ Deno.serve(async (req) => {
             const dateFacts = buildDateFacts();
             chatMessages.push({ role: 'system', content: dateFacts.content });
 
+            // Última ação já concluída neste atendimento: impede a IA de repeti-la.
+            const lastAction = lastActionFact(currentState);
+            if (lastAction) chatMessages.push({ role: 'system', content: lastAction });
+
             // Peças citadas no atendimento → valores oficiais dos serviços especiais (evita
             // aplicar a linha "Demais Peças" em edredom, casaco, cortina, tapete, vestido, macacão).
             const specialServiceContextText = [
@@ -1411,13 +1424,16 @@ Deno.serve(async (req) => {
                     }
                 ];
 
+            // FERRAMENTAS POR ETAPA: a IA só enxerga o que cabe no estado atual
+            // (ex: não existe "gerar cobrança" antes de haver orçamento aprovado).
+            const stateTools = filterToolsForState(aiTools, currentState);
             const { model: AI_MODEL, temperature: AI_TEMP } = await getAiSettings(base44);
-            traceLog('llm_started', { trace_id: traceId, model: AI_MODEL, temperature: AI_TEMP, history_messages: history.length, tools: aiTools.length });
+            traceLog('llm_started', { trace_id: traceId, model: AI_MODEL, temperature: AI_TEMP, history_messages: history.length, tools_total: aiTools.length, tools_allowed: stateTools.length, flow: currentState.flow || null });
             const llmStartedAt = Date.now();
             const completion = await openai.chat.completions.create({
                 model: AI_MODEL, temperature: AI_TEMP,
                 messages: chatMessages,
-                tools: aiTools
+                tools: stateTools
             });
 
             let aiResponseText = completion.choices[0].message.content;
@@ -1433,7 +1449,22 @@ Deno.serve(async (req) => {
                 chatMessages.push(responseMessage);
                 
                 for (const toolCall of responseMessage.tool_calls) {
-                    traceLog('tool_started', { trace_id: traceId, tool: toolCall.function.name });
+                    traceLog('tool_started', { trace_id: traceId, tool: toolCall.function.name, flow: currentState.flow || null });
+                    // Barreira de execução: mesmo se o modelo insistir numa ferramenta fora
+                    // de contexto, ela não roda — devolvemos o motivo para ele seguir o fluxo.
+                    const blockReason = toolBlockReason(toolCall.function.name, currentState);
+                    if (blockReason) {
+                        traceLog('tool_blocked', { trace_id: traceId, tool: toolCall.function.name, reason: blockReason, flow: currentState.flow || null });
+                        await logGuardEvent(base44, {
+                            guard: 'tool_blocked_by_state',
+                            conversation_id: conversation.id,
+                            customer_name: customer.full_name,
+                            detail: `Ferramenta '${toolCall.function.name}' bloqueada nesta etapa: ${blockReason}.`,
+                            excerpt: (message.text || '').slice(0, 300)
+                        }).catch(() => {});
+                        chatMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ error: `Ferramenta indisponível nesta etapa porque ${blockReason}. Continue o atendimento sem ela.` }) });
+                        continue;
+                    }
                     const promotionResult = await handlePromotionToolCall({
                         toolCall, base44, customer, conversation, currentState, activePromotions, activeUnitId, isMoinhos
                     });
@@ -1566,6 +1597,7 @@ Deno.serve(async (req) => {
                             if (quoteToApprove) {
                                 const activePickups = await base44.asServiceRole.entities.Pickup.filter({ customer_id: customer.id, status: 'scheduled' });
                                 const acceptance = await acceptChatQuote({ base44, quote: quoteToApprove, conversation, currentState, latestText: message.text || '', activePickups });
+                                if (acceptance.success) await recordSuccessfulAction(base44, conversation, currentState, 'quote_accepted', { quote_id: quoteToApprove.id, trace_id: traceId }).catch(() => {});
                                 // Resposta baseada no resultado persistido, sem inventar logística/pagamento.
                                 await invokeSender({ phone: customer.phones[0], message: acceptance.message, conversation_id: conversation.id });
                                 return Response.json({ action: acceptance.success ? 'quote_accepted' : 'quote_needs_confirmation' });
@@ -1613,7 +1645,7 @@ Deno.serve(async (req) => {
                                 }) });
 
                                 Object.assign(currentState, { flow: 'AWAITING_PAYMENT_METHOD', active_order_id: order.id, active_quote_id: null, payment_charge: null, payment_method: null, payer_field: null });
-                                await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
+                                await recordSuccessfulAction(base44, conversation, currentState, 'package_sold', { order_id: order.id, package_name: product.name, trace_id: traceId });
 
                                 chatMessages.push({
                                     role: "tool",
@@ -1713,6 +1745,7 @@ Deno.serve(async (req) => {
 
                     const chargeResult = await handlePaymentChargeToolCall({ toolCall, base44, customer, conversation, currentState });
                     if (chargeResult) {
+                        if (chargeResult.success !== false) await recordSuccessfulAction(base44, conversation, currentState, 'payment_charge_created', { trace_id: traceId }).catch(() => {});
                         await invokeSender({ phone: customer.phones[0], message: chargeResult.customer_message, conversation_id: conversation.id });
                         return Response.json({ action: 'payment_flow_replied' });
                     }
@@ -1961,11 +1994,9 @@ Deno.serve(async (req) => {
                                 const shiftInfo = args.period === 'morning' ? `(turno manhã) das ${schedule.isSaturday ? '9h' : '8h'} às 12h` : '(turno tarde) das 13h às 16h';
                                 pickupScheduledOk = true;
                                 // Coleta agendada de fato — limpa qualquer coleta pendente salva para não duplicar depois.
-                                if (currentState.pending_pickup || currentState.payment_confirmed) {
-                                    currentState.pending_pickup = null;
-                                    currentState.payment_confirmed = false;
-                                    await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
-                                }
+                                currentState.pending_pickup = null;
+                                currentState.payment_confirmed = false;
+                                await recordSuccessfulAction(base44, conversation, currentState, 'pickup_scheduled', { date: args.date, period: args.period, trace_id: traceId });
                                 chatMessages.push({
                                     role: "tool",
                                     tool_call_id: toolCall.id,
@@ -2055,7 +2086,7 @@ Deno.serve(async (req) => {
                 });
                 // Reexecuta permitindo a chamada real da ferramenta de agendamento.
                 const fixMessage = (await openai.chat.completions.create({
-                    model: AI_MODEL, temperature: AI_TEMP, messages: chatMessages, tools: aiTools
+                    model: AI_MODEL, temperature: AI_TEMP, messages: chatMessages, tools: filterToolsForState(aiTools, currentState, ['schedule_pickup'])
                 })).choices[0].message;
                 const scheduleCall = (fixMessage.tool_calls || []).find(tc => tc.function.name === 'schedule_pickup');
                 if (scheduleCall) {
@@ -2068,7 +2099,10 @@ Deno.serve(async (req) => {
                             trace_id: traceId,
                             _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
                         });
-                        if (r.data?.success) pickupScheduledOk = true;
+                        if (r.data?.success) {
+                            pickupScheduledOk = true;
+                            await recordSuccessfulAction(base44, conversation, currentState, 'pickup_scheduled', { trace_id: traceId }).catch(() => {});
+                        }
                         chatMessages.push({ role: "tool", tool_call_id: scheduleCall.id, content: JSON.stringify(r.data || { error: 'Falha ao agendar' }) });
                     } catch (e) {
                         console.error("Protection schedule error", e);
@@ -2102,7 +2136,7 @@ Deno.serve(async (req) => {
                     content: UNCHECKED_CLAIM_INSTRUCTION[uncheckedClaim.kind]
                 });
                 const availFix = (await openai.chat.completions.create({
-                    model: AI_MODEL, temperature: AI_TEMP, messages: chatMessages, tools: aiTools
+                    model: AI_MODEL, temperature: AI_TEMP, messages: chatMessages, tools: filterToolsForState(aiTools, currentState, ['check_pickup_availability'])
                 })).choices[0].message;
                 const availCall = (availFix.tool_calls || []).find(tc => tc.function.name === 'check_pickup_availability');
                 if (availCall) {
