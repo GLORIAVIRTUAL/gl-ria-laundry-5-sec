@@ -2,6 +2,8 @@
 // Só depois da coleta agendada o atendimento pergunta a forma de pagamento,
 // em mensagem separada (coleta e pagamento nunca vão na mesma pergunta).
 
+import { findNextAvailablePickupDay, nextDayOffer } from './nextPickupDay.js';
+
 const PICKUP_FLOWS = new Set(['AWAITING_PICKUP_PERIOD', 'AWAITING_PICKUP_CONFIRMATION', 'AWAITING_PICKUP_ADDRESS']);
 
 const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -48,9 +50,15 @@ export async function handlePickupStep({ base44, text, currentState, conversatio
   if (!result?.success) {
     await save({ pending_pickup: pp, flow: 'AWAITING_PICKUP_ADDRESS', step: 'AWAITING_PICKUP_ADDRESS' });
     const reason = String(result?.error || '');
-    const friendly = /LOTADO|lotado/.test(reason)
-      ? 'Esse turno acabou de lotar. Você prefere outro turno ou outra data?'
-      : /ENDEREÇO/.test(reason)
+    if (/LOTADO|lotado/.test(reason)) {
+      // Oferece o próximo dia/turno com vaga real (inclui o outro turno do mesmo dia).
+      const next = await findNextAvailablePickupDay(base44, pp.date, { includeFromDate: true });
+      const onlyShift = next && !(next.morning > 0 && next.afternoon > 0) ? (next.morning > 0 ? 'morning' : 'afternoon') : null;
+      const nextPp = next ? { date: next.date, ...(onlyShift ? { period: onlyShift } : {}) } : pp;
+      await save({ pending_pickup: nextPp, flow: onlyShift ? 'AWAITING_PICKUP_CONFIRMATION' : 'AWAITING_PICKUP_PERIOD', step: onlyShift ? 'AWAITING_PICKUP_CONFIRMATION' : 'AWAITING_PICKUP_PERIOD' });
+      return { messages: [`Esse turno acabou de lotar. ${nextDayOffer(next)}`] };
+    }
+    const friendly = /ENDEREÇO/.test(reason)
         ? 'Não consegui confirmar o endereço. Pode enviar rua, número, complemento e bairro?'
         : 'Não consegui agendar a coleta nesse horário. Você prefere outro turno ou outra data?';
     return { messages: [friendly] };

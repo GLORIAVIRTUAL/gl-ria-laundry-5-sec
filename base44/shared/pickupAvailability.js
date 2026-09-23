@@ -30,8 +30,9 @@ export function resolvePickupAvailabilityRequest(text = '', now = new Date(), op
 export function buildPickupAvailabilityResponse({ request, schedule, pickups = [], now = new Date() }) {
   if (!schedule.isOpen) {
     return {
-      message: schedule.error || `Não realizamos coletas ${request.label}. Posso verificar a próxima data disponível para você?`,
-      period: null
+      message: schedule.error || `Não realizamos coletas ${request.label}.`,
+      period: null,
+      full: true
     };
   }
 
@@ -70,7 +71,8 @@ export function buildPickupAvailabilityResponse({ request, schedule, pickups = [
     };
   }
   return {
-    message: `Infelizmente não temos mais vagas para coleta ${request.label}. Posso verificar a próxima data disponível para você?`,
-    period: null
+    message: `Infelizmente não temos mais vagas para coleta ${request.label}.`,
+    period: null,
+    full: true
   };
 }

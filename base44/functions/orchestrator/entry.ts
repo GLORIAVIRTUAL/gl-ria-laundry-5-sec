@@ -3,6 +3,7 @@ import { createGeminiClient, transcribeAudioWithGemini, bytesToBase64 } from '..
 import { requireInternalRequest, securityErrorResponse } from '../../shared/functionSecurity.js';
 import { getPickupDateRange, getPickupLocalHour, getPickupScheduleForDate, getPickupSlotIso } from '../../shared/pickupSchedule.js';
 import { buildPickupAvailabilityResponse, resolvePickupAvailabilityRequest } from '../../shared/pickupAvailability.js';
+import { findNextAvailablePickupDay, nextDayOffer } from '../../shared/nextPickupDay.js';
 import { detectUncheckedAvailabilityClaim, UNCHECKED_CLAIM_INSTRUCTION } from '../../shared/availabilityClaim.js';
 import { buildConversationContinuityFacts, isExplicitNewQuoteIntent } from '../../shared/conversationContinuity.js';
 import { buildDeliveryPriceResponse, detectDeliveryIntent, enforceDeliveryFeeNotice, enforceVariableQuoteSafety, isDeliveryPriceQuestion, resolveKnownDeliveryTotal } from '../../shared/quoteSafety.js';
@@ -900,7 +901,17 @@ Deno.serve(async (req) => {
                     });
                 }
                 const availability = buildPickupAvailabilityResponse({ request: pickupAvailabilityRequest, schedule, pickups: dayPickups });
-                currentState.pending_pickup = { ...(currentState.pending_pickup || {}), date: pickupAvailabilityRequest.date, ...(availability.period ? { period: availability.period } : {}) };
+                let offeredDate = pickupAvailabilityRequest.date;
+                if (availability.full) {
+                    // Dia lotado/fechado: oferece o PRÓXIMO dia com vaga real (não o mesmo dia da semana seguinte).
+                    const next = await findNextAvailablePickupDay(base44, pickupAvailabilityRequest.date);
+                    availability.message = `${availability.message} ${nextDayOffer(next)}`;
+                    if (next) {
+                        offeredDate = next.date;
+                        availability.period = next.morning > 0 && next.afternoon > 0 ? null : (next.morning > 0 ? 'morning' : 'afternoon');
+                    }
+                }
+                currentState.pending_pickup = { ...(currentState.pending_pickup || {}), date: offeredDate, ...(availability.period ? { period: availability.period } : {}) };
                 currentState.flow = availability.period ? 'AWAITING_PICKUP_CONFIRMATION' : 'AWAITING_PICKUP_PERIOD';
                 await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
                 await invokeSender({
@@ -1843,8 +1854,9 @@ Deno.serve(async (req) => {
                             const args = JSON.parse(toolCall.function.arguments);
                             const schedule = getPickupScheduleForDate(args.date);
                             if (!schedule.isOpen) {
+                                const next = await findNextAvailablePickupDay(base44, args.date);
                                 lastAvailabilityResult = { date: args.date, morning_available_slots: 0, afternoon_available_slots: 0, next_available_shift: null };
-                                chatMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ ...lastAvailabilityResult, instruction: schedule.error }) });
+                                chatMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ ...lastAvailabilityResult, next_available_day: next, instruction: `${schedule.error || 'Não há coleta nesta data.'} ${next ? `Ofereça EXATAMENTE o próximo dia com vaga: ${next.label} (${next.date}). NUNCA sugira o mesmo dia da semana seguinte nem outra data.` : 'Não há vagas nos próximos dias; diga que vai verificar a agenda.'}` }) });
                                 continue;
                             }
                             const MORNING_CAPACITY = schedule.morningCapacity;
@@ -1888,6 +1900,7 @@ Deno.serve(async (req) => {
                                 afternoon_available_slots: afternoonPast ? 0 : afternoonAvailable,
                                 next_available_shift: nextAvailable
                             };
+                            const nextDay = nextAvailable ? null : await findNextAvailablePickupDay(base44, args.date);
 
                             chatMessages.push({
                                 role: "tool",
@@ -1901,7 +1914,8 @@ Deno.serve(async (req) => {
                                         ? (((morningPast ? 0 : morningAvailable) > 0 && (afternoonPast ? 0 : afternoonAvailable) > 0)
                                             ? `Os DOIS turnos têm vaga nesta data. Ofereça AMBOS ao cliente e deixe ELE escolher (ex: "Tenho vaga na *${schedule.morningLabel}* e na *Tarde (das 13h às 16h)*. Qual você prefere?"). NUNCA escolha o turno por ele e NUNCA ofereça só um quando os dois têm vaga. Depois que ele escolher, agende nesse turno.`
                                             : `Somente o turno '${nextAvailable === 'morning' ? schedule.morningLabel : 'Tarde (das 13h às 16h)'}' tem vaga nesta data. Ofereça esse turno. NUNCA ofereça um turno com 0 vagas.`)
-                                        : "ATENÇÃO: NÃO há vagas disponíveis nessa data (ambos os turnos estão lotados). Você é PROIBIDO de agendar uma coleta neste dia. Recuse educadamente e sugira ao cliente escolher outra data."
+                                        : `ATENÇÃO: NÃO há vagas nessa data (ambos os turnos lotados). PROIBIDO agendar neste dia. ${nextDay ? `Ofereça EXATAMENTE o próximo dia com vaga: ${nextDay.label} (${nextDay.date}) — manhã: ${nextDay.morning} vaga(s), tarde: ${nextDay.afternoon} vaga(s). NUNCA sugira o mesmo dia da semana seguinte nem outra data.` : 'Não há vagas nos próximos dias; diga que vai verificar a agenda.'}`,
+                                    next_available_day: nextDay
                                 })
                             });
                         } catch (e) {
