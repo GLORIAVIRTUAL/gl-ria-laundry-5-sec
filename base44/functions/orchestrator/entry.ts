@@ -24,6 +24,7 @@ import { buildMainPrompt } from '../../shared/gloriaPrompt.js';
 import { loadIroningSettings, IRONING_RULE } from '../../shared/ironingSettings.js';
 import { shouldIncludeInAiHistory } from '../../shared/messageOrigin.js';
 import { findNextEncaixeSlot, formatEncaixeDate } from '../../shared/encaixeScheduler.js';
+import { handlePickupStep } from '../../shared/chatPickupFlow.js';
 import { acquireConversationLock, releaseConversationLock, idempotentWrite, traceLog } from '../../shared/chatTurnGuard.js';
 import { migrateState, recordSuccessfulAction, lastActionFact, filterToolsForState, toolBlockReason, STATE_SCHEMA_VERSION } from '../../shared/chatStateMachine.js';
 // Handoffs automáticos de disparo/campanha nunca bloqueiam a IA (ver dispatchReplyPolicy).
@@ -908,6 +909,20 @@ Deno.serve(async (req) => {
                     conversation_id: conversation.id
                 });
                 return Response.json({ action: 'pickup_availability_answered', date: pickupAvailabilityRequest.date });
+            }
+
+            // ETAPAS DA COLETA (turno → endereço → agendamento) sem depender da IA.
+            const pickupStep = await handlePickupStep({
+                base44, text: message.text || '', currentState, conversation,
+                schedulePickup: async (p) => (await base44.asServiceRole.functions.invoke('schedulePickupTool', {
+                    ...p, customer_id: customer.id, idempotency_key: turnKey('pickup_create'), trace_id: traceId,
+                    _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
+                })).data
+            });
+            if (pickupStep) {
+                for (const text of pickupStep.messages) await invokeSender({ phone: customer.phones[0], message: text, conversation_id: conversation.id });
+                traceLog('turn_finished', { trace_id: traceId, conversation_id: conversation.id, message_id: message.id, total_ms: Date.now() - turnStartedAt, action: 'pickup_step' });
+                return Response.json({ action: 'pickup_step' });
             }
 
             // ENCAIXE DETERMINÍSTICO: pagamento antecipado confirmado + cliente quer agendar coleta.

@@ -10,7 +10,12 @@ export async function acceptChatQuote({ base44, quote, conversation, currentStat
       const nextFlow = acceptedChoice === 'pickup' ? 'AWAITING_PICKUP_DATE' : 'AWAITING_PAYMENT_METHOD';
       Object.assign(currentState, { fulfillment_choice: acceptedChoice, delivery_requested: acceptedChoice === 'pickup', flow: nextFlow, step: nextFlow });
       await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
-      return { success: true, message: acceptedChoice === 'pickup' ? 'Coleta escolhida. Qual data você prefere?' : 'Combinado, você levará as peças na loja.' };
+      return { success: true, message: acceptedChoice === 'pickup' ? 'Coleta escolhida. Qual data você prefere?' : 'Combinado, você levará as peças na loja. Você prefere pagar antecipado por Pix ou cartão de crédito, ou presencialmente na loja?' };
+    }
+    if (!currentState.fulfillment_choice) {
+      Object.assign(currentState, { flow: 'AWAITING_FULFILLMENT_CHOICE', step: 'AWAITING_FULFILLMENT_CHOICE' });
+      await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
+      return { success: true, message: 'Este orçamento já foi aceito. Você prefere que a gente faça a coleta na sua casa ou vai levar as peças na loja?' };
     }
     return { success: true, message: 'Este orçamento já foi aceito. Você prefere Pix ou cartão de crédito antecipado, ou pagamento presencial?' };
   }
@@ -31,10 +36,18 @@ export async function acceptChatQuote({ base44, quote, conversation, currentStat
   await base44.asServiceRole.entities.Quote.update(quote.id, { status: 'ACCEPTED', accepted_at: quote.accepted_at || new Date().toISOString(), items, addition, total, metadata: { ...(quote.metadata || {}), chat_delivery_fee: deliveryFee } });
   const cards = await base44.asServiceRole.entities.CrmCard.filter({ pipeline_type: 'QUOTE', linked_quote_id: quote.id });
   for (const card of cards) await base44.asServiceRole.entities.CrmCard.update(card.id, { stage: 'Aprovado' });
-  Object.assign(currentState, { active_quote_id: quote.id, flow: 'AWAITING_PAYMENT_METHOD', step: 'AWAITING_PAYMENT_METHOD', fulfillment_choice: choice, delivery_requested: choice === 'pickup', temp_items: [] });
+  // Uma etapa por vez: primeiro coleta x loja, depois data/turno/endereço, e só então pagamento.
+  const nextFlow = choice === 'store' ? 'AWAITING_PAYMENT_METHOD' : choice === 'pickup' ? 'AWAITING_PICKUP_DATE' : 'AWAITING_FULFILLMENT_CHOICE';
+  Object.assign(currentState, { active_quote_id: quote.id, flow: nextFlow, step: nextFlow, fulfillment_choice: choice, delivery_requested: choice === 'pickup', temp_items: [] });
   await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
-  const shipping = choice === 'store' ? 'Você escolheu levar as peças na loja.' : choice === 'pickup' ? `Coleta e entrega: ${brl(deliveryFee)}.` : 'Coleta e entrega são cortesia; você ainda não escolheu entre coleta e levar na loja.';
+  const question = choice === 'store'
+    ? 'Você escolheu levar as peças na loja. Você prefere pagar antecipado por Pix ou cartão de crédito, ou presencialmente em dinheiro/cartão?'
+    : choice === 'pickup'
+      ? `Coleta e entrega: ${deliveryFee ? brl(deliveryFee) : 'cortesia'}. Qual data você prefere para a coleta?`
+      : 'Coleta e entrega são cortesia. Você prefere que a gente faça a coleta na sua casa ou vai levar as peças na loja?';
   return { success: true, quote_id: quote.id, final_total: total, delivery_fee: deliveryFee, fulfillment_choice: choice,
-    message: `Orçamento aceito: ${brl(total)}. ${shipping}\n\nVocê prefere pagar antecipado por Pix ou cartão de crédito, ou presencialmente em dinheiro/cartão?`,
-    instruction: 'Use o total oficial. Não invente uma escolha de coleta/loja. A cobrança ainda NÃO foi emitida; não peça comprovante. Aguarde a forma de pagamento.' };
+    message: `Orçamento aceito: ${brl(total)}.\n\n${question}`,
+    instruction: choice === 'store'
+      ? 'Use o total oficial. A cobrança ainda NÃO foi emitida; não peça comprovante. Aguarde a forma de pagamento.'
+      : 'Use o total oficial. NÃO pergunte sobre pagamento agora. Primeiro resolva coleta x loja e, se for coleta, data, turno e endereço.' };
 }
