@@ -217,7 +217,34 @@ export default function Layout({ children }) {
         }
     });
 
+    // Aviso visual e sonoro quando a Glória agenda uma coleta
+    const unsubPickups = base44.entities.Pickup.subscribe(async (event) => {
+        if (event.type !== 'create' || event.data?.source !== 'ai') return;
+        if (soundEnabledRef.current) {
+            successAudioRef.current.play().catch(e => console.warn("Audio play blocked", e));
+        }
+        const customer = event.data.customer_id
+            ? await base44.entities.Customer.get(event.data.customer_id).catch(() => null)
+            : null;
+        const when = event.data.scheduled_at
+            ? new Date(event.data.scheduled_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+            : '';
+        toast("Nova coleta agendada pela Glória 🚚", {
+            description: `${customer?.full_name || 'Cliente'}${when ? ` • ${when}` : ''}${event.data.address ? ` • ${event.data.address}` : ''}`,
+            action: {
+                label: "Ver Coletas",
+                onClick: () => navigate('/pickups')
+            },
+            duration: 12000,
+            className: "bg-[#4C12A1] border-white/10 text-white shadow-lg shadow-purple-900/50",
+            descriptionClassName: "text-gray-300",
+            actionButtonStyle: { background: "#FF6600", color: "white" },
+            icon: <Truck className="w-5 h-5 text-[#FF6600]" />
+        });
+    });
+
     return () => {
+        unsubPickups();
         unsubMessages();
         unsubQuotes();
         unsubPayments();
