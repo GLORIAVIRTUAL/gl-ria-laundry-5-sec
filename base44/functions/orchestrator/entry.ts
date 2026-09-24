@@ -1122,6 +1122,12 @@ export default async function(req) {
                 }).join(' | ')
                 : 'Nenhuma coleta agendada no momento.';
 
+            // Endereço oficial da loja = o cadastrado na página de Coletas (Unit.address).
+            const storeUnits = units.filter((u) => (u.address || '').trim());
+            const storesContext = storeUnits.length
+                ? storeUnits.map((u) => `🏪 ${u.name}\n📌 Endereço: ${u.address.trim()}\n🗺️ Mapa: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(u.address.trim())}`).join('\n\n')
+                : undefined;
+
             const chatMessages = [
                 {
                     role: "system",
@@ -1141,6 +1147,7 @@ export default async function(req) {
                         promotionsContext,
                         specialTableContext,
                         m2,
+                        storesContext,
                         ironing
                     })
                 }
@@ -1157,15 +1164,7 @@ export default async function(req) {
                     Este atendimento é EXCLUSIVO da nossa unidade *Moinhos Shopping*. Você é a Glória, atendente da 5àsec Moinhos Shopping. TODAS as regras de preços, serviços, catálogo, orçamento, coleta e pagamento acima continuam valendo integralmente — muda APENAS a loja de referência:
 
                     - Ao se apresentar/cumprimentar, diga que é a Glória da *5àsec Moinhos Shopping* (NÃO cite "Rio Branco" nem outra loja).
-                    - 🚫 É TERMINANTEMENTE PROIBIDO listar, oferecer ou sugerir qualquer OUTRA loja (Rio Branco, Petrópolis, Zaffari, Bourbon Wallig). Se o cliente pedir endereço, telefone, localização ou "onde levar", forneça SOMENTE os dados da loja Moinhos abaixo.
-                    - Se o cliente optar por levar/retirar na loja, indique SEMPRE a loja Moinhos (nunca liste as 5 lojas).
-
-                    📍 DADOS FIXOS DA LOJA MOINHOS (use somente estes):
-                    🏪 5àsec Moinhos Shopping
-                    📌 Endereço: Rua Olavo Barreto Viana, 36 — Loja C (Subsolo 1) — Moinhos de Vento, Porto Alegre/RS
-                    🗺️ Mapa: https://www.google.com/maps/place/30%C2%B001'23.3%22S+51%C2%B012'03.8%22W/@-30.0231323,-51.2036361,1219m/data=!3m2!1e3!4b1!4m4!3m3!8m2!3d-30.0231323!4d-51.2010612?hl=pt-BR
-                    📞 Fixo: (51) 3273-7823 | 📱 Celular: (51) 98992-5334
-                    🕒 Horário: Seg a Sáb 11h-20h | Dom/Feriados: Fechado
+                    - Se o cliente pedir endereço, localização ou "onde levar", forneça SOMENTE o endereço cadastrado em "Nossa Loja" no prompt principal. Nunca invente outro endereço, telefone ou loja.
 
                     FLUXO EXCLUSIVO DE PROMOÇÕES DE MOINHOS:
                     - Estado atual: ${currentState.flow || 'sem fluxo promocional'} / ${currentState.step || 'sem etapa'}.
@@ -1177,7 +1176,7 @@ export default async function(req) {
                     - 🚨 Ao informar o orçamento promocional, apresente SOMENTE o valor sem desconto e diga: "O valor do orçamento é o valor sem desconto — o desconto da promoção será aplicado pela nossa equipe na hora do pagamento." É PROIBIDO mostrar valor com desconto ou calcular o desconto.
                     - Depois do orçamento promocional, siga o fluxo normal de aprovação, pagamento e agendamento de coleta já definido acima.
 
-                    ⚠️ PRECEDÊNCIA: quando este bloco estiver ativo, ele SOBRESCREVE qualquer regra do bloco principal que conflite — inclusive a diretriz 2 (contatos das lojas): em Moinhos, envie SOMENTE os contatos da loja Moinhos, nunca os das outras.
+                    ⚠️ PRECEDÊNCIA: quando este bloco estiver ativo, ele SOBRESCREVE qualquer regra do bloco principal que conflite.
                     Todo o resto (tabela de preços, bags, planos, serviços especiais, política de coleta/entrega, formas de pagamento, agendamento, prazos) permanece EXATAMENTE como definido acima.`
                 });
             }
@@ -1258,13 +1257,13 @@ export default async function(req) {
                         type: "function",
                         function: {
                             name: "check_distance_to_stores",
-                            description: "Consulta a distância real e o tempo de rota do endereço ou ponto de referência do cliente até as nossas lojas em Porto Alegre usando o Google Maps. Retorna a distância, o tempo estimado e o endereço da loja mais próxima.",
+                            description: "Consulta a distância real e o tempo de rota do endereço ou ponto de referência do cliente até a nossa loja (endereço cadastrado no sistema) usando o Google Maps. Retorna a distância, o tempo estimado e o endereço da loja mais próxima.",
                             parameters: {
                                 type: "object",
                                 properties: {
                                     origin_address: {
                                         type: "string",
-                                        description: "O endereço, bairro ou ponto de referência fornecido pelo cliente (ex: 'Shopping Iguatemi', 'Bairro Moinhos de Vento', 'Rua da Praia'). Importante: adicione 'Porto Alegre, RS' ao final se não estiver explícito para garantir a precisão."
+                                        description: "O endereço, bairro ou ponto de referência fornecido pelo cliente (ex: 'Shopping Iguatemi', 'Bairro Moinhos de Vento', 'Rua da Praia'). Importante: adicione a cidade e o estado da loja cadastrada ao final se não estiverem explícitos, para garantir a precisão."
                                     }
                                 },
                                 required: ["origin_address"]
@@ -1525,14 +1524,12 @@ export default async function(req) {
                         try {
                             const args = JSON.parse(toolCall.function.arguments);
                             const origin = encodeURIComponent(args.origin_address);
-                            const stores = [
-                                { name: "Loja Rio Branco", address: "Rua Protásio Alves, 347 - Rio Branco, Porto Alegre - RS" },
-                                { name: "Loja Petrópolis", address: "Av. Dr. Nilo Peçanha, 95 - Petrópolis, Porto Alegre - RS" },
-                                { name: "Loja Zaffari (Protásio Alves)", address: "Av. Protásio Alves, 2700 - Petrópolis, Porto Alegre - RS" },
-                                { name: "Loja Bourbon Wallig", address: "Av. Assis Brasil, 2611 - Cristo Redentor, Porto Alegre - RS" },
-                                { name: "Loja Moinhos Shopping", address: "Rua Olavo Barreto Viana, 36 - Moinhos de Vento, Porto Alegre - RS" }
-                            ];
-                            
+                            const stores = storeUnits.map((u) => ({ name: u.name, address: u.address.trim() }));
+                            if (!stores.length) {
+                                chatMessages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify({ error: "Endereço da loja não cadastrado. Não informe distância; diga que a equipe confirmará." }) });
+                                continue;
+                            }
+
                             const destinations = stores.map(s => encodeURIComponent(s.address)).join('|');
                             const apiKey = Deno.env.get("GOOGLE_MAPS_API_KEY");
                             
