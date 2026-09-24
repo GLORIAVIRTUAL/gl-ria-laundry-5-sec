@@ -1,3 +1,3 @@
 // Regras de endereço/horário da loja usadas pelo verificador anti-alucinação.
 // O endereço oficial vem do cadastro da unidade (página de Coletas), nunca de texto fixo.
-export const STORE_HOURS_FACT = `ENDEREÇO E HORÁRIO DA LOJA: o único endereço válido é o cadastrado no sistema e informado no prompt da Glória. Se a mensagem citar endereços, telefones ou lojas de Porto Alegre (Rio Branco, Petrópolis, Zaffari, Bourbon Wallig, Moinhos), REMOVA essas informações. Nunca invente horários de funcionamento; se a mensagem citar um horário que não esteja nos fatos informados, substitua por "vou confirmar o horário com a equipe".`;
+export const STORE_HOURS_FACT = `ENDEREÇO E HORÁRIO DA LOJA: use exclusivamente o cadastro atual informado nos fatos. Mensagens antigas não são fonte de endereço. Nunca invente horários ou contatos ausentes do cadastro; nesses casos informe que a equipe precisa confirmá-los.`;

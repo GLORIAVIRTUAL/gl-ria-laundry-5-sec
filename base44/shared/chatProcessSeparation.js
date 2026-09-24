@@ -10,6 +10,10 @@ export const isPickupProcessActive = (state = {}) => PICKUP_FLOWS.has(state.flow
 export async function separateChatProcesses({ base44, conversation, currentState, text }) {
   const fulfillment = explicitFulfillment(text);
   if (!fulfillment) return null;
+  if (currentState.active_quote_id) {
+    const quote = await base44.asServiceRole.entities.Quote.get(currentState.active_quote_id);
+    if (quote?.status !== 'ACCEPTED') return null;
+  }
   const paymentMethod = affirmativePaymentMethod(text);
   const nextState = {
     ...currentState,

@@ -1,7 +1,8 @@
 import { explicitFulfillment, normalizePhotoItems, brl } from './chatQuotePresentation.js';
+import { requireChatQuoteConsent } from './chatQuoteConsent.js';
 
 // A aprovação comercial não significa pagamento nem recebimento físico das roupas.
-export async function acceptChatQuote({ base44, quote, conversation, currentState, latestText, activePickups = [] }) {
+export async function acceptChatQuote({ base44, quote, conversation, currentState, latestText, latestMessage, activePickups = [] }) {
   if (quote.customer_id !== conversation.customer_id) throw new Error('quote_customer_mismatch');
   if (!['SENT', 'ACCEPTED'].includes(quote.status)) return { success: false, message: 'Este orçamento precisa ser revisado antes de seguir com o pagamento.' };
   if (quote.status === 'ACCEPTED') {
@@ -21,6 +22,8 @@ export async function acceptChatQuote({ base44, quote, conversation, currentStat
   }
   const items = normalizePhotoItems(quote.items || []);
   if (!items.length || items.some((item) => item.needs_review)) return { success: false, message: 'Precisamos conferir os itens e as quantidades deste orçamento com a equipe antes de cobrar.' };
+  const consentRequired = await requireChatQuoteConsent({ base44, quote, conversation, currentState, latestText, latestMessage });
+  if (consentRequired) return consentRequired;
   const choice = explicitFulfillment(latestText) || currentState.fulfillment_choice || (currentState.delivery_requested === true || activePickups.length ? 'pickup' : null);
   const piecesTotal = Math.round((Number(quote.subtotal ?? quote.total) - Number(quote.discount || 0)) * 100) / 100;
   if (!Number.isFinite(piecesTotal) || piecesTotal <= 0) return { success: false, message: 'O valor deste orçamento precisa ser conferido pela equipe antes da cobrança.' };

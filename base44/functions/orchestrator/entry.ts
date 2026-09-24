@@ -12,6 +12,8 @@ import { handlePromotionToolCall, promotionAiTools } from '../../shared/promotio
 import { handlePaymentChargeToolCall } from '../../shared/paymentChargeTool.js';
 import { handleChatPaymentRequest } from '../../shared/chatPaymentFlow.js';
 import { acceptChatQuote } from '../../shared/chatQuoteAcceptance.js';
+import { isQuoteApproval } from '../../shared/chatQuoteConsent.js';
+import { buildStoreAddressReply, buildStoreContext, resolveChatStore } from '../../shared/chatStoreLocation.js';
 import { finalizeChatPhotoQuote, isFinalizeChatQuoteCommand } from '../../shared/chatPhotoQuote.js';
 import { explicitFulfillment, inspectionNotice, normalizePhotoItems, planLabel, quoteLines } from '../../shared/chatQuotePresentation.js';
 import { isPickupProcessActive, separateChatProcesses } from '../../shared/chatProcessSeparation.js';
@@ -354,7 +356,12 @@ export default async function(req) {
         }
 
         const activeUnitId = customer.unit_id || currentState.unit_id || null;
-        const activeUnitName = customer.preferred_unit_name || currentState.unit_name || units.find((unit) => unit.id === activeUnitId)?.name || '5àsec';
+        const activeUnitName = resolveChatStore(units, activeUnitId)?.name || '5àsec';
+        const locationReply = buildStoreAddressReply(message.text || '', units, activeUnitId);
+        if (locationReply) {
+            await invokeSender({ phone: customer.phones?.[0], message: locationReply, conversation_id: conversation.id });
+            return Response.json({ action: 'store_address_answered' });
+        }
 
         // Um pedido explícito de NOVO orçamento sempre encerra o estado operacional anterior,
         // mesmo quando a conversa do WhatsApp continua aberta. Mantemos apenas identidade/unidade.
@@ -437,9 +444,9 @@ export default async function(req) {
             }
         }
 
-        if (!currentState.payment_confirmed && currentState.active_quote_id && (/^(quero este or[cç]amento|aprovar|aprovado|aceito|follow_quote|approve_quote)[.! ]*$/i.test(message.text || '') || (currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' && fulfillmentChoice))) {
+        if (!currentState.payment_confirmed && currentState.active_quote_id && (isQuoteApproval(message.text || '') || (currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' && fulfillmentChoice))) {
             const quote = await base44.asServiceRole.entities.Quote.get(currentState.active_quote_id);
-            const acceptance = await acceptChatQuote({ base44, quote, conversation, currentState, latestText: message.text || '' });
+            const acceptance = await acceptChatQuote({ base44, quote, conversation, currentState, latestText: message.text || '', latestMessage: message });
             await invokeSender({ phone: customer.phones[0], message: acceptance.message, conversation_id: conversation.id });
             return Response.json({ action: acceptance.success ? 'quote_accepted' : 'quote_needs_confirmation' });
         }
@@ -1123,10 +1130,8 @@ export default async function(req) {
                 : 'Nenhuma coleta agendada no momento.';
 
             // Endereço oficial da loja = o cadastrado na página de Coletas (Unit.address).
-            const storeUnits = units.filter((u) => (u.address || '').trim());
-            const storesContext = storeUnits.length
-                ? storeUnits.map((u) => `🏪 ${u.name}\n📌 Endereço: ${u.address.trim()}\n🗺️ Mapa: https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(u.address.trim())}`).join('\n\n')
-                : undefined;
+            const storeUnits = [resolveChatStore(units, activeUnitId)].filter(u => u?.address?.trim());
+            const storesContext = buildStoreContext(units, activeUnitId);
 
             const chatMessages = [
                 {
@@ -1160,10 +1165,8 @@ export default async function(req) {
             if (isMoinhos) {
                 chatMessages.push({
                     role: "system",
-                    content: `🏪 IDENTIDADE FIXA DESTE ATENDIMENTO — LOJA MOINHOS SHOPPING (REGRA PRIORITÁRIA):
-                    Este atendimento é EXCLUSIVO da nossa unidade *Moinhos Shopping*. Você é a Glória, atendente da 5àsec Moinhos Shopping. TODAS as regras de preços, serviços, catálogo, orçamento, coleta e pagamento acima continuam valendo integralmente — muda APENAS a loja de referência:
-
-                    - Ao se apresentar/cumprimentar, diga que é a Glória da *5àsec Moinhos Shopping* (NÃO cite "Rio Branco" nem outra loja).
+                    content: `🏪 IDENTIDADE DESTE ATENDIMENTO: Você é a Glória da unidade ${activeUnitName}. Use somente o cadastro atual da loja, independentemente do nome interno da conexão.
+                    ${storesContext}
                     - Se o cliente pedir endereço, localização ou "onde levar", forneça SOMENTE o endereço cadastrado em "Nossa Loja" no prompt principal. Nunca invente outro endereço, telefone ou loja.
 
                     FLUXO EXCLUSIVO DE PROMOÇÕES DE MOINHOS:
@@ -1355,7 +1358,7 @@ export default async function(req) {
                         type: "function",
                         function: {
                             name: "approve_quote",
-                            description: "Aprova o orçamento pendente do cliente. SE NÃO HOUVER ORÇAMENTO PENDENTE (ex: cliente não enviou fotos mas quer aprovar o serviço pelos preços informados), você DEVE preencher o campo 'items' com as peças que ele deseja lavar para criar um novo orçamento e já aprová-lo. ATENÇÃO: Para pedidos até R$ 150, pergunte antes se o cliente quer entrega/coleta por R$ 15. Passe include_delivery_fee=true se ele quiser, false se for levar na loja ou se pedido > R$ 150.",
+                            description: "Prepara e apresenta orçamento discriminado OU registra aprovação posterior. Ao receber lista de peças por texto/áudio, chame com items: o sistema cria o orçamento e envia quantidades, valores unitários, subtotais e total para aprovação, SEM aprovar. Só chame sem items para aprovar após o cliente ter recebido esse resumo e confirmado explicitamente em outra mensagem. Listar peças, escolher data ou coleta NÃO é aprovação.",
                             parameters: {
                                 type: "object",
                                 properties: {
@@ -1640,7 +1643,7 @@ export default async function(req) {
 
                             if (quoteToApprove) {
                                 const activePickups = await base44.asServiceRole.entities.Pickup.filter({ customer_id: customer.id, status: 'scheduled' });
-                                const acceptance = await acceptChatQuote({ base44, quote: quoteToApprove, conversation, currentState, latestText: message.text || '', activePickups });
+                                const acceptance = await acceptChatQuote({ base44, quote: quoteToApprove, conversation, currentState, latestText: message.text || '', latestMessage: message, activePickups });
                                 if (acceptance.success) await recordSuccessfulAction(base44, conversation, currentState, 'quote_accepted', { quote_id: quoteToApprove.id, trace_id: traceId }).catch(() => {});
                                 // Resposta baseada no resultado persistido, sem inventar logística/pagamento.
                                 await invokeSender({ phone: customer.phones[0], message: acceptance.message, conversation_id: conversation.id });
@@ -2284,7 +2287,8 @@ export default async function(req) {
                     m2_prices: m2,
                     special_service_fact: specialServiceFact,
                     delivery_requested: deliveryIntentDetected || currentState.delivery_requested === true,
-                    quote_facts: pendingQuoteFacts
+                    quote_facts: pendingQuoteFacts,
+                    unit_id: activeUnitId
                 });
                 if (guard?.data?.safe_response) {
                     if (guard.data.was_corrected) {

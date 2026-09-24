@@ -2,6 +2,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 import { geminiChat } from '../../shared/geminiChat.js';
 import { getAiSettings } from '../../shared/aiSettings.js';
 import { STORE_HOURS_FACT } from '../../shared/storeHours.js';
+import { buildStoreContext } from '../../shared/chatStoreLocation.js';
 
 // 🚨 PROTEÇÃO ANTI-ALUCINAÇÃO GLOBAL
 // Recebe a resposta que a Glória pretende enviar ao cliente e faz um "fact-check" final
@@ -11,7 +12,7 @@ import { STORE_HOURS_FACT } from '../../shared/storeHours.js';
 // estar de fato agendada, etc.), reescreve a mensagem para ficar 100% fiel aos fatos.
 //
 // Retorna: { safe_response: string, was_corrected: boolean }
-Deno.serve(async (req) => {
+export default async function(req) {
     try {
         const base44 = createClientFromRequest(req);
         const user = await base44.auth.me();
@@ -31,7 +32,8 @@ Deno.serve(async (req) => {
             m2_prices,
             special_service_fact,
             delivery_requested,
-            quote_facts
+            quote_facts,
+            unit_id
         } = await req.json();
 
         const m2 = m2_prices || { cortina_tipo_I: 30, cortina_tipo_II: 45, cortina_tipo_III: 65, tapete: 80 };
@@ -49,6 +51,8 @@ Deno.serve(async (req) => {
             return Response.json({ safe_response: draft_response, was_corrected: false });
         }
 
+        const units = await base44.asServiceRole.entities.Unit.list('name', 100);
+        const storesContext = buildStoreContext(units, unit_id);
         const factSheet = `
 FATOS REAIS DO SISTEMA (única fonte de verdade — a resposta NÃO pode contradizer nada disto):
 
@@ -72,6 +76,7 @@ CALENDÁRIO E HORÁRIOS DETERMINÍSTICOS DO SISTEMA (dia da semana de cada data,
 ${date_facts || 'Não informado.'}
 
 ${STORE_HOURS_FACT}
+${storesContext}
 
 SERVIÇOS ESPECIAIS (ADICIONAIS — TODOS TÊM CUSTO EXTRA POR PEÇA, NUNCA são grátis nem inclusos):
 Peça         | Bactericida | Branco+/Revitalizante/Engomagem | Impermeabilização
@@ -121,7 +126,7 @@ REGRAS DE CORREÇÃO:
 7.4. 🚨 PASSADORIA INCLUÍDA: o preço de catálogo de cada peça JÁ INCLUI lavagem + secagem + passadoria. Se a mensagem disser que "o valor é apenas da lavagem", que "passar tem custo adicional/varia conforme a peça", que a passadoria é cobrada à parte, ou oferecer "orçamento só de lavagem, sem passar", isso é ERRADO — CORRIJA afirmando que o valor informado já inclui lavagem, secagem e passadoria, sem custo adicional. Exceção única: BAGS (não incluem passadoria) e o serviço de APENAS PASSAR sem lavar (70% do valor da lavagem).
 7.5. 🚨 DOMINGO/FERIADO: se a mensagem oferecer, sugerir, perguntar ou confirmar coleta em um DOMINGO ou FERIADO, REMOVA essa data e diga que nesse dia não há coleta, oferecendo a próxima data válida (segunda a sábado). Também é ERRADO oferecer turno da TARDE no sábado (sábado só tem manhã, 9h às 12h).
 7.5.1. 🚨 PASSADORIA AVULSA (SÓ PASSAR, SEM LAVAR): existe e custa 70% do valor da lavagem da mesma peça (nunca outro percentual). E a passadoria é feita SOMENTE DE SEGUNDA A SEXTA-FEIRA: se a mensagem oferecer, agendar ou afirmar passadoria em SÁBADO, domingo ou feriado, CORRIJA dizendo que a passadoria acontece de segunda a sexta.
-7.6. 🚨 HORÁRIO DA LOJA: a tabela "HORÁRIO DE FUNCIONAMENTO OFICIAL DAS LOJAS" acima é a verdade. (a) É TERMINANTEMENTE PROIBIDO REMOVER a faixa de horas da mensagem: se a mensagem disser apenas os dias (ex: "funciona de Segunda a Sábado") sem as horas, ACRESCENTE a faixa correta da loja (ex: "das 11h às 20h"). Uma resposta de horário sem a faixa de horas é ERRO GRAVE. (b) Se a faixa citada for DIFERENTE da tabela, corrija para a da tabela; se for igual, MANTENHA exatamente. (c) A faixa deve ser a do dia da semana perguntado: num SÁBADO é ERRADO citar a faixa de Seg a Sex quando a loja fecha mais cedo (Rio Branco e Petrópolis: sábado 09h-14h). Aos sábados não há serviço de passadoria, apenas lavagem.
+7.6. 🚨 ENDEREÇO E HORÁRIO DA LOJA: compare a resposta com o ENDEREÇO OFICIAL ATUAL acima. Substitua qualquer loja/endereço/mapa antigo pelo nome e endereço atuais. Nunca complete com telefones nem horários de outra loja. Se não houver horário cadastrado, informe que a equipe precisa confirmá-lo.
 7.7. 🚨 PRAZO NUNCA NO MESMO DIA: se a mensagem disser que a peça fica pronta no MESMO dia em que o cliente vai entregá-la (ex: "se levar na terça, fica pronto na terça"), isso é ERRADO — CORRIJA para 3 dias úteis após a entrega, usando a data real de prazo informada acima. Só é válido prazo menor se houver urgência aprovada.
 8. NÃO invente informação nova. NÃO mude o tom amigável de WhatsApp da Glória. Mantenha emojis e o estilo curto.
 9. Se a mensagem JÁ ESTIVER 100% correta e fiel aos fatos, devolva-a EXATAMENTE como está.
@@ -153,4 +158,4 @@ Responda em JSON: { "safe_response": "<mensagem final corrigida e segura para o 
         // Em caso de erro, o orchestrator usa a resposta original (fail-safe).
         return Response.json({ error: error.message }, { status: 500 });
     }
-});
+}
