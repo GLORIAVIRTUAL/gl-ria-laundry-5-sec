@@ -245,6 +245,16 @@ Deno.serve(async (req) => {
             await base44.asServiceRole.entities.Message.update(message.id, { ai_answered: false }).catch(() => {});
             return Response.json({ status: 'lock_timeout', trace_id: traceId });
         }
+        // Dois gatilhos podem passar juntos pela trava de idempotência acima; o segundo
+        // espera a trava da conversa. Se enquanto esperava a mensagem já foi respondida,
+        // não responde de novo (evita a segunda mensagem genérica de "não consegui").
+        const repliedAfter = await base44.asServiceRole.entities.Message.filter({
+            conversation_id: conversation.id, direction: 'OUT', created_date: { $gte: message.created_date }
+        }, '-created_date', 1).catch(() => []);
+        if (repliedAfter.length) {
+            traceLog('turn_already_answered', { trace_id: traceId, message_id: message.id, reason: 'reply_found_after_lock' });
+            return Response.json({ status: 'already_answered' });
+        }
         traceLog('state_loaded', { trace_id: traceId, conversation_id: conversation.id, flow: conversation.metadata?.flow || null, step: conversation.metadata?.step || null, handoff_required: Boolean(conversation.handoff_required) });
 
         if (message.type === 'AUDIO' && !message.text) {
