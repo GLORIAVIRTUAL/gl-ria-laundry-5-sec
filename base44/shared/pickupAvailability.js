@@ -1,4 +1,5 @@
 import { getPickupLocalHour } from './pickupSchedule.js';
+import { getPickupShiftEligibility } from './pickupShiftPolicy.js';
 
 const normalize = (value = '') => value
   .normalize('NFD')
@@ -43,13 +44,9 @@ export function buildPickupAvailabilityResponse({ request, schedule, pickups = [
     else afternoonCount++;
   }
 
-  const brasiliaNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-  const todayKey = toDateKey(brasiliaNow);
-  const isToday = request.date === todayKey;
-  const morningPast = isToday && brasiliaNow.getHours() >= 12;
-  const afternoonPast = isToday && brasiliaNow.getHours() >= 16;
-  const morningAvailable = morningPast ? 0 : Math.max(0, schedule.morningCapacity - morningCount);
-  const afternoonAvailable = afternoonPast ? 0 : Math.max(0, schedule.afternoonCapacity - afternoonCount);
+  const eligible = getPickupShiftEligibility(request.date, now);
+  const morningAvailable = eligible.morning ? Math.max(0, schedule.morningCapacity - morningCount) : 0;
+  const afternoonAvailable = eligible.afternoon ? Math.max(0, schedule.afternoonCapacity - afternoonCount) : 0;
 
   if (morningAvailable > 0 && afternoonAvailable > 0) {
     // Os dois turnos livres: o cliente escolhe qual prefere (não escolhemos por ele).

@@ -3,6 +3,7 @@
 // em mensagem separada (coleta e pagamento nunca vão na mesma pergunta).
 
 import { findNextAvailablePickupDay, nextDayOffer } from './nextPickupDay.js';
+import { pickupShiftError } from './pickupShiftPolicy.js';
 
 const PICKUP_FLOWS = new Set(['AWAITING_PICKUP_PERIOD', 'AWAITING_PICKUP_CONFIRMATION', 'AWAITING_PICKUP_ADDRESS']);
 
@@ -46,6 +47,14 @@ export async function handlePickupStep({ base44, text, currentState, conversatio
   if (period) pp.period = period;
 
   if (!pp.period) return null; // resposta fora do esperado: a IA conduz
+
+  if (pickupShiftError(pp.date, pp.period)) {
+    const next = await findNextAvailablePickupDay(base44, pp.date, { includeFromDate: true });
+    const onlyShift = next && !(next.morning > 0 && next.afternoon > 0) ? (next.morning > 0 ? 'morning' : 'afternoon') : null;
+    const flow = onlyShift ? 'AWAITING_PICKUP_CONFIRMATION' : 'AWAITING_PICKUP_PERIOD';
+    await save({ pending_pickup: next ? { date: next.date, period: onlyShift } : null, flow, step: flow });
+    return { messages: [`Não agendamos coletas no turno atual ou em turnos passados. ${nextDayOffer(next)}`] };
+  }
 
   let address = looksLikeAddress(text) ? String(text).trim() : null;
   if (!address && isAffirmative(text)) address = pp.address || await savedAddress(base44, conversation.customer_id);

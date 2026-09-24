@@ -4,6 +4,7 @@ import { requireInternalRequest, securityErrorResponse } from '../../shared/func
 import { getPickupDateRange, getPickupLocalHour, getPickupScheduleForDate, getPickupSlotIso } from '../../shared/pickupSchedule.js';
 import { buildPickupAvailabilityResponse, resolvePickupAvailabilityRequest } from '../../shared/pickupAvailability.js';
 import { findNextAvailablePickupDay, nextDayOffer } from '../../shared/nextPickupDay.js';
+import { getPickupShiftEligibility, pickupShiftError } from '../../shared/pickupShiftPolicy.js';
 import { detectUncheckedAvailabilityClaim, UNCHECKED_CLAIM_INSTRUCTION } from '../../shared/availabilityClaim.js';
 import { buildConversationContinuityFacts, isExplicitNewQuoteIntent } from '../../shared/conversationContinuity.js';
 import { buildDeliveryPriceResponse, detectDeliveryIntent, enforceDeliveryFeeNotice, enforceVariableQuoteSafety, isDeliveryPriceQuestion, resolveKnownDeliveryTotal } from '../../shared/quoteSafety.js';
@@ -1184,6 +1185,7 @@ Deno.serve(async (req) => {
             // Datas, feriados e prazo de entrega (determinístico, ver shared/dateFacts.js)
             const dateFacts = buildDateFacts();
             chatMessages.push({ role: 'system', content: dateFacts.content });
+            chatMessages.push({ role: 'system', content: 'REGRA OBRIGATÓRIA DE COLETA: nunca ofereça nem agende no turno atual ou passado, mesmo com vagas. Pelo horário de Brasília, antes das 12h somente a tarde de hoje ou datas futuras; a partir das 12h somente datas futuras. Consulte sempre as vagas. Uma escolha antiga de turno não autoriza ignorar essa regra.' });
 
             // Última ação já concluída neste atendimento: impede a IA de repeti-la.
             const lastAction = lastActionFact(currentState);
@@ -1206,7 +1208,7 @@ Deno.serve(async (req) => {
             if (statedShift) {
                 chatMessages.push({
                     role: 'system',
-                    content: `🚨 TURNO JÁ ESCOLHIDO PELO CLIENTE: ${statedShift === 'morning' ? 'MANHÃ' : 'TARDE'}. É TERMINANTEMENTE PROIBIDO perguntar de novo "qual turno você prefere?" ou oferecer os dois turnos. Confirme a disponibilidade desse turno e siga direto para o agendamento (endereço/confirmação). Só ofereça outro turno se a ferramenta indicar que ESTE está lotado.`
+                    content: `🚨 TURNO JÁ ESCOLHIDO PELO CLIENTE: ${statedShift === 'morning' ? 'MANHÃ' : 'TARDE'}. É TERMINANTEMENTE PROIBIDO perguntar de novo "qual turno você prefere?" ou oferecer os dois turnos. Confirme a disponibilidade desse turno e siga direto para o agendamento (endereço/confirmação). Só ofereça outro turno se a ferramenta indicar que ESTE está lotado ou bloqueado por ser o turno atual/passado.`
                 });
             }
 
@@ -1899,12 +1901,9 @@ Deno.serve(async (req) => {
                             const morningAvailable = Math.max(0, MORNING_CAPACITY - morningCount);
                             const afternoonAvailable = Math.max(0, AFTERNOON_CAPACITY - afternoonCount);
 
-                            // Determine if morning is in the past (it's today and after noon)
-                            const nowBRT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-                            const today = `${nowBRT.getFullYear()}-${String(nowBRT.getMonth() + 1).padStart(2, '0')}-${String(nowBRT.getDate()).padStart(2, '0')}`;
-                            const isToday = args.date === today;
-                            const morningPast = isToday && nowBRT.getHours() >= 12;
-                            const afternoonPast = isToday && nowBRT.getHours() >= 16;
+                            const eligible = getPickupShiftEligibility(args.date);
+                            const morningPast = !eligible.morning;
+                            const afternoonPast = !eligible.afternoon;
 
                             let nextAvailable = null;
                             if (morningAvailable > 0 && !morningPast) nextAvailable = 'morning';
@@ -1969,6 +1968,11 @@ Deno.serve(async (req) => {
                                     tool_call_id: toolCall.id,
                                     content: JSON.stringify({ error: !schedule.isOpen ? schedule.error : 'Aos sábados, as coletas acontecem somente pela manhã, das 9h às 12h. Ofereça o turno da manhã ou outra data.' })
                                 });
+                                continue;
+                            }
+                            const shiftError = pickupShiftError(args.date, args.period);
+                            if (shiftError) {
+                                chatMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ error: shiftError }) });
                                 continue;
                             }
                             const targetSlots = args.period === 'morning' ? schedule.morningSlots : schedule.afternoonSlots;
@@ -2214,11 +2218,9 @@ Deno.serve(async (req) => {
                         }
                         const morningAvailable = Math.max(0, MORNING_CAPACITY - morningCount);
                         const afternoonAvailable = Math.max(0, AFTERNOON_CAPACITY - afternoonCount);
-                        const nowBRT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-                        const todayStr = `${nowBRT.getFullYear()}-${String(nowBRT.getMonth() + 1).padStart(2, '0')}-${String(nowBRT.getDate()).padStart(2, '0')}`;
-                        const isToday = args.date === todayStr;
-                        const morningPast = isToday && nowBRT.getHours() >= 12;
-                        const afternoonPast = isToday && nowBRT.getHours() >= 16;
+                        const eligible = getPickupShiftEligibility(args.date);
+                        const morningPast = !eligible.morning;
+                        const afternoonPast = !eligible.afternoon;
                         let nextAvailable = null;
                         if (morningAvailable > 0 && !morningPast) nextAvailable = 'morning';
                         else if (afternoonAvailable > 0 && !afternoonPast) nextAvailable = 'afternoon';
@@ -2237,6 +2239,7 @@ Deno.serve(async (req) => {
                                     : "Confirmado: ambos os turnos estão lotados nessa data. Recuse educadamente e ofereça a próxima data com vaga."
                             })
                         });
+                        lastAvailabilityResult = { date: args.date, morning_available_slots: morningPast ? 0 : morningAvailable, afternoon_available_slots: afternoonPast ? 0 : afternoonAvailable, next_available_shift: nextAvailable };
                         availabilityChecked = true;
                         aiResponseText = (await openai.chat.completions.create({ model: AI_MODEL, temperature: AI_TEMP, messages: chatMessages })).choices[0].message.content || aiResponseText;
                     } catch (e) {

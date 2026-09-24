@@ -2,6 +2,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
 import { getPickupDateRange, getPickupLocalHour, getPickupScheduleForDate, getPickupSlotIso } from '../../shared/pickupSchedule.js';
 import { requireInternalRequest, securityErrorResponse } from '../../shared/functionSecurity.js';
 import { idempotentWrite } from '../../shared/chatTurnGuard.js';
+import { pickupShiftError } from '../../shared/pickupShiftPolicy.js';
 
 // Cria de fato uma coleta (Pickup) no calendário. Reutilizada pela proteção anti-alucinação
 // do orchestrator para garantir que toda confirmação de coleta gere um registro real.
@@ -15,6 +16,9 @@ Deno.serve(async (req) => {
         if (!date || !period || !customer_id) {
             return Response.json({ error: 'Faltam dados (date, period, customer_id).' }, { status: 400 });
         }
+
+        const shiftError = pickupShiftError(date, period);
+        if (shiftError) return Response.json({ success: false, code: 'PICKUP_SHIFT_UNAVAILABLE', error: shiftError });
 
         // GUARDA ANTI-ALUCINAÇÃO DE ENDEREÇO: só agenda se o endereço tiver sido realmente
         // informado pelo cliente (nas mensagens recebidas) ou já estiver cadastrado.

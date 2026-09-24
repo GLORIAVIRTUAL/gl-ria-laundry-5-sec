@@ -1,6 +1,7 @@
 // Encontra o PRÓXIMO DIA com vaga real de coleta (qualquer turno), olhando a agenda
 // dia a dia — nunca "o mesmo dia da semana que vem".
 import { getPickupDateRange, getPickupLocalHour, getPickupScheduleForDate } from './pickupSchedule.js';
+import { getPickupShiftEligibility } from './pickupShiftPolicy.js';
 
 const WEEKDAYS = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
 
@@ -10,16 +11,15 @@ const addDays = (key, n) => {
   return dt.toISOString().slice(0, 10);
 };
 
-const todayKey = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+const todayKey = (now) => now.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 
 export const pickupDayLabel = (key) => {
   const [y, m, d] = key.split('-').map(Number);
   return `${WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}, ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
 };
 
-export async function findNextAvailablePickupDay(base44, fromDate, { includeFromDate = false, maxDays = 21 } = {}) {
-  const today = todayKey();
-  const nowHour = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false }));
+export async function findNextAvailablePickupDay(base44, fromDate, { includeFromDate = false, maxDays = 21, now = new Date() } = {}) {
+  const today = todayKey(now);
   let date = includeFromDate ? fromDate : addDays(fromDate, 1);
   if (date < today) date = today;
 
@@ -32,9 +32,9 @@ export async function findNextAvailablePickupDay(base44, fromDate, { includeFrom
       status: { $ne: 'cancelled' }
     });
     const morningCount = pickups.filter((p) => getPickupLocalHour(p.scheduled_at) < 13).length;
-    const isToday = date === today;
-    const morning = isToday && nowHour >= 12 ? 0 : Math.max(0, (schedule.morningCapacity || 0) - morningCount);
-    const afternoon = isToday && nowHour >= 16 ? 0 : Math.max(0, (schedule.afternoonCapacity || 0) - (pickups.length - morningCount));
+    const eligible = getPickupShiftEligibility(date, now);
+    const morning = eligible.morning ? Math.max(0, (schedule.morningCapacity || 0) - morningCount) : 0;
+    const afternoon = eligible.afternoon ? Math.max(0, (schedule.afternoonCapacity || 0) - (pickups.length - morningCount)) : 0;
     if (morning > 0 || afternoon > 0) {
       return { date, label: pickupDayLabel(date), morning, afternoon, morningLabel: schedule.morningLabel };
     }
