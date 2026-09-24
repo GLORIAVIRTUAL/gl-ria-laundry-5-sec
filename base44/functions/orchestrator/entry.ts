@@ -116,7 +116,7 @@ const findRelatedCatalogProducts = (products, text = '') => {
     };
 };
 
-Deno.serve(async (req) => {
+export default async function(req) {
     const requestId = crypto.randomUUID();
     let base44 = null;
     let conversation = null;
@@ -2446,4 +2446,4 @@ Deno.serve(async (req) => {
             traceLog('conversation_unlocked', { trace_id: traceId, conversation_id: conversation.id });
         }
     }
-});
+}

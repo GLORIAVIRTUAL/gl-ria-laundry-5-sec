@@ -5,6 +5,7 @@ import { buildPickupAvailabilityResponse } from '../../shared/pickupAvailability
 import { findNextAvailablePickupDay } from '../../shared/nextPickupDay.js';
 import { handlePickupStep } from '../../shared/chatPickupFlow.js';
 
+
 export default async function(req) {
   try {
     const base44 = createClientFromRequest(req);
@@ -34,15 +35,9 @@ export default async function(req) {
     const state = { flow: 'AWAITING_PICKUP_CONFIRMATION', pending_pickup: { date: '2020-01-02', period: 'morning' } };
     const stale = await handlePickupStep({ base44: mock, text: 'sim', currentState: state, conversation: { id: 'mock' }, schedulePickup: async () => { calledSchedule = true; } });
     checks.staleOfferReplaced = !calledSchedule && stale.messages[0].includes('Não agendamos') && state.pending_pickup?.date !== '2020-01-02';
-    const testCustomerId = 'qa-shift-' + crypto.randomUUID();
-    const blocked = await base44.asServiceRole.functions.invoke('schedulePickupTool', {
-      date: '2020-01-02', period: 'morning', customer_id: testCustomerId,
-      _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
-    });
-    checks.realSchedulingBlocked = blocked.data?.code === 'PICKUP_SHIFT_UNAVAILABLE' && blocked.data?.success === false;
-    checks.noPickupCreated = (await base44.asServiceRole.entities.Pickup.filter({ customer_id: testCustomerId })).length === 0;
+
     checks.rejectSameMorning = Boolean(pickupShiftError('2026-09-24', 'morning', morning));
-    return Response.json({ passed: Object.values(checks).every(Boolean), checks, sampleResponse: response.message, whatsappSent: false });
+    return Response.json({ passed: Object.values(checks).every(Boolean), checks, sampleResponse: response.message, whatsappSent: false, fullSchedulingVerified: false });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
   }

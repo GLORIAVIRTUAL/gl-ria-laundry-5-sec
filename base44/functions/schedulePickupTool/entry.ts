@@ -6,7 +6,7 @@ import { pickupShiftError } from '../../shared/pickupShiftPolicy.js';
 
 // Cria de fato uma coleta (Pickup) no calendário. Reutilizada pela proteção anti-alucinação
 // do orchestrator para garantir que toda confirmação de coleta gere um registro real.
-Deno.serve(async (req) => {
+export default async function(req) {
     try {
         if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed' }, { status: 405 });
         const base44 = createClientFromRequest(req);
@@ -143,4 +143,4 @@ Deno.serve(async (req) => {
         console.error('schedulePickupTool error:', error?.message || error);
         return Response.json({ error: error.message }, { status: 500 });
     }
-});
+}
