@@ -1854,6 +1854,11 @@ Deno.serve(async (req) => {
                             availabilityChecked = true;
                             const args = JSON.parse(toolCall.function.arguments);
                             const schedule = getPickupScheduleForDate(args.date);
+                            // Guarda a data consultada para as próximas respostas (turno / "sim") seguirem sem a IA.
+                            if (schedule.isOpen && !currentState.payment_charge && !currentState.payment_confirmed) {
+                                Object.assign(currentState, { pending_pickup: { date: args.date }, flow: 'AWAITING_PICKUP_PERIOD', step: 'AWAITING_PICKUP_PERIOD' });
+                                await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
+                            }
                             if (!schedule.isOpen) {
                                 const next = await findNextAvailablePickupDay(base44, args.date);
                                 lastAvailabilityResult = { date: args.date, morning_available_slots: 0, afternoon_available_slots: 0, next_available_shift: null };
