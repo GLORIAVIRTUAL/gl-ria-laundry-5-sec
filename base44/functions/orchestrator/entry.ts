@@ -25,7 +25,7 @@ import { buildMainPrompt } from '../../shared/gloriaPrompt.js';
 import { loadIroningSettings, IRONING_RULE } from '../../shared/ironingSettings.js';
 import { shouldIncludeInAiHistory } from '../../shared/messageOrigin.js';
 import { findNextEncaixeSlot, formatEncaixeDate } from '../../shared/encaixeScheduler.js';
-import { handlePickupStep } from '../../shared/chatPickupFlow.js';
+import { handlePickupStep, markPickupScheduled, pickupRecentlyScheduled } from '../../shared/chatPickupFlow.js';
 import { acquireConversationLock, releaseConversationLock, idempotentWrite, traceLog } from '../../shared/chatTurnGuard.js';
 import { migrateState, recordSuccessfulAction, lastActionFact, filterToolsForState, toolBlockReason, STATE_SCHEMA_VERSION } from '../../shared/chatStateMachine.js';
 // Handoffs automáticos de disparo/campanha nunca bloqueiam a IA (ver dispatchReplyPolicy).
@@ -1475,6 +1475,7 @@ Deno.serve(async (req) => {
             traceLog('llm_finished', { trace_id: traceId, model: AI_MODEL, latency_ms: Date.now() - llmStartedAt, tool_calls: (responseMessage.tool_calls || []).map((call) => call.function.name), has_text: Boolean(aiResponseText) });
 
             let pickupScheduledOk = false;
+            let scheduledPickupMessages = null;
             let availabilityChecked = false;
             // Guarda o resultado real da última checagem de disponibilidade para validar a resposta da IA.
             let lastAvailabilityResult = null;
@@ -2033,6 +2034,7 @@ Deno.serve(async (req) => {
                                 // Coleta agendada de fato — limpa qualquer coleta pendente salva para não duplicar depois.
                                 currentState.pending_pickup = null;
                                 currentState.payment_confirmed = false;
+                                scheduledPickupMessages = markPickupScheduled(currentState, { date: args.date, period: args.period, address: args.address });
                                 await recordSuccessfulAction(base44, conversation, currentState, 'pickup_scheduled', { date: args.date, period: args.period, trace_id: traceId });
                                 chatMessages.push({
                                     role: "tool",
@@ -2107,7 +2109,7 @@ Deno.serve(async (req) => {
                 (lowerResp.includes('coleta') || lowerResp.includes('agend')) &&
                 (lowerResp.includes('confirmei') || lowerResp.includes('confirmada') || lowerResp.includes('agendada') || lowerResp.includes('agendei') || lowerResp.includes('marcada') || lowerResp.includes('marquei'))
             );
-            if (claimsPickupConfirmed && !pickupScheduledOk) {
+            if (claimsPickupConfirmed && !pickupScheduledOk && !pickupRecentlyScheduled(currentState)) {
                 console.warn('Anti-alucinação: IA tentou confirmar coleta sem chamar schedule_pickup. Forçando execução real.');
                 await logGuardEvent(base44, {
                     guard: 'pickup_confirmation_without_schedule',
@@ -2138,6 +2140,8 @@ Deno.serve(async (req) => {
                         });
                         if (r.data?.success) {
                             pickupScheduledOk = true;
+                            const sArgs = JSON.parse(scheduleCall.function.arguments);
+                            scheduledPickupMessages = markPickupScheduled(currentState, { date: sArgs.date, period: sArgs.period, address: sArgs.address });
                             await recordSuccessfulAction(base44, conversation, currentState, 'pickup_scheduled', { trace_id: traceId }).catch(() => {});
                         }
                         chatMessages.push({ role: "tool", tool_call_id: scheduleCall.id, content: JSON.stringify(r.data || { error: 'Falha ao agendar' }) });
@@ -2325,6 +2329,9 @@ Deno.serve(async (req) => {
                 aiResponseText = deliveryFeeSafety.response;
             }
 
+            // Coleta agendada neste turno: a confirmação e a pergunta do pagamento são fixas,
+            // nunca dependem do texto da IA (que pode vir vazio, só um emoji ou pedir tudo de novo).
+            if (scheduledPickupMessages) aiResponseText = scheduledPickupMessages.join('\n\n');
             const shouldShowApprovalButtons = pendingQuotes.length > 0 && aiResponseText && aiResponseText.toLowerCase().includes('aprovar');
             const shouldShowDeliveryButtons = aiResponseText && aiResponseText.toLowerCase().includes('coleta/entrega por r$ 15');
             const shouldShowHandoffButton = aiResponseText && aiResponseText.toLowerCase().includes('palavra "atendente"');

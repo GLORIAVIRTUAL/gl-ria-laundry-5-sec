@@ -20,6 +20,14 @@ export const looksLikeAddress = (text) => {
   return t.length >= 8 && /\d/.test(t) && /[a-z]{3,}/.test(t) && !/^\d{1,2}\/\d{1,2}/.test(t);
 };
 
+const isAffirmative = (text) => /^(sim|s|ok|okay|pode|pode ser|confirmo|confirmado|isso|certo|claro|beleza|perfeito|fechado|pode sim|sim pode|sim por favor)[!. ]*$/.test(norm(text));
+
+const savedAddress = async (base44, customerId) => {
+  const c = customerId ? await base44.asServiceRole.entities.Customer.get(customerId).catch(() => null) : null;
+  if (!c?.address || !c?.address_number) return null;
+  return `${c.address}, ${c.address_number}${c.address_complement ? `, ${c.address_complement}` : ''}${c.neighborhood ? `, ${c.neighborhood}` : ''}`;
+};
+
 const periodLabel = (p) => (p === 'morning' ? 'manhã (das 8h às 12h)' : 'tarde (das 13h às 16h)');
 const dateLabel = (date) => { const [, m, d] = date.split('-'); return `${d}/${m}`; };
 
@@ -39,13 +47,22 @@ export async function handlePickupStep({ base44, text, currentState, conversatio
 
   if (!pp.period) return null; // resposta fora do esperado: a IA conduz
 
-  if (!looksLikeAddress(text)) {
+  let address = looksLikeAddress(text) ? String(text).trim() : null;
+  if (!address && isAffirmative(text)) address = pp.address || await savedAddress(base44, conversation.customer_id);
+  if (!address && period) {
+    // Cliente escolheu o turno: com endereço salvo, só pede confirmação.
+    const saved = await savedAddress(base44, conversation.customer_id);
+    if (saved) {
+      await save({ pending_pickup: { ...pp, address: saved }, flow: 'AWAITING_PICKUP_CONFIRMATION', step: 'AWAITING_PICKUP_CONFIRMATION' });
+      return { messages: [`Perfeito! Coleta dia ${dateLabel(pp.date)} no turno da ${periodLabel(pp.period)}, no endereço ${saved}. Posso confirmar? (Se for outro endereço, é só me enviar.)`] };
+    }
+  }
+  if (!address) {
     if (!period) return null; // pergunta/assunto livre no meio da etapa: a IA responde
     await save({ pending_pickup: pp, flow: 'AWAITING_PICKUP_ADDRESS', step: 'AWAITING_PICKUP_ADDRESS' });
     return { messages: [`Perfeito, coleta dia ${dateLabel(pp.date)} no turno da ${periodLabel(pp.period)}. Qual o endereço completo da coleta (rua, número, complemento e bairro)?`] };
   }
 
-  const address = String(text).trim();
   const result = await schedulePickup({ date: pp.date, period: pp.period, address });
   if (!result?.success) {
     await save({ pending_pickup: pp, flow: 'AWAITING_PICKUP_ADDRESS', step: 'AWAITING_PICKUP_ADDRESS' });
@@ -64,17 +81,33 @@ export async function handlePickupStep({ base44, text, currentState, conversatio
     return { messages: [friendly] };
   }
 
-  const hasQuote = Boolean(currentState.active_quote_id);
+  const messages = markPickupScheduled(currentState, { date: pp.date, period: pp.period, address });
+  await save({});
+  return { messages };
+}
+
+// Estado e mensagens após a coleta ser agendada de fato (qualquer caminho: etapa
+// determinística ou ferramenta da IA). Avança o fluxo para o pagamento quando há orçamento.
+export function markPickupScheduled(state, { date, period, address }) {
+  const hasQuote = Boolean(state.active_quote_id || state.active_order_id);
   const nextFlow = hasQuote ? 'AWAITING_PAYMENT_METHOD' : null;
-  await save({
+  Object.assign(state, {
     pending_pickup: null,
     flow: nextFlow,
     step: nextFlow,
     fulfillment_choice: 'pickup',
     delivery_requested: true,
-    last_successful_action: { action: 'pickup_scheduled', at: new Date().toISOString(), date: pp.date, period: pp.period }
+    last_successful_action: { action: 'pickup_scheduled', at: new Date().toISOString(), date, period }
   });
-  const messages = [`🚚 Coleta agendada! Dia ${dateLabel(pp.date)}, turno da ${periodLabel(pp.period)}, no endereço: ${address}.`];
-  if (hasQuote) messages.push('Agora sobre o pagamento: você prefere pagar antecipado por Pix ou cartão de crédito, ou pagar na entrega/loja em dinheiro ou cartão?');
-  return { messages };
+  const messages = [`🚚 Coleta agendada! Dia ${dateLabel(date)}, turno da ${periodLabel(period)}${address ? `, no endereço: ${address}` : ''}.`];
+  if (hasQuote) messages.push(PAYMENT_QUESTION);
+  return messages;
 }
+
+export const PAYMENT_QUESTION = 'Agora sobre o pagamento: você prefere pagar antecipado por Pix ou cartão de crédito, ou pagar na entrega/loja em dinheiro ou cartão?';
+
+// Coleta já agendada nas últimas horas: a IA não deve pedir tudo de novo.
+export const pickupRecentlyScheduled = (state = {}) => {
+  const last = state.last_successful_action;
+  return last?.action === 'pickup_scheduled' && Date.now() - new Date(last.at).getTime() < 12 * 3600 * 1000;
+};
