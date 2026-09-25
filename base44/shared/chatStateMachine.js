@@ -66,13 +66,23 @@ const PAYMENT_IN_PROGRESS_FLOWS = new Set([
   'PAYMENT_NEEDS_REVIEW'
 ]);
 
+// Etapas conduzidas pelo sistema depois da aprovação (ver chatFlowController).
+const POST_APPROVAL_FLOWS = new Set([
+  'AWAITING_PICKUP_DATE',
+  'PICKUP_ADDRESS_AUTO',
+  'AWAITING_PAYMENT_TIMING',
+  'AWAITING_PAYMENT_METHOD',
+  'PAYMENT_AT_STORE'
+]);
+
 // Regra de cada ferramenta restrita: devolve o motivo do bloqueio ou null (liberada).
 const RESTRICTED = {
   // Aprovar orçamento não faz sentido depois que a cobrança já está em andamento.
   approve_quote: (state) =>
     state.payment_confirmed ? 'o pagamento deste atendimento já foi confirmado'
       : PAYMENT_IN_PROGRESS_FLOWS.has(state.flow) ? 'a cobrança deste orçamento já está em andamento'
-        : null,
+        : POST_APPROVAL_FLOWS.has(state.flow) ? 'o orçamento deste atendimento já foi aprovado'
+          : null,
   // Cobrar exige algo concreto para cobrar (orçamento aprovado ou pedido criado).
   generate_payment_charge: (state) =>
     (state.active_quote_id || state.active_order_id) ? null

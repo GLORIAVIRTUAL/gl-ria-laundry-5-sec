@@ -1,5 +1,6 @@
 import { explicitFulfillment, normalizePhotoItems, brl } from './chatQuotePresentation.js';
 import { requireChatQuoteConsent } from './chatQuoteConsent.js';
+import { PAYMENT_QUESTION } from './chatPickupFlow.js';
 
 // A aprovação comercial não significa pagamento nem recebimento físico das roupas.
 export async function acceptChatQuote({ base44, quote, conversation, currentState, latestText, latestMessage, activePickups = [] }) {
@@ -8,10 +9,10 @@ export async function acceptChatQuote({ base44, quote, conversation, currentStat
   if (quote.status === 'ACCEPTED') {
     const acceptedChoice = explicitFulfillment(latestText, { awaitingChoice: currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' });
     if (acceptedChoice) {
-      const nextFlow = acceptedChoice === 'pickup' ? 'AWAITING_PICKUP_DATE' : 'AWAITING_PAYMENT_METHOD';
+      const nextFlow = acceptedChoice === 'pickup' ? 'AWAITING_PICKUP_DATE' : 'AWAITING_PAYMENT_TIMING';
       Object.assign(currentState, { fulfillment_choice: acceptedChoice, delivery_requested: acceptedChoice === 'pickup', flow: nextFlow, step: nextFlow });
       await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
-      return { success: true, message: acceptedChoice === 'pickup' ? 'Coleta escolhida. Qual data você prefere?' : 'Combinado, você levará as peças na loja. Você prefere pagar antecipado por Pix ou cartão de crédito, ou presencialmente na loja?' };
+      return { success: true, message: acceptedChoice === 'pickup' ? 'Coleta escolhida! Vou agendar no próximo turno disponível. 🚚' : `Combinado, você levará as peças na loja. ✅\n\n${PAYMENT_QUESTION}` };
     }
     if (!currentState.fulfillment_choice) {
       Object.assign(currentState, { flow: 'AWAITING_FULFILLMENT_CHOICE', step: 'AWAITING_FULFILLMENT_CHOICE' });
@@ -40,14 +41,14 @@ export async function acceptChatQuote({ base44, quote, conversation, currentStat
   const cards = await base44.asServiceRole.entities.CrmCard.filter({ pipeline_type: 'QUOTE', linked_quote_id: quote.id });
   for (const card of cards) await base44.asServiceRole.entities.CrmCard.update(card.id, { stage: 'Aprovado' });
   // Uma etapa por vez: primeiro coleta x loja, depois data/turno/endereço, e só então pagamento.
-  const nextFlow = choice === 'store' ? 'AWAITING_PAYMENT_METHOD' : choice === 'pickup' ? 'AWAITING_PICKUP_DATE' : 'AWAITING_FULFILLMENT_CHOICE';
+  const nextFlow = choice === 'store' ? 'AWAITING_PAYMENT_TIMING' : choice === 'pickup' ? 'AWAITING_PICKUP_DATE' : 'AWAITING_FULFILLMENT_CHOICE';
   Object.assign(currentState, { active_quote_id: quote.id, flow: nextFlow, step: nextFlow, fulfillment_choice: choice, delivery_requested: choice === 'pickup', temp_items: [] });
   await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
   const question = choice === 'store'
-    ? 'Você escolheu levar as peças na loja. Você prefere pagar antecipado por Pix ou cartão de crédito, ou presencialmente em dinheiro/cartão?'
+    ? `Você escolheu levar as peças na loja. ✅\n\n${PAYMENT_QUESTION}`
     : choice === 'pickup'
-      ? `Coleta e entrega: ${deliveryFee ? brl(deliveryFee) : 'cortesia'}. Qual data você prefere para a coleta?`
-      : 'Coleta e entrega são cortesia. Você prefere que a gente faça a coleta na sua casa ou vai levar as peças na loja?';
+      ? `Coleta e entrega: ${deliveryFee ? brl(deliveryFee) : 'cortesia'}. Vou agendar no próximo turno disponível. 🚚`
+      : 'Coleta e entrega são cortesia. Você prefere que a gente faça a *coleta* no seu endereço ou você vai *levar as peças na loja*?';
   return { success: true, quote_id: quote.id, final_total: total, delivery_fee: deliveryFee, fulfillment_choice: choice,
     message: `Orçamento aceito: ${brl(total)}.\n\n${question}`,
     instruction: choice === 'store'

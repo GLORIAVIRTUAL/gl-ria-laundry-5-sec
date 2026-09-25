@@ -195,6 +195,24 @@ export default function Layout({ children }) {
             });
         }
 
+        if (event.type === 'create' && event.data.type === 'HUMAN_HANDOFF') {
+            if (soundEnabledRef.current) {
+                alertAudioRef.current.play().catch(e => console.warn("Audio play blocked", e));
+            }
+            toast("Atendimento humano necessário 🙋", {
+                description: `${event.data.payload?.customer_name || 'Cliente'}: ${event.data.payload?.summary || 'a Glória transferiu a conversa.'}`,
+                action: {
+                    label: "Abrir Chat",
+                    onClick: () => navigate('/chat')
+                },
+                duration: 20000,
+                className: "bg-[#FF6600] border-orange-400 text-white shadow-lg shadow-orange-900/50",
+                descriptionClassName: "text-orange-50",
+                actionButtonStyle: { background: "white", color: "#FF6600" },
+                icon: <AlertCircle className="w-5 h-5 text-white" />
+            });
+        }
+
         if (event.type === 'create' && event.data.type === 'NEW_IMAGES') {
             // Play sound
             if (soundEnabledRef.current) {

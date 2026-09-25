@@ -9,7 +9,8 @@
         "COMPLAINT",
         "SLA_BREACH",
         "SYSTEM_ERROR",
-        "NEW_IMAGES"
+        "NEW_IMAGES",
+        "HUMAN_HANDOFF"
       ]
     },
     "target_team": {

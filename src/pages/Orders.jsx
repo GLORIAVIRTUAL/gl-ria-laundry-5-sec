@@ -41,7 +41,7 @@ const PIPELINES = {
   PAYMENT: {
     label: 'Pagamentos',
     icon: CreditCard,
-    columns: ['Link gerado', 'Aguardando Pix', 'Pago', 'Falhou/Expirou', 'Conciliado']
+    columns: ['Pagar na loja', 'Link gerado', 'Aguardando Pix', 'Pago', 'Falhou/Expirou', 'Conciliado']
   },
   PLAN: {
     label: 'Planos/Pacotes',

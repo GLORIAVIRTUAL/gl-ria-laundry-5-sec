@@ -23,6 +23,8 @@ export const looksLikeAddress = (text) => {
 
 const isAffirmative = (text) => /^(sim|s|ok|okay|pode|pode ser|confirmo|confirmado|isso|certo|claro|beleza|perfeito|fechado|pode sim|sim pode|sim por favor)[!. ]*$/.test(norm(text));
 
+export const savedCustomerAddress = async (base44, customerId) => savedAddress(base44, customerId);
+
 const savedAddress = async (base44, customerId) => {
   const c = customerId ? await base44.asServiceRole.entities.Customer.get(customerId).catch(() => null) : null;
   if (!c?.address || !c?.address_number) return null;
@@ -99,7 +101,7 @@ export async function handlePickupStep({ base44, text, currentState, conversatio
 // determinística ou ferramenta da IA). Avança o fluxo para o pagamento quando há orçamento.
 export function markPickupScheduled(state, { date, period, address }) {
   const hasQuote = Boolean(state.active_quote_id || state.active_order_id);
-  const nextFlow = hasQuote ? 'AWAITING_PAYMENT_METHOD' : null;
+  const nextFlow = hasQuote ? 'AWAITING_PAYMENT_TIMING' : null;
   Object.assign(state, {
     pending_pickup: null,
     flow: nextFlow,
@@ -113,7 +115,7 @@ export function markPickupScheduled(state, { date, period, address }) {
   return messages;
 }
 
-export const PAYMENT_QUESTION = 'Agora sobre o pagamento: você prefere pagar antecipado por Pix ou cartão de crédito, ou pagar na entrega/loja em dinheiro ou cartão?';
+export const PAYMENT_QUESTION = 'Agora sobre o pagamento: você prefere *pagar antecipado* (Pix ou cartão) ou *pagar na loja*/na entrega?';
 
 // Coleta já agendada nas últimas horas: a IA não deve pedir tudo de novo.
 export const pickupRecentlyScheduled = (state = {}) => {

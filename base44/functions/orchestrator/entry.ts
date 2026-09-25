@@ -30,6 +30,8 @@ import { shouldIncludeInAiHistory } from '../../shared/messageOrigin.js';
 import { findNextEncaixeSlot, formatEncaixeDate } from '../../shared/encaixeScheduler.js';
 import { handlePickupStep, markPickupScheduled, pickupRecentlyScheduled } from '../../shared/chatPickupFlow.js';
 import { acquireConversationLock, releaseConversationLock, idempotentWrite, traceLog } from '../../shared/chatTurnGuard.js';
+import { runChatFlow } from '../../shared/chatFlowController.js';
+import { transferToHuman } from '../../shared/chatHandoff.js';
 import { migrateState, recordSuccessfulAction, lastActionFact, filterToolsForState, toolBlockReason, STATE_SCHEMA_VERSION } from '../../shared/chatStateMachine.js';
 // Handoffs automáticos de disparo/campanha nunca bloqueiam a IA (ver dispatchReplyPolicy).
 
@@ -396,28 +398,44 @@ export default async function(req) {
             await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
         }
 
+        const sendAll = async (messages = []) => {
+            for (const text of messages.filter(Boolean)) await invokeSender({ phone: customer.phones[0], message: text, conversation_id: conversation.id });
+        };
+        const handoff = async (reason) => {
+            await sendAll([await transferToHuman({ base44, conversation, customer, currentState, reason })]);
+            return Response.json({ action: 'handoff', reason });
+        };
+        // Etapas conduzidas pelo SISTEMA (coleta ou loja → agendamento → pagamento).
+        const flowCtx = (text) => ({
+            base44, customer, conversation, currentState, text, model: undefined,
+            schedulePickup: async (p) => (await base44.asServiceRole.functions.invoke('schedulePickupTool', {
+                ...p, customer_id: customer.id, idempotency_key: turnKey('pickup_create'), trace_id: traceId,
+                _internal_token: Deno.env.get('INTERNAL_FUNCTION_TOKEN')
+            })).data
+        });
+        const runSystemFlow = async (text) => {
+            const step = await runChatFlow(flowCtx(text));
+            if (!step) return null;
+            if (step.handoff) return handoff(step.handoff);
+            await sendAll(step.messages);
+            traceLog('turn_finished', { trace_id: traceId, conversation_id: conversation.id, message_id: message.id, total_ms: Date.now() - turnStartedAt, action: 'system_flow', flow: currentState.flow });
+            return Response.json({ action: 'system_flow', flow: currentState.flow });
+        };
+        // Depois de aceitar o orçamento/escolher coleta, agenda na mesma resposta.
+        const continueAfter = async (action) => {
+            if (currentState.flow === 'AWAITING_PICKUP_DATE') return (await runSystemFlow('')) || Response.json({ action });
+            return Response.json({ action });
+        };
+
         // 2. Global Commands
         // Handoff check
         if (textLower.includes("atendente") || textLower.includes("humano")) {
-            await base44.asServiceRole.entities.Conversation.update(conversation.id, {
-                handoff_required: true,
-                metadata: { ...currentState, flow: 'HANDOFF' }
-            });
-            
-            await invokeSender({
-                phone: customer.phones[0],
-                message: "Entendido. Estou transferindo você para um de nossos atendentes humanos. Aguarde um momento.",
-                conversation_id: conversation.id
-            });
+            return handoff('Cliente pediu para falar com um atendente.');
+        }
 
-            await base44.asServiceRole.entities.StaffNotification.create({
-                type: 'NEW_QUOTE', 
-                target_team: 'support',
-                payload: { conversation_id, customer_name: customer.full_name },
-                sent_at: new Date().toISOString()
-            });
-
-            return Response.json({ action: "handoff" });
+        if (message.type === 'TEXT' || message.type === 'AUDIO') {
+            const systemReply = await runSystemFlow(message.text || '');
+            if (systemReply) return systemReply;
         }
 
         const fulfillmentChoice = explicitFulfillment(message.text || '', { awaitingChoice: currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' });
@@ -431,7 +449,7 @@ export default async function(req) {
             const separated = await separateChatProcesses({ base44, conversation, currentState, text: message.text || '' });
             if (separated?.handled) {
                 await invokeSender({ phone: customer.phones[0], message: separated.message, conversation_id: conversation.id });
-                return Response.json({ action: 'fulfillment_process_replied' });
+                return continueAfter('fulfillment_process_replied');
             }
         }
 
@@ -448,14 +466,7 @@ export default async function(req) {
             const quote = await base44.asServiceRole.entities.Quote.get(currentState.active_quote_id);
             const acceptance = await acceptChatQuote({ base44, quote, conversation, currentState, latestText: message.text || '', latestMessage: message });
             await invokeSender({ phone: customer.phones[0], message: acceptance.message, conversation_id: conversation.id });
-            return Response.json({ action: acceptance.success ? 'quote_accepted' : 'quote_needs_confirmation' });
-        }
-
-        // Orçamento já aceito aguardando "coleta ou loja": resposta curta não reconhecida
-        // nunca vai para a IA (que tentava aprovar/criar outro orçamento). Pergunta de novo.
-        if (currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' && currentState.active_quote_id && message.type === 'TEXT' && !/\?/.test(message.text || '') && (message.text || '').trim().split(/\s+/).length <= 6) {
-            await invokeSender({ phone: customer.phones[0], message: 'Seu orçamento já está aprovado ✅. Só me confirme: você quer que a gente *faça a coleta* no seu endereço ou você vai *levar as peças na loja*?', conversation_id: conversation.id });
-            return Response.json({ action: 'fulfillment_choice_reasked' });
+            return continueAfter(acceptance.success ? 'quote_accepted' : 'quote_needs_confirmation');
         }
 
         // 3. State Machine
@@ -1194,6 +1205,7 @@ export default async function(req) {
             // Datas, feriados e prazo de entrega (determinístico, ver shared/dateFacts.js)
             const dateFacts = buildDateFacts();
             chatMessages.push({ role: 'system', content: dateFacts.content });
+            chatMessages.push({ role: 'system', content: 'REGRA DE SEGURANÇA: se a resposta não estiver nos dados do sistema acima (pedidos, coletas, pagamentos, catálogo, loja), NUNCA invente e NUNCA diga que vai verificar depois — chame imediatamente a ferramenta transfer_to_human com o motivo. Aprovar orçamento, agendar coleta e cobrar são feitos pelo sistema nas etapas próprias.' });
             chatMessages.push({ role: 'system', content: 'REGRA OBRIGATÓRIA DE COLETA: nunca ofereça nem agende no turno atual ou passado, mesmo com vagas. Pelo horário de Brasília, antes das 12h somente a tarde de hoje ou datas futuras; a partir das 12h somente datas futuras. Consulte sempre as vagas. Uma escolha antiga de turno não autoriza ignorar essa regra.' });
 
             // Última ação já concluída neste atendimento: impede a IA de repeti-la.
@@ -1659,7 +1671,7 @@ export default async function(req) {
                                 if (acceptance.success) await recordSuccessfulAction(base44, conversation, currentState, 'quote_accepted', { quote_id: quoteToApprove.id, trace_id: traceId }).catch(() => {});
                                 // Resposta baseada no resultado persistido, sem inventar logística/pagamento.
                                 await invokeSender({ phone: customer.phones[0], message: acceptance.message, conversation_id: conversation.id });
-                                return Response.json({ action: acceptance.success ? 'quote_accepted' : 'quote_needs_confirmation' });
+                                return continueAfter(acceptance.success ? 'quote_accepted' : 'quote_needs_confirmation');
                             } else {
                                 chatMessages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify({ error: 'Nenhum orçamento pendente encontrado e nenhum item foi fornecido para criar um novo.' }) });
                             }
@@ -1810,34 +1822,8 @@ export default async function(req) {
                     }
 
                     if (toolCall.function.name === 'transfer_to_human') {
-                        try {
-                            const args = JSON.parse(toolCall.function.arguments);
-                            
-                            await base44.asServiceRole.entities.Conversation.update(conversation.id, {
-                                handoff_required: true,
-                                metadata: { ...currentState, flow: 'HANDOFF' }
-                            });
-
-                            await base44.asServiceRole.entities.StaffNotification.create({
-                                type: 'NEW_QUOTE',
-                                target_team: 'support',
-                                payload: { conversation_id, customer_name: customer.full_name, summary: `Transferência solicitada via IA: ${args.reason}` },
-                                sent_at: new Date().toISOString()
-                            });
-
-                            chatMessages.push({
-                                role: "tool",
-                                tool_call_id: toolCall.id,
-                                content: JSON.stringify({ success: true, message: "Atendimento transferido. Diga ao cliente para aguardar um momento." })
-                            });
-                        } catch (e) {
-                            console.error("Error transferring to human", e);
-                            chatMessages.push({
-                                role: "tool",
-                                tool_call_id: toolCall.id,
-                                content: JSON.stringify({ error: "Erro ao transferir." })
-                            });
-                        }
+                        const args = JSON.parse(toolCall.function.arguments || '{}');
+                        return handoff(`Glória transferiu: ${args.reason || 'sem motivo informado'}`);
                     }
 
                     if (toolCall.function.name === 'calculate_area_quote') {
@@ -2128,7 +2114,7 @@ export default async function(req) {
                     detail: 'A IA não gerou texto após o ciclo de ferramentas; aplicado fallback.',
                     excerpt: (message.text || '').slice(0, 300)
                 });
-                aiResponseText = 'Não consegui concluir esta etapa agora. Você não precisa repetir os dados enviados; se precisar de ajuda da equipe, escreva Atendente.';
+                return handoff('A Glória não conseguiu gerar uma resposta para a mensagem do cliente.');
             }
 
             // 🚨 PROTEÇÃO ANTI-ALUCINAÇÃO DE AGENDAMENTO:
@@ -2442,11 +2428,8 @@ export default async function(req) {
 
         if (invokeSender && base44 && customer?.phones?.[0] && conversation?.id) {
             try {
-                await invokeSender({
-                    phone: customer.phones[0],
-                    message: 'Não consegui concluir esta etapa agora. Você não precisa repetir os dados enviados; se precisar de ajuda da equipe, escreva Atendente.',
-                    conversation_id: conversation.id
-                });
+                const handoffText = await transferToHuman({ base44, conversation, customer, currentState: { ...(conversation.metadata || {}) }, reason: `Falha técnica no atendimento automático: ${error?.message || error}` });
+                await invokeSender({ phone: customer.phones[0], message: handoffText, conversation_id: conversation.id });
             } catch (fallbackError) {
                 console.error('Error sending fallback message:', fallbackError);
             }
