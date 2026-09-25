@@ -2,6 +2,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.20';
 import { authorizeUserOrInternal, securityErrorResponse } from '../../shared/functionSecurity.js';
 import { logGuardEvent } from '../../shared/guardTelemetry.js';
 import { traceLog } from '../../shared/chatTurnGuard.js';
+import { sendOpsAlert } from '../../shared/opsAlert.js';
 
 // ============================================================================
 // ALERTA DE CONVERSA PARADA (bloco P2 do guia de auditoria).
@@ -21,12 +22,14 @@ const OPEN_FLOWS = new Set([
   'AWAITING_FULFILLMENT_CHOICE', 'AWAITING_PAYMENT_METHOD', 'AWAITING_PAYMENT_CONFIRMATION',
   'GENERATING_PAYMENT', 'WAITING_RECEIPT',
   'AWAITING_PICKUP_PERIOD', 'AWAITING_PICKUP_CONFIRMATION',
+  'AWAITING_PICKUP_DATE', 'PICKUP_ADDRESS_AUTO', 'AWAITING_PAYMENT_TIMING',
   'MOINHOS_PROMOTION_INTEREST'
 ]);
 
 const UNANSWERED_AFTER_MS = 30 * 60 * 1000;      // cliente sem resposta há mais de 30 min
 const OPEN_FLOW_STALE_AFTER_MS = 6 * 60 * 60 * 1000; // processo aberto sem avanço há 6 h
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;      // ignora conversas com mais de 7 dias
+const CLOSE_AFTER_MS = 24 * 60 * 60 * 1000;      // finaliza a conversa após 24 h sem mensagens
 
 Deno.serve(async (req) => {
   try {
@@ -43,12 +46,21 @@ Deno.serve(async (req) => {
     const today = new Date().toISOString().slice(0, 10);
     const conversations = await base44.asServiceRole.entities.Conversation.list('-last_message_at', 200);
     const alerts = [];
+    const closed = [];
 
     for (const conv of conversations) {
       if (conv.status === 'CLOSED') continue;
       const lastAt = conv.last_message_at ? new Date(conv.last_message_at).getTime() : 0;
       if (!lastAt) continue;
       const idleMs = now - lastAt;
+      if (idleMs > MAX_AGE_MS && !conv.handoff_required) {
+        await base44.asServiceRole.entities.Conversation.update(conv.id, {
+          status: 'CLOSED',
+          metadata: { ...(conv.metadata || {}), flow: null, step: null, closed_at: new Date().toISOString(), closed_reason: 'inactive_24h' }
+        });
+        closed.push(conv.id);
+        continue;
+      }
       if (idleMs > MAX_AGE_MS) continue;
 
       const lastMessages = await base44.asServiceRole.entities.Message.filter({ conversation_id: conv.id }, '-created_date', 1);
@@ -56,6 +68,20 @@ Deno.serve(async (req) => {
       if (!last) continue;
 
       const flow = conv.metadata?.flow || null;
+
+      // Finalização automática: 24 h sem mensagens. Só não fecha se o cliente
+      // está esperando resposta de um atendente (isso continua alertando).
+      const waitingHuman = last.direction === 'IN' && conv.handoff_required;
+      if (idleMs > CLOSE_AFTER_MS && !waitingHuman) {
+        await base44.asServiceRole.entities.Conversation.update(conv.id, {
+          status: 'CLOSED',
+          handoff_required: false,
+          metadata: { ...(conv.metadata || {}), flow: null, step: null, closed_at: new Date().toISOString(), closed_reason: 'inactive_24h' }
+        });
+        closed.push(conv.id);
+        continue;
+      }
+
       let reason = null;
       if (last.direction === 'IN' && idleMs > UNANSWERED_AFTER_MS) {
         reason = conv.handoff_required
@@ -90,11 +116,14 @@ Deno.serve(async (req) => {
         detail: `Conversa parada: ${reason}. Fluxo: ${flow || 'nenhum'}. trace_id=${last.trace_id || 'n/a'}`,
         excerpt: (last.text || '').slice(0, 300)
       });
+      if (last.direction === 'IN') {
+        await sendOpsAlert(base44, { key: `stalled:${conv.id}`, text: `Conversa parada.\nCliente: ${customer?.full_name || 'desconhecido'}\nMotivo: ${reason}` });
+      }
       traceLog('stalled_conversation_alerted', { trace_id: last.trace_id || null, conversation_id: conv.id, flow, idle_ms: idleMs });
       alerts.push({ conversation_id: conv.id, flow, idle_minutes: Math.round(idleMs / 60000), reason });
     }
 
-    return Response.json({ status: 'success', alert_count: alerts.length, alerts });
+    return Response.json({ status: 'success', alert_count: alerts.length, alerts, closed_count: closed.length });
   } catch (error) {
     console.error('Error in detectStalledConversations:', error?.code || error?.message || error);
     return securityErrorResponse(error);

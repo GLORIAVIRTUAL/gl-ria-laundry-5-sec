@@ -32,6 +32,7 @@ import { handlePickupStep, markPickupScheduled, pickupRecentlyScheduled } from '
 import { acquireConversationLock, releaseConversationLock, idempotentWrite, traceLog } from '../../shared/chatTurnGuard.js';
 import { runChatFlow } from '../../shared/chatFlowController.js';
 import { transferToHuman } from '../../shared/chatHandoff.js';
+import { sendOpsAlert } from '../../shared/opsAlert.js';
 import { migrateState, recordSuccessfulAction, lastActionFact, filterToolsForState, toolBlockReason, STATE_SCHEMA_VERSION } from '../../shared/chatStateMachine.js';
 // Handoffs automáticos de disparo/campanha nunca bloqueiam a IA (ver dispatchReplyPolicy).
 
@@ -2420,6 +2421,7 @@ export default async function(req) {
         console.error("Error in orchestrator:", { trace_id: traceId, message: error?.message || String(error) });
         if (base44 && conversation?.id) {
             try { await logGuardEvent(base44, { guard: 'orchestrator_error', conversation_id: conversation.id, customer_name: customer?.full_name, detail: `Falha na execução da IA: ${error?.message || error}`, excerpt: String(error?.stack || '').slice(0, 400) }); } catch { /* nunca bloqueia o fallback */ }
+            await sendOpsAlert(base44, { key: `orchestrator:${conversation.id}`, text: `Falha no atendimento automático.\nCliente: ${customer?.full_name || 'desconhecido'}\nErro: ${error?.message || error}\nA conversa foi transferida para atendimento humano.` });
         }
         if (error.isAxiosError && error.response) {
             console.error("Axios response data:", error.response.data);
