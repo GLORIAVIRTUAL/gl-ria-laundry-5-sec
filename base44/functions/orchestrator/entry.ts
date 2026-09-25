@@ -420,7 +420,7 @@ export default async function(req) {
             return Response.json({ action: "handoff" });
         }
 
-        const fulfillmentChoice = explicitFulfillment(message.text || '');
+        const fulfillmentChoice = explicitFulfillment(message.text || '', { awaitingChoice: currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' });
         if (fulfillmentChoice) {
             Object.assign(currentState, { fulfillment_choice: fulfillmentChoice, delivery_requested: fulfillmentChoice === 'pickup' });
             await base44.asServiceRole.entities.Conversation.update(conversation.id, { metadata: { ...currentState } });
@@ -449,6 +449,13 @@ export default async function(req) {
             const acceptance = await acceptChatQuote({ base44, quote, conversation, currentState, latestText: message.text || '', latestMessage: message });
             await invokeSender({ phone: customer.phones[0], message: acceptance.message, conversation_id: conversation.id });
             return Response.json({ action: acceptance.success ? 'quote_accepted' : 'quote_needs_confirmation' });
+        }
+
+        // Orçamento já aceito aguardando "coleta ou loja": resposta curta não reconhecida
+        // nunca vai para a IA (que tentava aprovar/criar outro orçamento). Pergunta de novo.
+        if (currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' && currentState.active_quote_id && message.type === 'TEXT' && !/\?/.test(message.text || '') && (message.text || '').trim().split(/\s+/).length <= 6) {
+            await invokeSender({ phone: customer.phones[0], message: 'Seu orçamento já está aprovado ✅. Só me confirme: você quer que a gente *faça a coleta* no seu endereço ou você vai *levar as peças na loja*?', conversation_id: conversation.id });
+            return Response.json({ action: 'fulfillment_choice_reasked' });
         }
 
         // 3. State Machine
@@ -1596,6 +1603,11 @@ export default async function(req) {
                             }, '-created_date', 1);
                             
                             let quoteToApprove = pendingQs.length > 0 ? pendingQs[0] : null;
+                            // Orçamento ativo já aceito: nunca cria um novo a partir da IA.
+                            if (!quoteToApprove && currentState.active_quote_id) {
+                                const activeQuote = await base44.asServiceRole.entities.Quote.get(currentState.active_quote_id).catch(() => null);
+                                if (activeQuote?.status === 'ACCEPTED') quoteToApprove = activeQuote;
+                            }
                             let priceCorrectionNote = '';
 
                             if (!quoteToApprove && items.length > 0) {

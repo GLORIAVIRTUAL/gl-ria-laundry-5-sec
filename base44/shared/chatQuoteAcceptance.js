@@ -6,7 +6,7 @@ export async function acceptChatQuote({ base44, quote, conversation, currentStat
   if (quote.customer_id !== conversation.customer_id) throw new Error('quote_customer_mismatch');
   if (!['SENT', 'ACCEPTED'].includes(quote.status)) return { success: false, message: 'Este orçamento precisa ser revisado antes de seguir com o pagamento.' };
   if (quote.status === 'ACCEPTED') {
-    const acceptedChoice = explicitFulfillment(latestText);
+    const acceptedChoice = explicitFulfillment(latestText, { awaitingChoice: currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' });
     if (acceptedChoice) {
       const nextFlow = acceptedChoice === 'pickup' ? 'AWAITING_PICKUP_DATE' : 'AWAITING_PAYMENT_METHOD';
       Object.assign(currentState, { fulfillment_choice: acceptedChoice, delivery_requested: acceptedChoice === 'pickup', flow: nextFlow, step: nextFlow });

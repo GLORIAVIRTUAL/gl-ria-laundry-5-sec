@@ -8,7 +8,7 @@ export const isPickupProcessActive = (state = {}) => PICKUP_FLOWS.has(state.flow
 // Coleta e pagamento são processos independentes. Quando ambos aparecem na mesma
 // mensagem, registra-se a intenção de pagamento, mas conclui-se primeiro a coleta.
 export async function separateChatProcesses({ base44, conversation, currentState, text }) {
-  const fulfillment = explicitFulfillment(text);
+  const fulfillment = explicitFulfillment(text, { awaitingChoice: currentState.flow === 'AWAITING_FULFILLMENT_CHOICE' });
   if (!fulfillment) return null;
   if (currentState.active_quote_id) {
     const quote = await base44.asServiceRole.entities.Quote.get(currentState.active_quote_id);

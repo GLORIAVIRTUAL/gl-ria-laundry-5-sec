@@ -3,9 +3,15 @@ export const normalizeChatText = (value = '') => String(value).normalize('NFD').
 export const planLabel = (product) => `Plano de ${brl(product.price)}`;
 export const inspectionNotice = 'Estimativa sujeita à inspeção das peças pela equipe. Qualquer alteração de valor será informada para sua aprovação antes do serviço; um pagamento antecipado será considerado no acerto.';
 
-export function explicitFulfillment(text) {
+// awaitingChoice: a Glória acabou de perguntar "coleta ou loja?" — aceita respostas curtas
+// e naturais ("na minha casa", "coleta", "eu levo", "loja").
+export function explicitFulfillment(text, { awaitingChoice = false } = {}) {
   const value = normalizeChatText(text);
   if (/\?|\bnao\b/.test(value)) return null;
+  if (awaitingChoice) {
+    if (/\b(loja|eu levo|levo eu|vou levar|levar ai|deixar ai)\b/.test(value)) return 'store';
+    if (/\b(coleta|coletar|buscar|busca|busquem|retirar|minha casa|em casa|aqui em casa|meu endereco|no endereco|domicilio|delivery|tele)\b/.test(value)) return 'pickup';
+  }
   if (/^(quero coleta|acrescentar coleta|adicionar coleta|want_pickup|add_pickup)[.! ]*$/.test(value) || /\b(?:quero|prefiro|preciso)(?:\s+de)?\s+coleta\b/.test(value) || /(?:quero|preciso|prefiro|pode|podem)\s+(?:que\s+)?(?:voces\s+)?(?:buscar|busquem|coletar|retirar)/.test(value)) return 'pickup';
   if (/^(vou levar na loja|store_dropoff)[.! ]*$/.test(value) || /(?:vou|prefiro|quero)\s+(?:levar|deixar).{0,25}\bloja\b/.test(value)) return 'store';
   return null;
