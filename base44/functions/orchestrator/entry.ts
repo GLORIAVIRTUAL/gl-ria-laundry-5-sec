@@ -33,6 +33,7 @@ import { acquireConversationLock, releaseConversationLock, idempotentWrite, trac
 import { runChatFlow } from '../../shared/chatFlowController.js';
 import { transferToHuman } from '../../shared/chatHandoff.js';
 import { sendOpsAlert } from '../../shared/opsAlert.js';
+import { answerStatusInquiry } from '../../shared/chatStatusInquiry.js';
 import { migrateState, recordSuccessfulAction, lastActionFact, filterToolsForState, toolBlockReason, STATE_SCHEMA_VERSION } from '../../shared/chatStateMachine.js';
 // Handoffs automáticos de disparo/campanha nunca bloqueiam a IA (ver dispatchReplyPolicy).
 
@@ -460,6 +461,12 @@ export default async function(req) {
             if (paymentReply?.handled) {
                 await invokeSender({ phone: customer.phones[0], message: paymentReply.message, conversation_id: conversation.id });
                 return Response.json({ action: 'payment_flow_replied' });
+            }
+            // Consulta de pedido/coleta/pagamento: resposta com os dados reais do sistema.
+            const statusReply = isPickupProcessActive(currentState) ? null : await answerStatusInquiry({ base44, customer, text: message.text || '' });
+            if (statusReply) {
+                await invokeSender({ phone: customer.phones[0], message: statusReply, conversation_id: conversation.id });
+                return Response.json({ action: 'status_inquiry_answered' });
             }
         }
 
